@@ -88,15 +88,31 @@ def _queue_list(args) -> int:
 
 def _queue_resolve(args) -> int:
     db = Database(path=args.db)
-    row = db.query("SELECT run_id, q_id FROM teacher_queue WHERE id = ?", (args.queue_id,))[0]
+    rows = db.query("SELECT run_id, q_id FROM teacher_queue WHERE id = ? AND status = 'pending'", (args.queue_id,))
+    if not rows:
+        print(f"Queue item #{args.queue_id} not found or already resolved.")
+        return 1
+    row = rows[0]
+    agent_mark = _agent_mark_for(db, row["run_id"], row["q_id"])
     db.execute("UPDATE teacher_queue SET status = 'resolved' WHERE id = ?", (args.queue_id,))
     db.execute(
         "INSERT INTO teacher_corrections (run_id, q_id, agent_mark, teacher_mark, reason) "
-        "VALUES (?, ?, NULL, ?, ?)",
-        (row["run_id"], row["q_id"], args.teacher_mark, args.reason or ""),
+        "VALUES (?, ?, ?, ?, ?)",
+        (row["run_id"], row["q_id"], agent_mark, args.teacher_mark, args.reason or ""),
     )
     print(f"Resolved #{args.queue_id}.")
     return 0
+
+
+def _agent_mark_for(db, run_id: str, q_id: str):
+    rows = db.query("SELECT marks_json FROM marking_runs WHERE run_id = ?", (run_id,))
+    if not rows or not rows[0]["marks_json"]:
+        return None
+    marks = json.loads(rows[0]["marks_json"])
+    for m in marks.get("marks", []):
+        if m.get("q_id") == q_id:
+            return m.get("total")
+    return None
 
 
 def _notes_list(args) -> int:
@@ -110,6 +126,25 @@ def _notes_approve(args) -> int:
     db = Database(path=args.db)
     db.execute("UPDATE rubric_notes SET status = 'active' WHERE id = ?", (args.note_id,))
     print(f"Activated note #{args.note_id}.")
+    return 0
+
+
+def _exemplars_list(args) -> int:
+    db = Database(path=args.db)
+    rows = db.query("SELECT id, subject, topic, answer_text, awarded, max_score, status FROM exemplar_cases")
+    if not rows:
+        print("No exemplar cases yet.")
+        return 0
+    for r in rows:
+        print(f"[{r['id']}] ({r['status']}) {r['subject']}/{r['topic']}: "
+              f"{r['answer_text'][:60]} ({r['awarded']}/{r['max_score']})")
+    return 0
+
+
+def _exemplars_approve(args) -> int:
+    db = Database(path=args.db)
+    db.execute("UPDATE exemplar_cases SET status = 'active' WHERE id = ?", (args.exemplar_id,))
+    print(f"Activated exemplar #{args.exemplar_id}.")
     return 0
 
 
@@ -163,6 +198,16 @@ def build_parser() -> argparse.ArgumentParser:
     n_approve.add_argument("note_id", type=int)
     n_approve.add_argument("--db", default="sms.db")
     n_approve.set_defaults(func=_notes_approve)
+
+    p_exemplars = sub.add_parser("exemplars", help="Exemplar cases")
+    e_sub = p_exemplars.add_subparsers(dest="exemplars_command", required=True)
+    e_list = e_sub.add_parser("list")
+    e_list.add_argument("--db", default="sms.db")
+    e_list.set_defaults(func=_exemplars_list)
+    e_approve = e_sub.add_parser("approve")
+    e_approve.add_argument("exemplar_id", type=int)
+    e_approve.add_argument("--db", default="sms.db")
+    e_approve.set_defaults(func=_exemplars_approve)
 
     return parser
 

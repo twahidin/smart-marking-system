@@ -46,16 +46,18 @@ Minimal `rubric.json`:
 | `sms evaluate --db` | Agent-teacher agreement % |
 | `sms stats --db` | Per-agent latency/token metrics |
 | `sms queue list --db` | List teacher escalations |
-| `sms queue resolve QUEUE_ID --teacher-mark INT --reason --db` | Resolve an escalation; records the correction that feeds the learning loop |
+| `sms queue resolve QUEUE_ID --teacher-mark INT --reason --db` | Resolve an escalation; records the correction (agent mark recovered automatically) that feeds the learning loop |
 | `sms notes list --db` | List rubric notes (draft/active) |
 | `sms notes approve NOTE_ID --db` | Approve a draft note (draft -> active) |
+| `sms exemplars list --db` | List exemplar cases (draft/active) |
+| `sms exemplars approve EXEMPLAR_ID --db` | Approve a draft exemplar case (draft -> active) |
 
 ## The learning workflow
 
 1. Mark scripts: `sms mark ...`
 2. Review escalations in the queue and resolve them with your marks: `sms queue resolve ...`
 3. Run the nightly reflection job: `sms reflect ...`
-4. Approve the distilled notes: `sms notes approve ...`
+4. Approve the distilled notes and exemplar cases: `sms notes approve ...`, `sms exemplars approve ...`
 5. Next runs are smarter — approved notes and exemplar cases are injected into agent prompts automatically.
 
 Track progress with `sms evaluate` (agreement %) and `sms stats` (latency/tokens).

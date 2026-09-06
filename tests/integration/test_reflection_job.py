@@ -65,3 +65,21 @@ def test_reflection_noop_without_corrections(tmp_path):
     result = run_reflection(db=db, agent=agent, subject="math", lookback_days=7)
     assert result == 0
     assert not hasattr(agent, "last_input")
+
+
+def test_reflection_sees_cli_resolved_corrections(tmp_path):
+    db = Database(path=str(tmp_path / "s.db"))
+    db.execute(
+        "INSERT INTO marking_runs (run_id, stage, subject, rubric_json, extracted_json, final_status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("r1", "complete", "math", "{}", '{"questions": [{"q_id": "q1", "transcribed_answer": "x=3"}]}', "escalated"),
+    )
+    db.execute(
+        "INSERT INTO teacher_corrections (run_id, q_id, agent_mark, teacher_mark, reason) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("r1", "q1", 2, 3, "teacher override"),
+    )
+    agent = StubReflectionAgent(UPDATE)
+    result = run_reflection(db=db, agent=agent, subject="math", lookback_days=7)
+    assert result == 1
+    assert agent.last_input.corrections[0].agent_mark == 2

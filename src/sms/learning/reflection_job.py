@@ -14,7 +14,8 @@ def run_reflection(db: Database, agent: Any, subject: str, lookback_days: int = 
         "SELECT tc.run_id, tc.q_id, tc.agent_mark, tc.teacher_mark, tc.reason, mr.subject, "
         "mr.rubric_json, mr.extracted_json "
         "FROM teacher_corrections tc JOIN marking_runs mr ON tc.run_id = mr.run_id "
-        "WHERE mr.subject = ? AND tc.created_at >= datetime('now', ?) AND tc.agent_mark != tc.teacher_mark",
+        "WHERE mr.subject = ? AND tc.created_at >= datetime('now', ?) "
+        "AND tc.agent_mark IS NOT NULL AND tc.agent_mark != tc.teacher_mark",
         (subject, f"-{lookback_days} days"),
     )
     if not rows:

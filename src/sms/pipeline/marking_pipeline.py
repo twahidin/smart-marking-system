@@ -110,11 +110,12 @@ class MarkingPipeline:
             if v is None or v.verdict == ReviewVerdict.APPROVE:
                 final.append(m)
             elif v.verdict == ReviewVerdict.ADJUST and v.adjusted_criterion_scores is not None:
+                adjusted_total = v.adjusted_total if v.adjusted_total is not None else sum(v.adjusted_criterion_scores)
                 final.append(
                     MarkedQuestion(
                         q_id=m.q_id,
                         criterion_scores=v.adjusted_criterion_scores,
-                        total=v.adjusted_total or sum(v.adjusted_criterion_scores),
+                        total=adjusted_total,
                         confidence=m.confidence,
                         rationale=m.rationale,
                         evidence=m.evidence,

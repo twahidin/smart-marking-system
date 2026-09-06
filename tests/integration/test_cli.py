@@ -68,3 +68,43 @@ def test_cli_notes_roundtrip(tmp_path, capsys):
     assert main(["notes", "approve", "1", "--db", db_path]) == 0
     row = db.query("SELECT status FROM rubric_notes WHERE id = 1")[0]
     assert row["status"] == "active"
+
+
+def test_cli_queue_resolve_records_agent_mark(tmp_path, capsys):
+    db_path = str(tmp_path / "sms.db")
+    import json as jsonlib
+
+    from sms.memory.db import Database
+    db = Database(path=db_path)
+    db.execute(
+        "INSERT INTO marking_runs (run_id, stage, subject, rubric_json, marks_json, final_status) "
+        "VALUES ('r1', 'complete', 'math', '{}', ?, 'escalated')",
+        (jsonlib.dumps({"marks": [{"q_id": "q1", "criterion_scores": [2], "total": 2,
+                                   "confidence": 0.7, "rationale": "r", "evidence": "e"}]}),),
+    )
+    db.execute("INSERT INTO teacher_queue (run_id, q_id, reason) VALUES ('r1', 'q1', 'escalated')")
+
+    exit_code = main(["queue", "resolve", "1", "--teacher-mark", "3", "--db", db_path])
+    assert exit_code == 0
+    corr = db.query("SELECT agent_mark, teacher_mark FROM teacher_corrections")[0]
+    assert corr["agent_mark"] == 2
+    assert corr["teacher_mark"] == 3
+
+    assert main(["queue", "resolve", "1", "--teacher-mark", "3", "--db", db_path]) == 1
+
+
+def test_cli_exemplars_roundtrip(tmp_path, capsys):
+    db_path = str(tmp_path / "sms.db")
+    from sms.memory.db import Database
+    db = Database(path=db_path)
+    db.execute(
+        "INSERT INTO exemplar_cases (subject, topic, q_id, answer_text, awarded, max_score, why_it_matters, status) "
+        "VALUES ('math', 'algebra', 'q1', 'x = 3 (cm)', 5, 5, 'units stated', 'draft')"
+    )
+
+    assert main(["exemplars", "list", "--db", db_path]) == 0
+    assert "algebra" in capsys.readouterr().out
+
+    assert main(["exemplars", "approve", "1", "--db", db_path]) == 0
+    row = db.query("SELECT status FROM exemplar_cases WHERE id = 1")[0]
+    assert row["status"] == "active"
