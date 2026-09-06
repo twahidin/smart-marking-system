@@ -1,6 +1,6 @@
 # Smart Marking System
 
-AI agents that mark, review, and give feedback on student scripts from images, built on [atomic-agents](https://github.com/BrainBlend-AI/atomic-agents). Agents get smarter and faster with every teacher correction.
+AI agents that mark, review, and give feedback on student scripts from images, built on [atomic-agents](https://github.com/eigenwise/atomic-agents). Agents get smarter and faster with every teacher correction.
 
 ## How it works
 
