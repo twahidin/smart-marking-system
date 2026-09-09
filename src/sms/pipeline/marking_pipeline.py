@@ -41,7 +41,8 @@ def _image_from_bytes(b: bytes) -> instructor.Image:
 class MarkingPipeline:
     """Orchestrates extract -> mark -> review -> merge -> feedback -> persist."""
 
-    def __init__(self, db: Database, extractor: Any, marker: Any, reviewer: Any, feedback: Any, subject: str):
+    def __init__(self, db: Database, extractor: Any, marker: Any, reviewer: Any, feedback: Any, subject: str,
+                 confidence_threshold: float = 0.0):
         self.db = db
         self.extractor = extractor
         self.marker = marker
@@ -49,6 +50,7 @@ class MarkingPipeline:
         self.feedback = feedback
         self.subject = SubjectRouter().resolve(subject)
         self.cache = ExtractionCache(db)
+        self.confidence_threshold = confidence_threshold
 
     def run(self, images: List[bytes], assignment_context: str, rubric: Rubric) -> MarkingResult:
         run_id = uuid.uuid4().hex[:12]
@@ -60,7 +62,8 @@ class MarkingPipeline:
             MarkingInput(extracted=extracted, rubric=rubric, assignment_context=assignment_context)
         )
         reviewed = self.reviewer.run(self._review_input(extracted, marked, rubric, assignment_context))
-        final_marks, escalations = self._merge(marked, reviewed)
+        final_marks, escalation_reasons = self._merge(marked, reviewed, extracted)
+        escalations = list(escalation_reasons.keys())
         feedback_report = self.feedback.run(
             FeedbackInput(
                 reviewed=reviewed,
@@ -68,7 +71,7 @@ class MarkingPipeline:
                 final_result_set=not escalations,
             )
         )
-        self._persist(run_id, rubric, extracted, marked, reviewed, feedback_report, escalations)
+        self._persist(run_id, rubric, extracted, marked, reviewed, feedback_report, escalation_reasons)
         return MarkingResult(run_id=run_id, extracted=extracted, final_marks=final_marks,
                              escalations=escalations, feedback=feedback_report)
 
@@ -101,14 +104,21 @@ class MarkingPipeline:
         )
         return ReviewInput(extracted=extracted, marks=stripped, rubric=rubric, assignment_context=ctx)
 
-    def _merge(self, marked: MarkedScript, reviewed: ReviewedScript):
+    def _merge(self, marked: MarkedScript, reviewed: ReviewedScript, extracted: ExtractedScript):
         final: List[MarkedQuestion] = []
-        escalations: List[str] = []
+        escalation_reasons: dict = {}
         by_q = {v.q_id: v for v in reviewed.verdicts}
+        illegible = {q.q_id for q in extracted.questions if q.needs_human_transcription}
         for m in marked.marks:
             v = by_q.get(m.q_id)
-            if v is None or v.verdict == ReviewVerdict.APPROVE:
-                final.append(m)
+            reason = None
+            if m.q_id in illegible:
+                reason = "illegible transcription"
+            elif v is None or v.verdict == ReviewVerdict.APPROVE:
+                if self.confidence_threshold and m.confidence < self.confidence_threshold:
+                    reason = "low marker confidence"
+                else:
+                    final.append(m)
             elif v.verdict == ReviewVerdict.ADJUST and v.adjusted_criterion_scores is not None:
                 adjusted_total = v.adjusted_total if v.adjusted_total is not None else sum(v.adjusted_criterion_scores)
                 final.append(
@@ -122,12 +132,15 @@ class MarkingPipeline:
                     )
                 )
             else:
-                escalations.append(m.q_id)
+                reason = "reviewer escalated"
+            if reason:
+                escalation_reasons[m.q_id] = reason
                 final.append(m)
-        return MarkedScript(marks=final), escalations
+        return MarkedScript(marks=final), escalation_reasons
 
     def _persist(self, run_id: str, rubric: Rubric, extracted: ExtractedScript, marked: MarkedScript,
-                 reviewed: ReviewedScript, feedback: FeedbackReport, escalations: List[str]) -> None:
+                 reviewed: ReviewedScript, feedback: FeedbackReport, escalation_reasons: dict) -> None:
+        escalations = list(escalation_reasons.keys())
         self.db.execute(
             "INSERT INTO marking_runs (run_id, stage, subject, rubric_json, extracted_json, marks_json, "
             "reviewed_json, feedback_json, final_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -143,8 +156,8 @@ class MarkingPipeline:
                 "escalated" if escalations else "complete",
             ),
         )
-        for q_id in escalations:
+        for q_id, reason in escalation_reasons.items():
             self.db.execute(
                 "INSERT INTO teacher_queue (run_id, q_id, reason, status) VALUES (?, ?, ?, 'pending')",
-                (run_id, q_id, "reviewer escalated"),
+                (run_id, q_id, reason),
             )

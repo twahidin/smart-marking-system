@@ -130,3 +130,59 @@ def test_pipeline_uses_extraction_cache_on_second_run(tmp_path, rubric):
     pipeline.run(images=[b"img-bytes"], assignment_context="Math test", rubric=rubric)
     pipeline.run(images=[b"img-bytes"], assignment_context="Math test", rubric=rubric)
     assert len(extractor.calls) == 1
+
+
+def test_pipeline_escalates_low_confidence_below_threshold(tmp_path, rubric):
+    db = Database(path=str(tmp_path / "s.db"))
+    low_conf_marked = MarkedScript(marks=[
+        MarkedQuestion(q_id="q1", criterion_scores=[2, 1], total=3, confidence=0.3,
+                       rationale="unsure", evidence="3x=9"),
+    ])
+    pipeline = MarkingPipeline(
+        db=db,
+        extractor=StubAgent(EXTRACTED_STUB, None, None),
+        marker=StubAgent(low_conf_marked, None, None),
+        reviewer=StubAgent(REVIEWED_STUB, None, None),
+        feedback=StubAgent(FEEDBACK_STUB, None, None),
+        subject="math",
+        confidence_threshold=0.5,
+    )
+    result = pipeline.run(images=[b"img-bytes"], assignment_context="Math test", rubric=rubric)
+    assert result.escalations == ["q1"]
+    queued = db.query("SELECT * FROM teacher_queue WHERE status = 'pending'")
+    assert queued and queued[0]["reason"] == "low marker confidence"
+
+
+def test_pipeline_no_escalation_above_threshold(tmp_path, rubric):
+    db = Database(path=str(tmp_path / "s.db"))
+    pipeline = MarkingPipeline(
+        db=db,
+        extractor=StubAgent(EXTRACTED_STUB, None, None),
+        marker=StubAgent(MARKED_STUB, None, None),
+        reviewer=StubAgent(REVIEWED_STUB, None, None),
+        feedback=StubAgent(FEEDBACK_STUB, None, None),
+        subject="math",
+        confidence_threshold=0.5,
+    )
+    result = pipeline.run(images=[b"img-bytes"], assignment_context="Math test", rubric=rubric)
+    assert result.escalations == []
+
+
+def test_pipeline_escalates_illegible_transcription(tmp_path, rubric):
+    db = Database(path=str(tmp_path / "s.db"))
+    illegible_extract = ExtractedScript(questions=[
+        ExtractedQuestion(q_id="q1", transcribed_answer="??", workings="", confidence=0.1,
+                           needs_human_transcription=True),
+    ])
+    pipeline = MarkingPipeline(
+        db=db,
+        extractor=StubAgent(illegible_extract, None, None),
+        marker=StubAgent(MARKED_STUB, None, None),
+        reviewer=StubAgent(REVIEWED_STUB, None, None),
+        feedback=StubAgent(FEEDBACK_STUB, None, None),
+        subject="math",
+    )
+    result = pipeline.run(images=[b"img-bytes"], assignment_context="Math test", rubric=rubric)
+    assert result.escalations == ["q1"]
+    queued = db.query("SELECT * FROM teacher_queue WHERE status = 'pending'")
+    assert queued and queued[0]["reason"] == "illegible transcription"

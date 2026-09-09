@@ -13,9 +13,9 @@ images -> Extractor (vision OCR, per-question transcription)
        -> SQLite
 ```
 
-- **Escalation**: low-confidence or ambiguous questions land in a teacher queue.
+- **Escalation**: low-confidence or ambiguous questions land in a teacher queue. Use `--confidence-threshold` to escalate any question the Marker marks below a given confidence; illegible transcriptions are always escalated.
 - **Smarter (learning loop)**: teacher corrections on the queue feed a nightly Reflection job that distills rubric notes and exemplar cases as *drafts*; the teacher approves them, and approved notes/cases are injected into Marker/Reviewer system prompts via atomic-agents Context Providers on every subsequent run.
-- **Faster (speed loop)**: SHA-256 content-hash extraction cache (re-marks of the same image skip the vision call) and a hook-ready `agent_metrics` table for latency/token tracking.
+- **Faster (speed loop)**: SHA-256 content-hash extraction cache (re-marks of the same image skip the vision call) and per-agent latency/token metrics recorded automatically via instructor completion hooks (`sms stats`).
 - **Subjects**: math is fully supported (MVP); language and science ship with prompt data — add factories once validated.
 
 ## Quickstart
@@ -41,7 +41,7 @@ Minimal `rubric.json`:
 
 | Command | Purpose |
 |---|---|
-| `sms mark IMAGES... --subject --rubric --context --db --model` | Mark scripts from images |
+| `sms mark IMAGES... --subject --rubric --context --db --model --confidence-threshold` | Mark scripts from images |
 | `sms reflect --subject --lookback --db --model` | Nightly learning job |
 | `sms evaluate --db` | Agent-teacher agreement % |
 | `sms stats --db` | Per-agent latency/token metrics |
@@ -90,7 +90,6 @@ See [docs/plans/2026-09-04-smart-marking-system-design.md](docs/plans/2026-09-04
 Roadmap:
 
 - Language and science subject factories (prompts already ship)
-- Metrics hook wiring (`completion:response`) into `agent_metrics`
 - SymPy verification for math marking
 - FastAPI service
 - Ensemble marking

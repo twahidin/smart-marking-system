@@ -15,6 +15,7 @@ from sms.agents.reviewer import build_reviewer
 from sms.learning.reflection_job import run_reflection
 from sms.memory.db import Database
 from sms.memory.metrics import MetricsSummary
+from sms.memory.metrics_hook import wire_metrics
 from sms.pipeline.marking_pipeline import MarkingPipeline
 from sms.schemas.marking import Rubric
 
@@ -27,13 +28,20 @@ def _mark(args) -> int:
     db = Database(path=args.db)
     rubric = Rubric.model_validate_json(Path(args.rubric).read_text())
     images = [Path(p).read_bytes() for p in args.images]
+    client = _client()
+    extractor = build_extractor(client=client, model=args.model)
+    marker = build_marker(client=client, model=args.model, subject=args.subject, db=db)
+    reviewer = build_reviewer(client=client, model=args.model, subject=args.subject, db=db)
+    feedback = build_feedback(client=client, model=args.model)
+    wire_metrics(db=db, agents={"extractor": extractor, "marker": marker, "reviewer": reviewer, "feedback": feedback})
     pipeline = MarkingPipeline(
         db=db,
-        extractor=build_extractor(client=_client(), model=args.model),
-        marker=build_marker(client=_client(), model=args.model, subject=args.subject, db=db),
-        reviewer=build_reviewer(client=_client(), model=args.model, subject=args.subject, db=db),
-        feedback=build_feedback(client=_client(), model=args.model),
+        extractor=extractor,
+        marker=marker,
+        reviewer=reviewer,
+        feedback=feedback,
         subject=args.subject,
+        confidence_threshold=args.confidence_threshold,
     )
     result = pipeline.run(images=images, assignment_context=args.context, rubric=rubric)
     print(json.dumps({
@@ -47,7 +55,9 @@ def _mark(args) -> int:
 
 def _reflect(args) -> int:
     db = Database(path=args.db)
-    agent = build_reflection(client=_client(), model=args.model)
+    client = _client()
+    agent = build_reflection(client=client, model=args.model)
+    wire_metrics(db=db, agents={"reflection": agent})
     proposed = run_reflection(db=db, agent=agent, subject=args.subject, lookback_days=args.lookback)
     print(f"Proposed {proposed} rubric note(s) as draft. Review with: sms notes list --db {args.db}")
     return 0
@@ -160,6 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_mark.add_argument("--context", default="Student exam script")
     p_mark.add_argument("--db", default="sms.db")
     p_mark.add_argument("--model", default="gpt-5-mini")
+    p_mark.add_argument("--confidence-threshold", type=float, default=0.0,
+                        help="Escalate questions whose marker confidence is below this value (0-1, 0 disables)")
     p_mark.set_defaults(func=_mark)
 
     p_reflect = sub.add_parser("reflect", help="Run nightly reflection")

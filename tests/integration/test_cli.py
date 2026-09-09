@@ -108,3 +108,39 @@ def test_cli_exemplars_roundtrip(tmp_path, capsys):
     assert main(["exemplars", "approve", "1", "--db", db_path]) == 0
     row = db.query("SELECT status FROM exemplar_cases WHERE id = 1")[0]
     assert row["status"] == "active"
+
+
+def test_cli_mark_passes_confidence_threshold(tmp_path, monkeypatch):
+    class FakePipeline:
+        def __init__(self, *args, **kwargs):
+            FakePipeline.kwargs = kwargs
+
+        def run(self, images, assignment_context, rubric):
+            class R:
+                run_id = "abc"
+                escalations = []
+
+                class F:
+                    summary = "ok"
+                    def model_dump(self): return {"summary": "ok"}
+                feedback = F()
+
+                class M:
+                    marks = []
+                final_marks = M()
+            return R()
+
+    import sms.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "MarkingPipeline", FakePipeline)
+
+    rubric_file = tmp_path / "rubric.json"
+    rubric_file.write_text('{"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2}]}')
+    img = tmp_path / "script.png"
+    img.write_bytes(b"png")
+
+    exit_code = main([
+        "mark", str(img), "--subject", "math", "--rubric", str(rubric_file),
+        "--db", str(tmp_path / "sms.db"), "--confidence-threshold", "0.6",
+    ])
+    assert exit_code == 0
+    assert FakePipeline.kwargs.get("confidence_threshold") == 0.6
