@@ -94,6 +94,29 @@ describe("Learning", () => {
     expect(screen.getByText(/2 notes proposed/)).toBeInTheDocument();
   });
 
+  it("lists a running subject once, not as both running and queued", async () => {
+    const empty = () => new Response(JSON.stringify([]), { status: 200 });
+    mockFetch({
+      "/api/notes": empty, "/api/exemplars": empty, "/api/stats": () => new Response(JSON.stringify({}), { status: 200 }),
+      "/api/reflect/runs": () => new Response(JSON.stringify({
+        runs: [{ id: 2, subject: "math", lookback_days: 7, proposed_notes: 0, started_at: "2026-09-15T03:04:05Z", finished_at: null, error: null }],
+        pending: ["math", "science"],
+      }), { status: 200 }),
+    });
+    render(
+      <MemoryRouter>
+        <Learning />
+      </MemoryRouter>,
+    );
+    const list = (await screen.findByText("Recent runs")).nextElementSibling!;
+    const items = Array.from(list.querySelectorAll("li")).map((li) => li.textContent);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toContain("Science");
+    expect(items[0]).toContain("queued");
+    expect(items[1]).toContain("Maths");
+    expect(items[1]).toContain("running");
+  });
+
   it("shows the API error when Run reflection is rejected", async () => {
     const empty = () => new Response(JSON.stringify([]), { status: 200 });
     mockFetch({

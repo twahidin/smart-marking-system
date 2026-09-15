@@ -42,6 +42,8 @@ export function Learning() {
     catch (e) { setError(e instanceof ApiError ? e.message : "Could not load"); }
   };
   const pendingHere = runs.pending.includes(subject);
+  // A running job already has an open run row (finished_at null) in the list; only show the rest as queued.
+  const queuedOnly = runs.pending.filter((s) => !runs.runs.some((r) => r.subject === s && r.finished_at === null));
   return (
     <div className="page">
       <div className="page-header">
@@ -81,7 +83,7 @@ export function Learning() {
         <>
           <h4 style={{ marginTop: 32 }}>Recent runs</h4>
           <ul className="help" style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {runs.pending.map((s) => <li key={`p-${s}`} style={{ padding: "6px 0", borderBottom: "1px solid var(--color-divider)" }}><strong>{subjectLabel[s] ?? s}</strong> · queued</li>)}
+            {queuedOnly.map((s) => <li key={`p-${s}`} style={{ padding: "6px 0", borderBottom: "1px solid var(--color-divider)" }}><strong>{subjectLabel[s] ?? s}</strong> · queued</li>)}
             {runs.runs.map((r) => (
               <li key={r.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--color-divider)" }}>
                 <strong>{subjectLabel[r.subject] ?? r.subject}</strong> · {fmtDate(r.finished_at ?? r.started_at)} · {r.error ? <span style={{ color: "var(--color-accent-700)" }}>failed: {r.error}</span> : r.finished_at ? `${r.proposed_notes} note${r.proposed_notes === 1 ? "" : "s"} proposed` : "running"}

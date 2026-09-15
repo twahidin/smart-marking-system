@@ -28,7 +28,7 @@ export function Assignments() {
   };
 
   const body = (t: AssignmentTemplate, title: string) => ({ title, subject: t.subject, context: t.context, rubric: t.rubric, scheme_kind: t.scheme_kind, questions: t.questions, scheme: t.scheme });
-  const duplicate = (t: AssignmentTemplate) => run(() => api.post("/api/assignments", body(t, `${t.title} (copy)`)));
+  const duplicate = (t: AssignmentTemplate) => run(() => api.post(`/api/assignments/${t.id}/duplicate`));
   const rename = (t: AssignmentTemplate, title: string) => run(() => api.put(`/api/assignments/${t.id}`, body(t, title)));
   const remove = (t: AssignmentTemplate) => run(() => api.delete(`/api/assignments/${t.id}`));
 
@@ -44,7 +44,7 @@ export function Assignments() {
       const data = await api.get<unknown>("/api/assignments/export");
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
       const a = document.createElement("a"); a.href = url; a.download = "assignments.json"; a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (e) { setError(e instanceof ApiError ? e.message : "Could not export"); }
   };
 

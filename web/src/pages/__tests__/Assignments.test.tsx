@@ -74,3 +74,18 @@ describe("Assignments", () => {
     expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/assignments/1")).toBe(true);
   });
 });
+
+describe("Assignments — duplicate", () => {
+  it("asks the server to duplicate (so the paper is copied too) and reloads", async () => {
+    let list = templates;
+    const calls = mockFetch({
+      "GET /api/assignments": () => new Response(JSON.stringify(list), { status: 200 }),
+      "POST /api/assignments/1/duplicate": () => { list = [...templates, { ...templates[0], id: 3, title: "Worksheet 3 (copy)" }]; return new Response(JSON.stringify(list[2]), { status: 201 }); },
+    });
+    render(<MemoryRouter><Assignments /></MemoryRouter>);
+    await screen.findByText("Worksheet 3");
+    await userEvent.click(screen.getAllByRole("button", { name: "Duplicate" })[0]);
+    expect(await screen.findByText("Worksheet 3 (copy)")).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/assignments/1/duplicate")).toBe(true);
+  });
+});

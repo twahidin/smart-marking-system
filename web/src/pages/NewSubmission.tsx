@@ -9,6 +9,7 @@ import { DropZone } from "../components/DropZone";
 import { Notice } from "../components/Notice";
 import { PageCard } from "../components/PageCard";
 import { canThumbnail } from "../lib/files";
+import { subjectLabel } from "../lib/format";
 import { emptyRow, jsonToRows, rowsToRubricJson, validateRows, type Row } from "../lib/rubric";
 
 type Picked = { file: File; url: string };
@@ -87,7 +88,7 @@ export function NewSubmission() {
           <div className="field"><label htmlFor="assignment">Use a saved assignment</label>
             <select id="assignment" className="input" value={assignmentId ?? ""} onChange={(e) => useTemplate(e.target.value)}>
               <option value="">— none —</option>
-              {templates.map((t) => <option key={t.id} value={t.id}>{t.title} · {{ math: "Maths", language: "English", science: "Science" }[t.subject]}</option>)}
+              {templates.map((t) => <option key={t.id} value={t.id}>{t.title} · {subjectLabel[t.subject]}</option>)}
             </select>
             <span className="help">Fills the subject, context and rubric below. Manage them under <Link to="/assignments">Assignments</Link>.</span></div>
           <div className="field"><label htmlFor="label">Label</label><input id="label" className="input" placeholder="Tan Wei Ling · Worksheet 3" value={label} onChange={(e) => setLabel(e.target.value)} /></div>
@@ -95,7 +96,7 @@ export function NewSubmission() {
             <div className="field"><label>Subject</label>
               <div className="seg" role="radiogroup" aria-label="Subject">
                 {(["math", "language", "science"] as Subject[]).map((s) => (
-                  <label key={s} className={`seg-opt ${subject === s ? "on" : ""}`}><input type="radio" name="subject" checked={subject === s} onChange={() => setSubject(s)} />{{ math: "Maths", language: "English", science: "Science" }[s]}</label>
+                  <label key={s} className={`seg-opt ${subject === s ? "on" : ""}`}><input type="radio" name="subject" checked={subject === s} onChange={() => setSubject(s)} />{subjectLabel[s]}</label>
                 ))}
               </div></div>
             <div className="field"><label htmlFor="ctx">Context (optional)</label><input id="ctx" className="input" placeholder="Sec 4 · Quadratic equations · 5 questions" value={context} onChange={(e) => setContext(e.target.value)} /></div>
