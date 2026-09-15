@@ -61,11 +61,46 @@ Minimal `rubric.json`:
 ## Web app
 
 Smart Marking is also a web app: sign in with a shared teacher password, pick an LLM provider
-(TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot/Kimi, Qwen, Google Gemini) and enter its API key under
-**Settings**, upload a script's pages (PDF, JPG, PNG or HEIC) under **Mark a script**, and resolve the
-questions the AI was unsure about under **Review**. The default provider is TokenRouter with
-`z-ai/glm-5.3-flash`; **Load models from provider** on the Settings page lists every model your key
-can actually use (some TokenRouter keys include the free `z-ai/glm-5.3-free`, limited to 8 requests/min).
+(TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot/Kimi, Qwen, Google Gemini) and enter its API key
+under **Settings**, then set up an **Assignment** to mark against.
+
+**Assignments** are created by type: a **mark scheme** (per-question-part allocations like M1/A1/B1,
+for math/structured answers), a **rubric** (bands per criterion, for essays), or **criteria** (a flat
+list of criteria, no paper — "Quick mark", for a one-off worksheet with no assignment to save). For a
+mark-scheme or rubric assignment you upload the **question paper** and click **Read questions** to have
+the AI transcribe every question and part (`1(a)`, `1(b)`, …); then upload the **mark scheme / rubric**
+and click **Read mark scheme** to transcribe it row-by-row against those questions. Add free-text
+**notes** for anything the marker should know (accepted alternatives, ECF, penalties). Saved
+assignments are reused from **Mark a script**.
+
+**Mark a script** is assignment-first: pick a saved assignment (or fall back to Quick mark's own
+criteria list), upload the student's pages (PDF, JPG, PNG or HEIC), and the pipeline marks each
+question part against the assignment's mark scheme or rubric. Low-confidence, illegible, or
+out-of-scheme parts land in **Review**, where you resolve a mark-scheme part by ticking the allocations
+earned (an **allocation picker**) and a rubric criterion by picking its **band** (a **band picker**).
+
+Every marked script has a downloadable **marking record**: a `.docx` with a landing block (title,
+student, marked-on date, model) and a table with six columns — question & part, marking scheme answer,
+student's answer (extracted), justification, awarded mark, and a blank "Teacher's mark" column for
+notes on paper or a moderation pass. A part still needing a teacher's decision shows **"Teacher to
+review"** instead of a mark. From **Submissions**, select several scripts and download a **bulk `.zip`**
+of one `.docx` per student plus a `markbook.xlsx` summary (one row per student, one column per
+question/part, totals). The default provider is TokenRouter with `z-ai/glm-5.3-flash`; **Load models
+from provider** on the Settings page lists every model your key can actually use (some TokenRouter keys
+include the free `z-ai/glm-5.3-free`, limited to 8 requests/min).
+
+**Page deletion**: once a script reaches `done` (marked with nothing left to review, or the last
+escalated part resolved), its uploaded student pages are deleted — the marking record already has
+everything that was read, so the images serve no further purpose. This follows the **"Delete pages
+after marking"** setting, defaulting on; an individual assignment can override it (always keep / always
+delete / follow the default). Question-paper and mark-scheme pages are never deleted.
+
+### Settings
+
+- **Delete pages after marking** — global default for the page-deletion behaviour above; an assignment
+  can override it per-assignment.
+- **Auto reflect** — whether the nightly reflection job (rubric notes / exemplar cases distilled from
+  teacher corrections) runs automatically.
 
 ### Run locally
 
@@ -120,6 +155,18 @@ LOCKED`, aggregate and timestamp types), point `SMS_TEST_DATABASE_URL` at a scra
 SMS_TEST_DATABASE_URL=postgresql://sms:sms@localhost:5432/sms_test uv run pytest tests/postgres -q
 ```
 
+Two opt-in suites under `tests/live/` exercise real provider calls (skipped by default — nothing runs
+in CI or a plain `pytest -q`):
+
+```sh
+# TokenRouter text + vision probe
+SMS_LIVE_TESTS=1 TOKENROUTER_API_KEY=... uv run pytest tests/live/test_tokenrouter_live.py -q
+
+# Full mark-scheme pipeline: paper -> scheme -> marking -> record, against whichever key is set
+SMS_LIVE_TESTS=1 TOKENROUTER_API_KEY=... uv run pytest tests/live/test_mark_scheme_live.py -q
+# (or OPENROUTER_API_KEY / GOOGLE_API_KEY — the test picks the first one it finds)
+```
+
 Project layout:
 
 ```
@@ -137,14 +184,23 @@ See [docs/plans/2026-09-04-smart-marking-system-design.md](docs/plans/2026-09-04
 
 ## Status / roadmap
 
-**Status**: MVP — math marking via CLI, plus a FastAPI + React web app (sign-in, settings,
-mark-a-script upload, submission detail, and the teacher review queue).
+**Status**: MVP — math marking via CLI, plus a FastAPI + React web app (sign-in, settings, typed
+assignments with mark-scheme/rubric editors and paper/scheme extraction from uploaded pages,
+assignment-first marking, per-part review, downloadable marking records, and automatic page deletion).
+
+Done since the original MVP:
+
+- Typed assignments (mark scheme / rubric / criteria) with per-part marking, review, and downloadable
+  marking records (`.docx`; bulk `.zip` + `markbook.xlsx`)
+- Reading the question paper and mark scheme / rubric from uploaded pages (`Read questions` /
+  `Read mark scheme`) instead of typing them in
 
 Roadmap:
 
-- Classes and assignments (organize submissions by class/assignment instead of ad-hoc uploads)
+- Classes and students (organize assignments and submissions by class/student instead of ad-hoc uploads)
 - Student phone flow (students photograph and submit their own scripts)
 - Bulk-upload page sorter (split a multi-script batch scan into per-student submissions)
+- Per-class memory (rubric notes and exemplar cases scoped to a class, not just per subject)
 - Language and science subject factories (prompts already ship)
 - SymPy verification for math marking
 - Ensemble marking
