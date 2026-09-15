@@ -4,9 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-import instructor
-import openai
-
 from sms.agents.extractor import build_extractor
 from sms.agents.feedback import build_feedback
 from sms.agents.marker import build_marker
@@ -17,22 +14,40 @@ from sms.memory.db import Database
 from sms.memory.metrics import MetricsSummary
 from sms.memory.metrics_hook import wire_metrics
 from sms.pipeline.marking_pipeline import MarkingPipeline
+from sms.providers.client import build_client
+from sms.providers.registry import get_provider
 from sms.schemas.marking import Rubric
 
 
-def _client():
-    return instructor.from_openai(openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "missing")))
+def _open_db(db_arg: str) -> Database:
+    if "://" in db_arg:
+        return Database(url=db_arg)
+    return Database(path=db_arg)
+
+
+def _provider_id(args) -> str:
+    return getattr(args, "provider", None) or os.environ.get("LLM_PROVIDER") or "openai"
+
+
+def _client(args):
+    key = getattr(args, "api_key", None) or os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or "missing"
+    return build_client(_provider_id(args), key)
+
+
+def _api_params(args):
+    return get_provider(_provider_id(args)).api_params
 
 
 def _mark(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     rubric = Rubric.model_validate_json(Path(args.rubric).read_text())
     images = [Path(p).read_bytes() for p in args.images]
-    client = _client()
-    extractor = build_extractor(client=client, model=args.model)
-    marker = build_marker(client=client, model=args.model, subject=args.subject, db=db)
-    reviewer = build_reviewer(client=client, model=args.model, subject=args.subject, db=db)
-    feedback = build_feedback(client=client, model=args.model)
+    client = _client(args)
+    api_params = _api_params(args)
+    extractor = build_extractor(client=client, model=args.model, model_api_parameters=api_params)
+    marker = build_marker(client=client, model=args.model, subject=args.subject, db=db, model_api_parameters=api_params)
+    reviewer = build_reviewer(client=client, model=args.model, subject=args.subject, db=db, model_api_parameters=api_params)
+    feedback = build_feedback(client=client, model=args.model, model_api_parameters=api_params)
     wire_metrics(db=db, agents={"extractor": extractor, "marker": marker, "reviewer": reviewer, "feedback": feedback})
     pipeline = MarkingPipeline(
         db=db,
@@ -54,9 +69,9 @@ def _mark(args) -> int:
 
 
 def _reflect(args) -> int:
-    db = Database(path=args.db)
-    client = _client()
-    agent = build_reflection(client=client, model=args.model)
+    db = _open_db(args.db)
+    client = _client(args)
+    agent = build_reflection(client=client, model=args.model, model_api_parameters=_api_params(args))
     wire_metrics(db=db, agents={"reflection": agent})
     proposed = run_reflection(db=db, agent=agent, subject=args.subject, lookback_days=args.lookback)
     print(f"Proposed {proposed} rubric note(s) as draft. Review with: sms notes list --db {args.db}")
@@ -64,7 +79,7 @@ def _reflect(args) -> int:
 
 
 def _evaluate(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     rows = db.query("SELECT agent_mark, teacher_mark FROM teacher_corrections")
     if not rows:
         print("No corrections recorded yet.")
@@ -76,7 +91,7 @@ def _evaluate(args) -> int:
 
 
 def _stats(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     for role in ("extractor", "marker", "reviewer", "feedback", "reflection"):
         s = MetricsSummary(db).summarize(agent_role=role)
         if s["count"]:
@@ -86,7 +101,7 @@ def _stats(args) -> int:
 
 
 def _queue_list(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     rows = db.query("SELECT * FROM teacher_queue WHERE status = 'pending'")
     if not rows:
         print("Queue empty.")
@@ -97,7 +112,7 @@ def _queue_list(args) -> int:
 
 
 def _queue_resolve(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     rows = db.query("SELECT run_id, q_id FROM teacher_queue WHERE id = ? AND status = 'pending'", (args.queue_id,))
     if not rows:
         print(f"Queue item #{args.queue_id} not found or already resolved.")
@@ -126,21 +141,21 @@ def _agent_mark_for(db, run_id: str, q_id: str):
 
 
 def _notes_list(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     for r in db.query("SELECT id, subject, note, status FROM rubric_notes"):
         print(f"[{r['id']}] ({r['status']}) {r['subject']}: {r['note']}")
     return 0
 
 
 def _notes_approve(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     db.execute("UPDATE rubric_notes SET status = 'active' WHERE id = ?", (args.note_id,))
     print(f"Activated note #{args.note_id}.")
     return 0
 
 
 def _exemplars_list(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     rows = db.query("SELECT id, subject, topic, answer_text, awarded, max_score, status FROM exemplar_cases")
     if not rows:
         print("No exemplar cases yet.")
@@ -152,9 +167,32 @@ def _exemplars_list(args) -> int:
 
 
 def _exemplars_approve(args) -> int:
-    db = Database(path=args.db)
+    db = _open_db(args.db)
     db.execute("UPDATE exemplar_cases SET status = 'active' WHERE id = ?", (args.exemplar_id,))
     print(f"Activated exemplar #{args.exemplar_id}.")
+    return 0
+
+
+def _serve(args) -> int:
+    import uvicorn
+    from sms.web.app import app_from_env
+    os.environ.setdefault("SMS_EMBEDDED_WORKER", "1")
+    uvicorn.run(app_from_env(), host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+def _worker(args) -> int:
+    import threading
+    from sms.providers.crypto import KeyCipher
+    from sms.providers.settings import SettingsStore
+    from sms.storage import PageStorage
+    from sms.worker.worker import Worker
+    from sms.web.config import AppConfig
+    cfg = AppConfig.from_env()
+    db = Database(url=cfg.database_url)
+    store = SettingsStore(db, KeyCipher(cfg.secret_key))
+    store.ensure_seeded(cfg.env)
+    Worker(db, PageStorage(cfg.storage_dir), store).run_forever(threading.Event())
     return 0
 
 
@@ -172,6 +210,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_mark.add_argument("--model", default="gpt-5-mini")
     p_mark.add_argument("--confidence-threshold", type=float, default=0.0,
                         help="Escalate questions whose marker confidence is below this value (0-1, 0 disables)")
+    p_mark.add_argument("--provider", default=None, help="tokenrouter | openrouter | openai | anthropic | moonshot | qwen")
+    p_mark.add_argument("--api-key", default=None)
     p_mark.set_defaults(func=_mark)
 
     p_reflect = sub.add_parser("reflect", help="Run nightly reflection")
@@ -179,6 +219,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_reflect.add_argument("--lookback", type=int, default=7)
     p_reflect.add_argument("--db", default="sms.db")
     p_reflect.add_argument("--model", default="gpt-5-mini")
+    p_reflect.add_argument("--provider", default=None, help="tokenrouter | openrouter | openai | anthropic | moonshot | qwen")
+    p_reflect.add_argument("--api-key", default=None)
     p_reflect.set_defaults(func=_reflect)
 
     sub_eval = sub.add_parser("evaluate", help="Show agent-teacher agreement")
@@ -220,6 +262,14 @@ def build_parser() -> argparse.ArgumentParser:
     e_approve.add_argument("exemplar_id", type=int)
     e_approve.add_argument("--db", default="sms.db")
     e_approve.set_defaults(func=_exemplars_approve)
+
+    p_serve = sub.add_parser("serve", help="Run the web app (API + SPA + embedded worker)")
+    p_serve.add_argument("--host", default="0.0.0.0")
+    p_serve.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    p_serve.set_defaults(func=_serve)
+
+    p_worker = sub.add_parser("worker", help="Run a standalone marking worker")
+    p_worker.set_defaults(func=_worker)
 
     return parser
 

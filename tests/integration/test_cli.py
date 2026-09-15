@@ -144,3 +144,25 @@ def test_cli_mark_passes_confidence_threshold(tmp_path, monkeypatch):
     ])
     assert exit_code == 0
     assert FakePipeline.kwargs.get("confidence_threshold") == 0.6
+
+
+def test_parser_has_serve_and_worker():
+    from sms.cli import build_parser
+    p = build_parser()
+    args = p.parse_args(["serve", "--port", "9000"])
+    assert args.command == "serve" and args.port == 9000
+    assert p.parse_args(["worker"]).command == "worker"
+
+
+def test_mark_parser_accepts_provider(tmp_path):
+    from sms.cli import build_parser
+    args = build_parser().parse_args(["mark", "x.png", "--rubric", "r.json", "--provider", "anthropic", "--api-key", "k"])
+    assert args.provider == "anthropic" and args.api_key == "k"
+
+
+def test_db_arg_accepts_url(tmp_path):
+    from sms.cli import _open_db
+    db = _open_db(f"sqlite:///{tmp_path / 'u.db'}")
+    assert db.is_sqlite
+    db2 = _open_db(str(tmp_path / "p.db"))
+    assert db2.is_sqlite
