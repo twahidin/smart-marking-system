@@ -72,15 +72,16 @@ describe("validateTemplate", () => {
     expect(validateTemplate("mark_scheme", [q("1a")], [row("1a"), row("9")], criteria)).toBeNull();
   });
 
-  it("rubric: needs a criterion with a named band; questions are optional but checked when present", () => {
-    expect(validateTemplate("rubric", [], [], criteria)).toBe("Add at least one criterion.");
-    expect(validateTemplate("rubric", [], [crit("  ")], criteria)).toBe("Every criterion needs a name.");
-    expect(validateTemplate("rubric", [], [crit("Organisation", [])], criteria)).toBe("Add at least one band to Organisation.");
-    expect(validateTemplate("rubric", [], [crit("Organisation", [["", 3]])], criteria)).toBe("Every band for Organisation needs a name.");
-    expect(validateTemplate("rubric", [], [crit("Organisation", [["A", 2.5]])], criteria)).toBe("Band marks for Organisation must be a whole number of 0 or more.");
+  it("rubric: needs a question (the essay prompt) and a criterion with a named band", () => {
+    const one = [q("1", 30, "Write a narrative about a journey.")];
+    expect(validateTemplate("rubric", [], [crit("Organisation")], criteria)).toBe("Add at least one question.");
+    expect(validateTemplate("rubric", one, [], criteria)).toBe("Add at least one criterion.");
+    expect(validateTemplate("rubric", one, [crit("  ")], criteria)).toBe("Every criterion needs a name.");
+    expect(validateTemplate("rubric", one, [crit("Organisation", [])], criteria)).toBe("Add at least one band to Organisation.");
+    expect(validateTemplate("rubric", one, [crit("Organisation", [["", 3]])], criteria)).toBe("Every band for Organisation needs a name.");
+    expect(validateTemplate("rubric", one, [crit("Organisation", [["A", 2.5]])], criteria)).toBe("Band marks for Organisation must be a whole number of 0 or more.");
     expect(validateTemplate("rubric", [q("")], [crit("Organisation")], criteria)).toBe("Every question needs an id, like 1a.");
-    expect(validateTemplate("rubric", [q("1")], [crit("Organisation")], criteria)).toBeNull();
-    expect(validateTemplate("rubric", [], [crit("Organisation")], criteria)).toBeNull();
+    expect(validateTemplate("rubric", one, [crit("Organisation")], criteria)).toBeNull();
   });
 
   it("quick mark: uses the criteria table rules", () => {

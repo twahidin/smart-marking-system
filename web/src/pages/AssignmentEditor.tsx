@@ -90,6 +90,8 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const queuedRef = useRef(false);
   // Autosave runs from blur handlers, so it reads the latest state through a ref rather than a stale closure.
   const liveRef = useRef({ draft, templateId, reading: false, busy });
+  // One in-flight POST /api/assignments at a time: concurrent callers (paper and scheme dropped back to back) share it.
+  const creatingRef = useRef<Promise<number> | null>(null);
 
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
 
@@ -114,7 +116,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   }, [param, isNew]);
 
   const reading = !!extract && (isActive(extract.paper.status) || isActive(extract.scheme.status));
-  liveRef.current = { draft, templateId, reading, busy };
+  useEffect(() => { liveRef.current = { draft, templateId, reading, busy }; });
 
   // Poll the extraction jobs while one is queued or running; when one finishes, take its output from the server.
   useEffect(() => {
@@ -152,27 +154,40 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
     return validateTemplate(draft.kind, draft.questions, draft.scheme, draft.criteria);
   }, [draft, reading]);
 
+  // Switching between mark scheme and rubric clears the scheme rows (different shape) and keeps the questions;
+  // switching to quick mark clears both, since it has no paper. Either asks first when something would be lost.
+  const clearedBy = (kind: SchemeKind) => {
+    const scheme = draft.kind !== "criteria" && draft.scheme.length > 0;
+    const questions = kind === "criteria" && draft.questions.length > 0;
+    return { scheme, questions };
+  };
   const chooseKind = (kind: SchemeKind) => {
     if (kind === draft.kind) return;
-    if (draft.kind && draft.scheme.length > 0 && draft.kind !== "criteria") { setPendingKind(kind); return; }
+    const lost = clearedBy(kind);
+    if (lost.scheme || lost.questions) { setPendingKind(kind); return; }
     applyKind(kind);
   };
   const applyKind = (kind: SchemeKind) => {
-    setDraft((d) => ({ ...d, kind, scheme: [], subject: subjectTouched ? d.subject : DEFAULT_SUBJECT[kind] }));
+    setDraft((d) => ({ ...d, kind, scheme: [], questions: kind === "criteria" ? [] : d.questions, subject: subjectTouched ? d.subject : DEFAULT_SUBJECT[kind] }));
     setPendingKind(null);
   };
 
   /** Create the draft on the server the first time something needs an id (an upload, or Save). */
-  const ensureTemplate = useCallback(async (): Promise<number> => {
-    if (templateId) return templateId;
-    if (!draft.title.trim()) throw new ApiError(400, "bad_title", "Give the assignment a title first.");
+  const ensureTemplate = useCallback((): Promise<number> => {
+    if (templateId) return Promise.resolve(templateId);
+    if (creatingRef.current) return creatingRef.current;
+    if (!draft.title.trim()) return Promise.reject(new ApiError(400, "bad_title", "Give the assignment a title first."));
     const body = toBody(draft);
-    const t = await api.post<AssignmentTemplate>("/api/assignments", body);
-    lastSavedRef.current = JSON.stringify(body);
-    loadedRef.current = t.id;
-    setTemplateId(t.id);
-    nav(`/assignments/${t.id}`, { replace: true });
-    return t.id;
+    creatingRef.current = api.post<AssignmentTemplate>("/api/assignments", body)
+      .then((t) => {
+        lastSavedRef.current = JSON.stringify(body);
+        loadedRef.current = t.id;
+        setTemplateId(t.id);
+        nav(`/assignments/${t.id}`, { replace: true });
+        return t.id;
+      })
+      .finally(() => { creatingRef.current = null; });
+    return creatingRef.current;
   }, [templateId, draft, nav]);
 
   const upload = async (what: Upload, files: File[]) => {
@@ -269,10 +284,10 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
               </div>
               <div className="actions" style={{ alignItems: "center" }}>
                 <Button variant="secondary" onClick={() => read(what)} disabled={active || busy !== null}>{active ? "Reading…" : readLabel}</Button>
-                {active && <span className="help">Reading the pages — this takes about a minute.</span>}
-                {!active && s?.status === "failed" && <span className="warn-note">Could not read the pages{s.error ? `: ${s.error}` : ""}. Try again.</span>}
+                {active && <span className="help">Reading the pages — this takes about a minute. The table unlocks when it's done.</span>}
                 {!active && justRead === what && <span className="help">Done — check the rows below and fix anything we misread.</span>}
               </div>
+              {!active && s?.status === "failed" && <div style={{ marginTop: 12 }}><Notice kind="error">Could not read the pages{s.error ? `: ${s.error}` : ""}. Try again.</Notice></div>}
             </>
           ) : <p className="help">No pages yet. Upload them, or type the rows in below.</p>}
         </div>
@@ -319,7 +334,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
             <section className="section" aria-label="Question paper">
               <div className="section-head"><h2>Question paper</h2><span className="help">Upload the paper and we read the questions and parts; check the table and correct anything.</span></div>
               {uploadBlock("paper", "Drop the question paper here", "Read questions")}
-              <QuestionsTable rows={draft.questions} onChange={(questions) => patch({ questions })} />
+              <QuestionsTable rows={draft.questions} onChange={(questions) => patch({ questions })} disabled={reading} />
             </section>
           )}
 
@@ -327,7 +342,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
             <section className="section" aria-label="Mark scheme">
               <div className="section-head"><h2>Mark scheme</h2><span className="help">One row per question part, with its allocations (M1, A1, B1…). Every question needs a row.</span></div>
               {uploadBlock("scheme", "Drop the mark scheme here", "Read mark scheme")}
-              <MarkSchemeTable questions={draft.questions} rows={draft.scheme as MarkSchemeEntry[]} onChange={(scheme) => patch({ scheme })} />
+              <MarkSchemeTable questions={draft.questions} rows={draft.scheme as MarkSchemeEntry[]} onChange={(scheme) => patch({ scheme })} disabled={reading} />
             </section>
           )}
 
@@ -335,7 +350,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
             <section className="section" aria-label="Rubric">
               <div className="section-head"><h2>Rubric</h2><span className="help">Criteria with their bands, best band first.</span></div>
               {uploadBlock("scheme", "Drop the rubric here", "Read rubric")}
-              <RubricTable rows={draft.scheme as RubricBands[]} onChange={(scheme) => patch({ scheme })} />
+              <RubricTable rows={draft.scheme as RubricBands[]} onChange={(scheme) => patch({ scheme })} disabled={reading} />
             </section>
           )}
 
@@ -373,7 +388,9 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
       {pendingKind && (
         <Dialog title="Change the type?" onClose={() => setPendingKind(null)}
           footer={<><Button variant="secondary" onClick={() => setPendingKind(null)}>Cancel</Button><Button variant="primary" onClick={() => applyKind(pendingKind)}>Change type</Button></>}>
-          <p>The {schemeName} rows you have entered will be cleared. The title, questions and notes stay.</p>
+          <p>{pendingKind === "criteria"
+            ? `The questions${clearedBy(pendingKind).scheme ? ` and ${schemeName} rows` : ""} you have entered will be cleared — quick mark has no paper. The title and notes stay.`
+            : `The ${schemeName} rows you have entered will be cleared. The title, questions and notes stay.`}</p>
         </Dialog>
       )}
     </div>

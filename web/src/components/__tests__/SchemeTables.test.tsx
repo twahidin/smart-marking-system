@@ -69,6 +69,25 @@ describe("MarkSchemeTable", () => {
   });
 });
 
+describe("disabled tables", () => {
+  it("lock every input and button while the pages are being read", () => {
+    render(
+      <>
+        <QuestionsTable rows={questions} onChange={() => {}} disabled />
+        <MarkSchemeTable questions={questions} rows={[{ q_id: "1a", answer: "", marks: [{ label: "M1", marks: 1 }], notes: "" }]} onChange={() => {}} disabled />
+        <RubricTable rows={[{ criterion: "Organisation", bands: [{ band: "A", marks: 5, descriptor: "" }] }]} onChange={() => {}} disabled />
+      </>,
+    );
+    for (const el of [...screen.getAllByRole("textbox"), ...screen.getAllByRole("spinbutton"), ...screen.getAllByRole("button")]) expect(el).toBeDisabled();
+    expect(screen.getAllByRole("table", { busy: true }).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("MarkSchemeTable names a second blank-id row plainly", () => {
+    render(<MarkSchemeTable questions={[{ q_id: "", text: "", max_marks: 1 }]} rows={[{ q_id: "", answer: "", marks: [], notes: "" }, { q_id: " ", answer: "", marks: [], notes: "" }]} onChange={() => {}} />);
+    expect(screen.getByText("Second row with no question id")).toBeInTheDocument();
+  });
+});
+
 describe("RubricTable", () => {
   it("adds and removes criteria and bands, and totals the best band of each criterion", async () => {
     render(<Rubric initial={[{ criterion: "Organisation", bands: [{ band: "A", marks: 5, descriptor: "" }, { band: "B", marks: 3, descriptor: "" }] }]} />);

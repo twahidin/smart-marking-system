@@ -83,10 +83,10 @@ function validateQuestions(questions: Question[]): string | null {
 /** Why the assignment cannot be saved yet, in one plain sentence — or null when it can. */
 export function validateTemplate(kind: SchemeKind, questions: Question[], scheme: Scheme, criteria: Row[]): string | null {
   if (kind === "criteria") return validateRows(criteria);
+  if (questions.length === 0) return "Add at least one question.";
   const qProblem = validateQuestions(questions);
+  if (qProblem) return qProblem;
   if (kind === "mark_scheme") {
-    if (questions.length === 0) return "Add at least one question.";
-    if (qProblem) return qProblem;
     for (const r of scheme as MarkSchemeEntry[]) {
       const id = key(r.q_id);
       if (!id) return "Every scheme row needs a question id.";
@@ -100,7 +100,6 @@ export function validateTemplate(kind: SchemeKind, questions: Question[], scheme
     if (missing.length > 1) return `Add scheme rows for ${listLabels(missing)}.`;
     return null;
   }
-  if (qProblem) return qProblem;
   const rows = scheme as RubricBands[];
   if (rows.length === 0) return "Add at least one criterion.";
   for (const c of rows) {

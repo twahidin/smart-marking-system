@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,7 @@ function mockFetch(handlers: Record<string, Handler>) {
     const method = init?.method ?? "GET";
     let body: any = null;
     if (typeof init?.body === "string") { try { body = JSON.parse(init.body); } catch { body = init.body; } }
+    else if (init?.body instanceof FormData) body = init.body;
     calls.push({ path, method, body });
     const handler = handlers[`${method} ${path}`];
     if (!handler) return Promise.reject(new Error(`Unexpected fetch to ${method} ${path}`));
@@ -29,6 +30,11 @@ function mockFetch(handlers: Record<string, Handler>) {
   }));
   return calls;
 }
+const delay = (ms: number, res: Response) => new Promise<Response>((r) => setTimeout(() => r(res), ms));
+const dropFile = (zoneTitle: string, name: string) => {
+  const zone = screen.getByText(zoneTitle).closest(".drop")!;
+  fireEvent.drop(zone, { dataTransfer: { files: [new File(["x"], name, { type: "image/png" })] } });
+};
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 
 function Where() { const loc = useLocation(); return <div data-testid="where">{loc.pathname}</div>; }
@@ -100,6 +106,9 @@ describe("AssignmentEditor — new", () => {
     expect(screen.getByLabelText("Rubric")).toBeInTheDocument();
     expect(screen.queryByLabelText("Mark scheme")).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Title"), "Narrative essay");
+    expect(screen.getByText("Add at least one question.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "+ Add question" }));
+    await userEvent.type(screen.getByLabelText("Question 1 id"), "1");
     expect(screen.getByText("Add at least one criterion.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "+ Add criterion" }));
     await userEvent.type(screen.getByLabelText("Criterion 1 name"), "Organisation");
@@ -107,10 +116,15 @@ describe("AssignmentEditor — new", () => {
     await userEvent.type(screen.getByLabelText("Band 1 name for Organisation"), "A");
     expect(screen.getByText("Ready to save.")).toBeInTheDocument();
 
-    // Changing type with rubric rows entered asks first, then clears them.
+    // Switching to quick mark would lose the questions and the rubric rows: it asks first, then clears both.
     await userEvent.click(screen.getByRole("radio", { name: "Quick mark" }));
     const dialog = await screen.findByRole("dialog");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Change type" }));
+    expect(dialog).toHaveTextContent("The questions and rubric rows you have entered will be cleared");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Rubric")).toBeInTheDocument();
+    expect(screen.getByLabelText("Question 1 id")).toHaveValue("1");
+    await userEvent.click(screen.getByRole("radio", { name: "Quick mark" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Change type" }));
     expect(screen.getByLabelText("Criteria")).toBeInTheDocument();
     expect(screen.queryByLabelText("Question paper")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Rubric")).not.toBeInTheDocument();
@@ -121,9 +135,33 @@ describe("AssignmentEditor — new", () => {
     // The subject follows the type until the teacher picks one by hand.
     expect(screen.getByRole("radio", { name: "Maths" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "Science" }));
+    // Back to a typed kind: nothing to lose, so no dialog, and the questions were cleared by the quick-mark switch.
     await userEvent.click(screen.getByRole("radio", { name: "Essay — rubric" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Science" })).toBeChecked();
     expect(screen.getByLabelText("Rubric")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Question 1 id")).not.toBeInTheDocument();
+  });
+
+  it("dropping the paper and the scheme back to back creates the draft once", async () => {
+    const calls = mockFetch({
+      "GET /api/settings": () => json(settings),
+      "POST /api/assignments": (init) => delay(40, json(template({ ...JSON.parse(String(init?.body)), id: 7 }), 201)),
+      "POST /api/assignments/7/paper": () => json({ pages: [{ id: 31, page_index: 0, width: 1, height: 1 }] }),
+      "POST /api/assignments/7/scheme": () => json({ pages: [{ id: 32, page_index: 0, width: 1, height: 1 }, { id: 33, page_index: 1, width: 1, height: 1 }] }),
+    });
+    renderAt("/assignments/new");
+    await screen.findByRole("heading", { name: "New assignment" });
+    await userEvent.click(screen.getByRole("radio", { name: "Maths / Science — mark scheme" }));
+    await userEvent.type(screen.getByLabelText("Title"), "Quadratics worksheet");
+    dropFile("Drop the question paper here", "paper.png");
+    dropFile("Drop the mark scheme here", "scheme.png");
+    expect(await screen.findByText("1 page uploaded")).toBeInTheDocument();
+    expect(await screen.findByText("2 pages uploaded")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "POST" && c.path === "/api/assignments")).toHaveLength(1);
+    expect(calls.some((c) => c.path === "/api/assignments/7/paper")).toBe(true);
+    expect(calls.some((c) => c.path === "/api/assignments/7/scheme")).toBe(true);
+    expect(screen.getByTestId("where")).toHaveTextContent("/assignments/7");
   });
 });
 
@@ -151,10 +189,18 @@ describe("AssignmentEditor — existing", () => {
     expect(screen.getByText("2 pages uploaded")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Follow default (on)" })).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole("button", { name: "+ Add question" }));
     await userEvent.click(screen.getByRole("button", { name: "Read questions" }));
     expect(await screen.findByRole("button", { name: "Reading…" })).toBeDisabled();
     expect(screen.getByText("Wait for the pages to be read.")).toBeInTheDocument();
+    expect(screen.getByText(/The table unlocks when it's done/)).toBeInTheDocument();
+    // Nothing typed while the job runs can be overwritten: the table is locked until it finishes.
+    expect(screen.getByLabelText("Question 1 id")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "+ Add question" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove question 1" })).toBeDisabled();
     expect(await screen.findByLabelText("Question 2 id")).toHaveValue("1b");
+    expect(screen.getByLabelText("Question 1 id")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "+ Add question" })).toBeEnabled();
     expect(screen.getByLabelText("Question 1 text")).toHaveValue("Solve 2x + 3 = 7");
     expect(screen.getByLabelText("Total marks")).toHaveTextContent("5");
     expect(screen.getByRole("button", { name: "Read questions" })).toBeEnabled();
@@ -162,6 +208,49 @@ describe("AssignmentEditor — existing", () => {
     expect(calls.some((c) => c.method === "POST" && c.path === "/api/assignments/7/extract/paper")).toBe(true);
     // Nothing was written to the server while the job was running.
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
+  });
+
+  it("a failed extraction shows the job's error and lets the teacher try again", async () => {
+    let polls = 0;
+    const stored = template({ paper_page_ids: [31] });
+    mockFetch({
+      "GET /api/settings": () => json(settings),
+      "GET /api/assignments": () => json([stored]),
+      "GET /api/assignments/7/extract": () => {
+        polls += 1;
+        if (polls === 1) return json(noExtract);
+        if (polls === 2) return json({ ...noExtract, paper: { status: "running", error: null, job_id: 9 } });
+        return json({ ...noExtract, paper: { status: "failed", error: "No API key configured", job_id: 9 } });
+      },
+      "POST /api/assignments/7/extract/paper": () => json({ job_id: 9 }, 202),
+    });
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    await userEvent.click(screen.getByRole("button", { name: "Read questions" }));
+    expect(await screen.findByRole("button", { name: "Reading…" })).toBeDisabled();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not read the pages: No API key configured. Try again.");
+    expect(screen.getByRole("button", { name: "Read questions" })).toBeEnabled();
+    expect(screen.queryByText("Wait for the pages to be read.")).not.toBeInTheDocument();
+  });
+
+  it("stops polling when the editor unmounts", async () => {
+    let polls = 0;
+    const stored = template({ paper_page_ids: [31] });
+    mockFetch({
+      "GET /api/settings": () => json(settings),
+      "GET /api/assignments": () => json([stored]),
+      "GET /api/assignments/7/extract": () => { polls += 1; return json(polls === 1 ? noExtract : { ...noExtract, paper: { status: "running", error: null, job_id: 9 } }); },
+      "POST /api/assignments/7/extract/paper": () => json({ job_id: 9 }, 202),
+    });
+    const { unmount } = renderAt("/assignments/7", 10);
+    await screen.findByLabelText("Title");
+    await userEvent.click(screen.getByRole("button", { name: "Read questions" }));
+    await waitFor(() => expect(polls).toBeGreaterThanOrEqual(3));
+    unmount();
+    const seen = polls;
+    await new Promise((r) => setTimeout(r, 60));
+    expect(polls).toBe(seen);
   });
 
   it("autosaves a draft when focus leaves a changed field", async () => {
