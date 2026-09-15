@@ -24,8 +24,9 @@ export function SubmissionDetail() {
     let alive = true;
     const load = () => api.get<D>(`/api/submissions/${id}`).then((r) => { if (alive) { setD(r); setError(null); } }).catch((e) => alive && setError(e instanceof ApiError ? e.message : "Could not load"));
     load();
-    const t = setInterval(() => { setTick((x) => x + 1); if (!d || ["uploaded", "queued", "marking"].includes(d.status)) load(); }, 3000);
-    return () => { alive = false; clearInterval(t); };
+    const stillPolling = !d || ["uploaded", "queued", "marking"].includes(d.status);
+    const t = stillPolling ? setInterval(() => { setTick((x) => x + 1); load(); }, 3000) : null;
+    return () => { alive = false; if (t) clearInterval(t); };
   }, [id, d?.status]);
 
   if (error) return <div className="page"><Notice kind="error">{error}</Notice></div>;

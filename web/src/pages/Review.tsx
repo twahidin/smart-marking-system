@@ -51,8 +51,8 @@ export function Review() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "TEXTAREA") return;
-      if (e.key === "ArrowLeft") setI((x) => Math.max(0, x - 1));
-      else if (e.key === "ArrowRight") setI((x) => Math.min((items?.length ?? 1) - 1, x + 1));
+      if (e.key === "ArrowLeft" && tag !== "INPUT") setI((x) => Math.max(0, x - 1));
+      else if (e.key === "ArrowRight" && tag !== "INPUT") setI((x) => Math.min((items?.length ?? 1) - 1, x + 1));
       else if (e.key.toLowerCase() === "a" && tag !== "INPUT") acceptProposed();
       else if (e.key === "Enter" && tag !== "INPUT") { e.preventDefault(); save(); }
       else if (/^[0-9]$/.test(e.key) && tag !== "INPUT" && item) {
