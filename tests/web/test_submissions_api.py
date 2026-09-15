@@ -1,10 +1,13 @@
+import asyncio
 import io
 import json
 from datetime import datetime, timezone
 
+import pytest
 from PIL import Image
 
 from sms.schemas.marking import Rubric, RubricCriterion
+from sms.web.errors import ApiError
 from sms.web.routers import submissions as submissions_router
 from sms.web.services.submissions import compute_totals, iso_utc
 
@@ -150,6 +153,11 @@ def test_iso_utc_string_with_microseconds():
     assert iso_utc("2026-09-15 03:04:05.123456") == "2026-09-15T03:04:05Z"
 
 
+def test_iso_utc_iso_t_string_with_offset_and_z():
+    assert iso_utc("2026-09-15T11:04:05+08:00") == "2026-09-15T03:04:05Z"
+    assert iso_utc("2026-09-15T03:04:05Z") == "2026-09-15T03:04:05Z"
+
+
 def test_create_content_length_over_limit_413(auth):
     auth = _with_key(auth)
     over_limit = submissions_router.MAX_UPLOAD_BYTES + 1
@@ -167,3 +175,40 @@ def test_create_body_over_patched_limit_413(auth, monkeypatch):
                   data={"label": "x", "subject": "math", "context": "", "rubric": json.dumps(RUBRIC)},
                   files=[("files", ("p1.png", _bigger_png(), "image/png"))])
     assert r.status_code == 413 and r.json()["error"]["code"] == "too_large"
+
+
+class _FakeUploadFile:
+    """Mimics fastapi.UploadFile.read(n) by handing back pre-set chunks regardless of n,
+    so _read_capped's chunk loop can be driven directly without going through HTTP."""
+
+    def __init__(self, chunks):
+        self._remaining = list(chunks) + [b""]
+        self.calls = 0
+
+    async def read(self, n):  # noqa: ARG002 - n unused, real UploadFile takes a size hint
+        self.calls += 1
+        return self._remaining.pop(0) if self._remaining else b""
+
+
+def test_read_capped_raises_over_budget_without_reading_further_chunks():
+    async def run():
+        f = _FakeUploadFile([b"x" * 60, b"y" * 60, b"z" * 60])
+        with pytest.raises(ApiError) as exc_info:
+            await submissions_router._read_capped(f, budget=100)
+        assert exc_info.value.status == 413 and exc_info.value.code == "too_large"
+        # Only the first two chunks (60 + 60 = 120 > 100) should have been read; the
+        # cap must trip before a third chunk is ever requested.
+        assert f.calls == 2
+
+    asyncio.run(run())
+
+
+def test_read_capped_under_budget_returns_concatenated_bytes():
+    async def run():
+        f = _FakeUploadFile([b"a" * 30, b"b" * 30, b"c" * 30])
+        data = await submissions_router._read_capped(f, budget=100)
+        assert data == b"a" * 30 + b"b" * 30 + b"c" * 30
+        # Three real chunks plus the terminating empty read.
+        assert f.calls == 4
+
+    asyncio.run(run())
