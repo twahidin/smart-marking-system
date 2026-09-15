@@ -38,7 +38,7 @@ export function Learning() {
         </div>
       )}
       <h4>Rubric notes</h4>
-      {error ? null : notes.length === 0 ? <EmptyState title="No notes yet"><p>Run <code>sms reflect</code> after resolving a few questions to distil notes from your corrections.</p></EmptyState> : (
+      {error ? null : notes.length === 0 ? <EmptyState title="No notes yet"><p>Notes are distilled from your corrections by the reflection job — resolve a few questions first. (Running reflection from this page is coming in a later release.)</p></EmptyState> : (
         <table className="table"><thead><tr><th>Subject</th><th>Note</th><th>Status</th><th /></tr></thead>
           <tbody>{notes.map((n) => <tr key={n.id}><td>{n.subject}</td><td>{n.note}</td><td><span className={`pill ${n.status === "active" ? "pill-ink" : "pill-outline"}`}>{n.status === "active" ? "Active" : "Draft"}</span></td><td>{n.status !== "active" && <Button size="sm" onClick={() => approveNote(n.id)}>Approve</Button>}</td></tr>)}</tbody>
         </table>

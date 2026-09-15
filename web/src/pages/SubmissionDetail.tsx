@@ -16,6 +16,7 @@ export function SubmissionDetail() {
   const { id } = useParams();
   const [d, setD] = useState<D | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
   const [, setTick] = useState(0);
@@ -35,7 +36,11 @@ export function SubmissionDetail() {
   const needsYou = d.marks.filter((m) => m.escalated).map((m) => m.q_id);
   const perQMax = d.rubric.criterion_defs.reduce((s, c) => s + c.max_score, 0);
 
-  const retry = async () => { await api.post(`/api/submissions/${d.id}/retry`); setD({ ...d, status: "queued" }); };
+  const retry = async () => {
+    setRetryError(null);
+    try { await api.post(`/api/submissions/${d.id}/retry`); setD({ ...d, status: "queued" }); }
+    catch (e) { setRetryError(e instanceof ApiError ? e.message : "Could not retry — check your connection and try again."); }
+  };
 
   return (
     <div>
@@ -55,7 +60,9 @@ export function SubmissionDetail() {
         {inProgress && <Notice kind="ok">Marking… {d.job?.started_at ? `started ${elapsed(d.job.started_at)} ago` : "waiting for the worker"}. This page updates by itself.</Notice>}
         {d.status === "failed" && (
           <Notice>
-            <strong>Marking failed.</strong> {d.job?.error ?? "Unknown error"}<div style={{ marginTop: 8 }}><Button size="sm" onClick={retry}>Retry</Button> <Link to="/settings" className="btn btn-ghost btn-sm">Check settings</Link></div>
+            <strong>Marking failed.</strong> {d.job?.error ?? "Unknown error"}
+            {retryError && <div style={{ marginTop: 8 }}><strong>Retry failed.</strong> {retryError}</div>}
+            <div style={{ marginTop: 8 }}><Button size="sm" onClick={retry}>Retry</Button> <Link to="/settings" className="btn btn-ghost btn-sm">Check settings</Link></div>
           </Notice>
         )}
         {needsYou.length > 0 && (

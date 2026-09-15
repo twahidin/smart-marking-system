@@ -46,4 +46,17 @@ describe("Learning", () => {
     expect(await screen.findByText("Accept equivalent fractions.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
   });
+
+  it("empty state does not tell a hosted user to run a CLI command", async () => {
+    const empty = () => new Response(JSON.stringify([]), { status: 200 });
+    mockFetch({ "/api/notes": empty, "/api/exemplars": empty, "/api/stats": () => new Response(JSON.stringify({}), { status: 200 }) });
+    render(
+      <MemoryRouter>
+        <Learning />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("No notes yet")).toBeInTheDocument();
+    expect(screen.getByText(/distilled from your corrections by the reflection job/)).toBeInTheDocument();
+    expect(screen.queryByText(/sms reflect/)).not.toBeInTheDocument();
+  });
 });

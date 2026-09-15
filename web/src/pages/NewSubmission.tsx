@@ -7,6 +7,7 @@ import { CriteriaEditor } from "../components/CriteriaTable";
 import { DropZone } from "../components/DropZone";
 import { Notice } from "../components/Notice";
 import { PageCard } from "../components/PageCard";
+import { canThumbnail } from "../lib/files";
 import { emptyRow, jsonToRows, rowsToRubricJson, validateRows, type Row } from "../lib/rubric";
 
 type Picked = { file: File; url: string };
@@ -28,7 +29,7 @@ export function NewSubmission() {
   // Revoke object URLs only when the page unmounts — revoking on every change would blank the remaining thumbnails.
   useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
 
-  const add = (picked: File[]) => setFiles((cur) => [...cur, ...picked.map((file) => ({ file, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : "" }))]);
+  const add = (picked: File[]) => setFiles((cur) => [...cur, ...picked.map((file) => ({ file, url: canThumbnail(file) ? URL.createObjectURL(file) : "" }))]);
   const remove = (i: number) => setFiles((cur) => { cur[i].url && URL.revokeObjectURL(cur[i].url); return cur.filter((_, j) => j !== i); });
   const move = (i: number, d: -1 | 1) => setFiles((cur) => { const c = [...cur]; const j = i + d; if (j < 0 || j >= c.length) return cur; [c[i], c[j]] = [c[j], c[i]]; return c; });
   const uploadJson = (f: File) => f.text().then((t) => { try { setRows(jsonToRows(t)); setError(null); } catch (e: any) { setError(`Rubric JSON: ${e.message}`); } });
