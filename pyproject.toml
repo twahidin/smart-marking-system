@@ -5,7 +5,9 @@ description = "Smart Marking System: agent-based marking, review and feedback on
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.13,<2",
+    "anthropic>=0.40",
     "atomic-agents>=2.10.0,<3.0.0",
+    "cryptography>=43",
     "instructor>=1.14.5,<2.0.0",
     "openai>=1.99.0",
     "psycopg[binary]>=3.2,<4",
