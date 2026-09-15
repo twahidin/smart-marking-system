@@ -30,7 +30,8 @@ class MarkingResult:
     feedback: Optional[FeedbackReport] = None
 
 
-def _image_from_bytes(b: bytes) -> instructor.Image:
+def image_from_bytes(b: bytes) -> instructor.Image:
+    """Wrap page bytes (JPEG/PNG) as an instructor.Image for a vision call."""
     b64 = base64.b64encode(b).decode()
     try:
         return instructor.Image.from_raw_base64(b64)
@@ -84,7 +85,7 @@ class MarkingPipeline:
         extracted = self.extractor.run(
             ExtractionInput(
                 assignment_context=assignment_context,
-                images=[_image_from_bytes(b) for b in images],
+                images=[image_from_bytes(b) for b in images],
             )
         )
         self.cache.put(composite_hash, self.subject, extracted.model_dump())

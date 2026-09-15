@@ -12,6 +12,8 @@ from sms.storage import PageStorage, UploadError, process_uploads
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 from sms.web.services.rubric import parse_rubric
+from sms.worker.extract_jobs import PAPER_KIND, SCHEME_KIND, dedupe_key
+from sms.worker.jobs import JobStore
 
 SCHEME_KINDS = ("criteria", "mark_scheme", "rubric")
 
@@ -87,20 +89,25 @@ def global_delete_pages_default(db: Database) -> bool:
     return bool(rows[0]["delete_pages_after_marking"]) if rows else True
 
 
-def _paper_pages(db: Database, template_ids: List[int]) -> Dict[int, List[int]]:
-    """Page ids per template, from the pages table (the source of truth for a template's paper)."""
-    out: Dict[int, List[int]] = {tid: [] for tid in template_ids}
+TEMPLATE_PAGE_KINDS = ("paper", "scheme")
+
+
+def _template_pages(db: Database, template_ids: List[int]) -> Dict[int, Dict[str, List[int]]]:
+    """Page ids per template and kind ('paper' / 'scheme'), from the pages table — the source of
+    truth for a template's question paper and mark scheme."""
+    out: Dict[int, Dict[str, List[int]]] = {tid: {k: [] for k in TEMPLATE_PAGE_KINDS} for tid in template_ids}
     if not template_ids:
         return out
     placeholders = ", ".join(f":t{i}" for i in range(len(template_ids)))
     params = {f"t{i}": tid for i, tid in enumerate(template_ids)}
-    for p in db.query(f"SELECT id, template_id FROM pages WHERE template_id IN ({placeholders}) AND kind = 'paper' "
+    for p in db.query(f"SELECT id, template_id, kind FROM pages WHERE template_id IN ({placeholders}) "
                       "ORDER BY template_id, page_index", params):
-        out[p["template_id"]].append(p["id"])
+        if p["kind"] in TEMPLATE_PAGE_KINDS:
+            out[p["template_id"]][p["kind"]].append(p["id"])
     return out
 
 
-def _row_to_dict(r: dict, paper_page_ids: List[int], delete_default: bool) -> Dict[str, Any]:
+def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool) -> Dict[str, Any]:
     rubric = Rubric.model_validate_json(r["rubric_json"])
     flag = r["delete_pages_after_marking"]
     flag = None if flag is None else bool(flag)
@@ -112,7 +119,8 @@ def _row_to_dict(r: dict, paper_page_ids: List[int], delete_default: bool) -> Di
         "scheme_kind": r["scheme_kind"],
         "questions": json.loads(r["questions_json"]) if r["questions_json"] else [],
         "scheme": json.loads(r["scheme_json"]) if r["scheme_json"] else [],
-        "paper_page_ids": paper_page_ids,
+        "paper_page_ids": pages["paper"],
+        "scheme_page_ids": pages["scheme"],
         "delete_pages_after_marking": flag,
         "effective_delete_pages": delete_default if flag is None else flag,
         "times_used": int(r["times_used"]),
@@ -127,7 +135,7 @@ _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_js
 
 def list_templates(db: Database) -> List[Dict[str, Any]]:
     rows = db.query("SELECT * FROM assignment_templates ORDER BY times_used DESC, updated_at DESC, id DESC")
-    pages = _paper_pages(db, [r["id"] for r in rows])
+    pages = _template_pages(db, [r["id"] for r in rows])
     default = global_delete_pages_default(db)
     return [_row_to_dict(r, pages[r["id"]], default) for r in rows]
 
@@ -136,7 +144,7 @@ def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
     rows = db.query("SELECT * FROM assignment_templates WHERE id = :id", {"id": template_id})
     if not rows:
         return None
-    return _row_to_dict(rows[0], _paper_pages(db, [template_id])[template_id], global_delete_pages_default(db))
+    return _row_to_dict(rows[0], _template_pages(db, [template_id])[template_id], global_delete_pages_default(db))
 
 
 def create_template(db: Database, *, title: str, subject: str, context: str, rubric_json: str,
@@ -199,10 +207,8 @@ def mark_template_used(db: Database, template_id: int) -> None:
                "WHERE id = :id", {"id": template_id})
 
 
-def attach_paper(db: Database, storage: PageStorage, template_id: int,
-                 files: List[Tuple[str, bytes]]) -> List[Dict[str, Any]]:
-    """Store the uploaded question paper as pages owned by the template, replacing any previous
-    paper. Page image files are content-addressed and shared, so only the rows are replaced."""
+def _attach_pages(db: Database, storage: PageStorage, template_id: int, kind: str,
+                  files: List[Tuple[str, bytes]]) -> List[Dict[str, Any]]:
     if get_template(db, template_id) is None:
         raise ApiError(404, "not_found", "No such assignment")
     if not files:
@@ -212,18 +218,71 @@ def attach_paper(db: Database, storage: PageStorage, template_id: int,
     except UploadError as e:
         raise ApiError(400, "bad_upload", str(e))
     with db.transaction() as tx:
-        tx.execute("DELETE FROM pages WHERE template_id = :t AND kind = 'paper'", {"t": template_id})
+        tx.execute("DELETE FROM pages WHERE template_id = :t AND kind = :k", {"t": template_id, "k": kind})
         page_rows = []
         for i, p in enumerate(pages):
             pid = tx.insert(
                 "INSERT INTO pages (template_id, kind, page_index, sha256, storage_path, source_filename, width, height) "
-                "VALUES (:t, 'paper', :i, :h, :p, :f, :w, :ht) RETURNING id",
-                {"t": template_id, "i": i, "h": p.sha256, "p": p.storage_path, "f": p.source_filename,
+                "VALUES (:t, :k, :i, :h, :p, :f, :w, :ht) RETURNING id",
+                {"t": template_id, "k": kind, "i": i, "h": p.sha256, "p": p.storage_path, "f": p.source_filename,
                  "w": p.width, "ht": p.height},
             )
             page_rows.append({"id": pid, "page_index": i, "width": p.width, "height": p.height})
         tx.execute("UPDATE assignment_templates SET updated_at = CURRENT_TIMESTAMP WHERE id = :t", {"t": template_id})
     return page_rows
+
+
+def attach_paper(db: Database, storage: PageStorage, template_id: int,
+                 files: List[Tuple[str, bytes]]) -> List[Dict[str, Any]]:
+    """Store the uploaded question paper as pages (kind 'paper') owned by the template, replacing any
+    previous paper. Page image files are content-addressed and shared, so only the rows are replaced."""
+    return _attach_pages(db, storage, template_id, "paper", files)
+
+
+def attach_scheme(db: Database, storage: PageStorage, template_id: int,
+                  files: List[Tuple[str, bytes]]) -> List[Dict[str, Any]]:
+    """Store the uploaded mark scheme / rubric as pages (kind 'scheme'), replacing any previous one.
+    The question paper is left alone."""
+    return _attach_pages(db, storage, template_id, "scheme", files)
+
+
+# --- extraction jobs ---------------------------------------------------------------------------
+
+EXTRACT_WHAT = {"paper": PAPER_KIND, "scheme": SCHEME_KIND}
+
+
+def enqueue_extract(db: Database, jobs: JobStore, template_id: int, what: str) -> int:
+    """Queue a paper_extract / scheme_extract job for the template. 400 when the pages it would read
+    are missing (or the assignment has no scheme type), 409 when one is already queued or running."""
+    tpl = get_template(db, template_id)
+    if tpl is None:
+        raise ApiError(404, "not_found", "No such assignment")
+    if what == "paper":
+        if not tpl["paper_page_ids"]:
+            raise ApiError(400, "no_paper", "Upload the question paper first")
+    else:
+        if tpl["scheme_kind"] not in ("mark_scheme", "rubric"):
+            raise ApiError(400, "bad_scheme_kind", "Choose the assignment type (mark scheme or rubric) first")
+        if not tpl["scheme_page_ids"]:
+            raise ApiError(400, "no_scheme", "Upload the mark scheme or rubric first")
+    job_id = jobs.enqueue_unique(EXTRACT_WHAT[what], {"template_id": template_id}, dedupe_key=dedupe_key(what, template_id))
+    if job_id is None:
+        raise ApiError(409, "already_running", f"The {what} is already being read")
+    return job_id
+
+
+def extract_status(db: Database, template_id: int) -> Dict[str, Dict[str, Any]]:
+    """Latest paper/scheme extraction job per template: {status, error, job_id} (all None when never run)."""
+    if get_template(db, template_id) is None:
+        raise ApiError(404, "not_found", "No such assignment")
+    out: Dict[str, Dict[str, Any]] = {}
+    for what in EXTRACT_WHAT:
+        rows = db.query("SELECT id, status, error FROM jobs WHERE dedupe_key = :d ORDER BY id DESC LIMIT 1",
+                        {"d": dedupe_key(what, template_id)})
+        r = rows[0] if rows else None
+        out[what] = {"status": r["status"] if r else None, "error": r["error"] if r else None,
+                     "job_id": r["id"] if r else None}
+    return out
 
 
 _EXPORT_FIELDS = ("title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme")

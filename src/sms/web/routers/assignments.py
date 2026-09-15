@@ -6,10 +6,11 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from sms.web.deps import get_db, get_storage, require_teacher
+from sms.web.deps import get_db, get_jobs, get_storage, require_teacher
+from sms.web.errors import ApiError
 from sms.web.services.assignments import (
-    attach_paper, create_template, delete_template, duplicate_template, export_templates, import_templates,
-    list_templates, update_template,
+    attach_paper, attach_scheme, create_template, delete_template, duplicate_template, enqueue_extract,
+    export_templates, extract_status, import_templates, list_templates, update_template,
 )
 from sms.web.uploads import read_upload_files
 
@@ -78,3 +79,26 @@ async def upload_paper(template_id: int, request: Request, files: List[UploadFil
     payload = await read_upload_files(request, files)
     pages = await run_in_threadpool(attach_paper, db, storage, template_id, payload)
     return {"pages": pages}
+
+
+@router.post("/{template_id}/scheme")
+async def upload_scheme(template_id: int, request: Request, files: List[UploadFile] = File(...),
+                        db=Depends(get_db), storage=Depends(get_storage)):
+    """Attach the mark scheme / rubric pages to a template (replacing any previous scheme upload)."""
+    payload = await read_upload_files(request, files)
+    pages = await run_in_threadpool(attach_scheme, db, storage, template_id, payload)
+    return {"pages": pages}
+
+
+@router.post("/{template_id}/extract/{what}", status_code=202)
+def extract(template_id: int, what: str, db=Depends(get_db), jobs=Depends(get_jobs)):
+    """Queue a job that reads the uploaded paper into questions, or the scheme into scheme rows."""
+    if what not in ("paper", "scheme"):
+        raise ApiError(404, "not_found", "No such route")
+    job_id = enqueue_extract(db, jobs, template_id, what)
+    return JSONResponse(status_code=202, content={"job_id": job_id})
+
+
+@router.get("/{template_id}/extract")
+def extract_state(template_id: int, db=Depends(get_db)):
+    return extract_status(db, template_id)

@@ -269,3 +269,92 @@ def test_delete_pages_flag_put_get_and_duplicate(auth):
     copy = auth.post(f"/api/assignments/{t['id']}/duplicate").json()
     assert copy["delete_pages_after_marking"] is False
     assert auth.get("/api/assignments").json()[0]["id"] == copy["id"]
+
+
+# --- scheme upload and extraction jobs ---------------------------------------------------------
+
+def test_scheme_upload_stores_scheme_pages_and_replaces_previous(auth, app):
+    t = _create(auth, scheme_kind="mark_scheme").json()
+    assert t["scheme_page_ids"] == []
+    paper = auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p1.png", _png(), "image/png"))]).json()["pages"]
+    r = auth.post(f"/api/assignments/{t['id']}/scheme", files=[("files", ("s1.png", _png(), "image/png")),
+                                                               ("files", ("s2.png", _png(), "image/png"))])
+    assert r.status_code == 200, r.text
+    first = r.json()["pages"]
+    assert len(first) == 2 and [p["page_index"] for p in first] == [0, 1]
+    got = auth.get("/api/assignments").json()[0]
+    assert got["scheme_page_ids"] == [p["id"] for p in first] and got["paper_page_ids"] == [paper[0]["id"]]
+    kinds = {r["id"]: r["kind"] for r in app.state.db.query("SELECT id, kind FROM pages WHERE template_id = :t", {"t": t["id"]})}
+    assert kinds[paper[0]["id"]] == "paper" and kinds[first[0]["id"]] == "scheme"
+    assert auth.get(f"/api/pages/{first[0]['id']}").status_code == 200
+    # replacing the scheme leaves the paper alone, and vice versa
+    second = auth.post(f"/api/assignments/{t['id']}/scheme", files=[("files", ("s3.png", _png(), "image/png"))]).json()["pages"]
+    got = auth.get("/api/assignments").json()[0]
+    assert got["scheme_page_ids"] == [second[0]["id"]] and got["paper_page_ids"] == [paper[0]["id"]]
+    paper2 = auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p2.png", _png(), "image/png"))]).json()["pages"]
+    got = auth.get("/api/assignments").json()[0]
+    assert got["scheme_page_ids"] == [second[0]["id"]] and got["paper_page_ids"] == [paper2[0]["id"]]
+    assert auth.post("/api/assignments/9999/scheme", files=[("files", ("p.png", _png(), "image/png"))]).status_code == 404
+    r = auth.post(f"/api/assignments/{t['id']}/scheme", files=[("files", ("notes.txt", b"hi", "text/plain"))])
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_upload"
+    # a duplicate carries both kinds of page
+    copy = auth.post(f"/api/assignments/{t['id']}/duplicate").json()
+    assert len(copy["paper_page_ids"]) == 1 and len(copy["scheme_page_ids"]) == 1
+
+
+def test_extract_paper_enqueues_once_then_409(auth, app):
+    t = _create(auth, scheme_kind="mark_scheme").json()
+    r = auth.post(f"/api/assignments/{t['id']}/extract/paper")
+    assert r.status_code == 400 and r.json()["error"]["code"] == "no_paper"
+    auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p1.png", _png(), "image/png"))])
+    r = auth.post(f"/api/assignments/{t['id']}/extract/paper")
+    assert r.status_code == 202, r.text
+    job_id = r.json()["job_id"]
+    job = app.state.db.query("SELECT kind, payload_json, dedupe_key, status FROM jobs WHERE id = :id", {"id": job_id})[0]
+    assert job["kind"] == "paper_extract" and json.loads(job["payload_json"]) == {"template_id": t["id"]}
+    assert job["dedupe_key"] == f"paper:{t['id']}" and job["status"] == "queued"
+    r = auth.post(f"/api/assignments/{t['id']}/extract/paper")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "already_running"
+    assert auth.post("/api/assignments/9999/extract/paper").status_code == 404
+    assert auth.post(f"/api/assignments/{t['id']}/extract/nope").status_code == 404
+
+
+def test_extract_scheme_needs_type_and_scheme_pages(auth, app):
+    t = _create(auth).json()  # criteria
+    auth.post(f"/api/assignments/{t['id']}/scheme", files=[("files", ("s1.png", _png(), "image/png"))])
+    r = auth.post(f"/api/assignments/{t['id']}/extract/scheme")
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_scheme_kind"
+    t2 = _create(auth, title="R", subject="language", scheme_kind="rubric").json()
+    r = auth.post(f"/api/assignments/{t2['id']}/extract/scheme")
+    assert r.status_code == 400 and r.json()["error"]["code"] == "no_scheme"
+    auth.post(f"/api/assignments/{t2['id']}/scheme", files=[("files", ("s1.png", _png(), "image/png"))])
+    r = auth.post(f"/api/assignments/{t2['id']}/extract/scheme")
+    assert r.status_code == 202
+    job = app.state.db.query("SELECT kind, dedupe_key FROM jobs WHERE id = :id", {"id": r.json()["job_id"]})[0]
+    assert job["kind"] == "scheme_extract" and job["dedupe_key"] == f"scheme:{t2['id']}"
+    assert auth.post(f"/api/assignments/{t2['id']}/extract/scheme").status_code == 409
+
+
+def test_extract_status_reports_latest_jobs(auth, app):
+    t = _create(auth, scheme_kind="mark_scheme").json()
+    r = auth.get(f"/api/assignments/{t['id']}/extract")
+    assert r.status_code == 200
+    assert r.json() == {"paper": {"status": None, "error": None, "job_id": None},
+                        "scheme": {"status": None, "error": None, "job_id": None}}
+    auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p1.png", _png(), "image/png"))])
+    auth.post(f"/api/assignments/{t['id']}/scheme", files=[("files", ("s1.png", _png(), "image/png"))])
+    pj = auth.post(f"/api/assignments/{t['id']}/extract/paper").json()["job_id"]
+    sj = auth.post(f"/api/assignments/{t['id']}/extract/scheme").json()["job_id"]
+    st = auth.get(f"/api/assignments/{t['id']}/extract").json()
+    assert st["paper"] == {"status": "queued", "error": None, "job_id": pj}
+    assert st["scheme"] == {"status": "queued", "error": None, "job_id": sj}
+    db = app.state.db
+    db.execute("UPDATE jobs SET status = 'failed', error = 'No API key configured' WHERE id = :id", {"id": pj})
+    db.execute("UPDATE jobs SET status = 'done' WHERE id = :id", {"id": sj})
+    st = auth.get(f"/api/assignments/{t['id']}/extract").json()
+    assert st["paper"]["status"] == "failed" and "API key" in st["paper"]["error"]
+    assert st["scheme"] == {"status": "done", "error": None, "job_id": sj}
+    # after a failure a new extract can be queued, and the status follows the newest job
+    pj2 = auth.post(f"/api/assignments/{t['id']}/extract/paper").json()["job_id"]
+    assert pj2 != pj and auth.get(f"/api/assignments/{t['id']}/extract").json()["paper"]["job_id"] == pj2
+    assert auth.get("/api/assignments/9999/extract").status_code == 404

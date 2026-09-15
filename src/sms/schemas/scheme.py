@@ -74,3 +74,41 @@ def scheme_total(kind: str, questions: Iterable[Union[Question, dict]], scheme: 
             return sum(row_totals.values())
         return sum(row_totals.get(_get(q, "q_id"), int(_get(q, "max_marks", 0))) for q in questions)
     return sum(int(_get(q, "max_marks", 0)) for q in questions)
+
+
+# --- extraction agent IO ----------------------------------------------------------------------
+
+import instructor  # noqa: E402
+from atomic_agents import BaseIOSchema  # noqa: E402
+
+
+class PaperExtractInput(BaseIOSchema):
+    """Input to the paper extractor: the question paper's pages and a short hint about the paper."""
+
+    images: List[instructor.Image] = Field(..., description="Question paper pages as images, in order")
+    hint: str = Field(default="", description="Assignment title / subject, e.g. 'Sec 4 Maths — Quadratics'")
+
+
+class PaperExtract(BaseIOSchema):
+    """Paper extractor output: every question and part on the paper, in order."""
+
+    questions: List[Question] = Field(default_factory=list, description="Questions and parts in paper order")
+
+
+class SchemeExtractInput(BaseIOSchema):
+    """Input to the scheme extractor: the mark scheme / rubric pages and the paper's question list."""
+
+    images: List[instructor.Image] = Field(..., description="Mark scheme or rubric pages as images, in order")
+    questions: List[Question] = Field(default_factory=list, description="The paper's questions, so rows align by q_id")
+
+
+class SchemeExtract(BaseIOSchema):
+    """Scheme extractor output for a mark scheme: one row per question part."""
+
+    items: List[MarkSchemeEntry] = Field(default_factory=list, description="Mark scheme rows in scheme order")
+
+
+class RubricExtract(BaseIOSchema):
+    """Scheme extractor output for a rubric: one entry per criterion with its bands."""
+
+    items: List[RubricCriterionBands] = Field(default_factory=list, description="Criteria with their bands")
