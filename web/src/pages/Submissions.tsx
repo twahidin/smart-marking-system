@@ -40,7 +40,7 @@ export function Submissions() {
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="row-link" onClick={() => nav(`/submissions/${r.id}`)}>
-                <td><strong>{r.label}</strong></td>
+                <td><strong>{r.label}</strong>{r.assignment_title && <div className="help">{r.assignment_title}</div>}</td>
                 <td>{subjectLabel[r.subject]}</td>
                 <td className="num">{r.page_count}</td>
                 <td><StatusPill status={r.status} needsYou={r.needs_you_qids} /></td>

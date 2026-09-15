@@ -1,29 +1,20 @@
 import json
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from pydantic import ValidationError
-
 from sms.memory.db import Database
 from sms.pipeline.router import SubjectRouter
 from sms.schemas.marking import Rubric
 from sms.storage import PageStorage, UploadError, process_uploads
 from sms.timeutil import iso_utc  # noqa: F401 - re-exported for existing importers
 from sms.web.errors import ApiError
+from sms.web.services.assignments import get_template, mark_template_used
+from sms.web.services.rubric import parse_rubric
 from sms.worker.jobs import JobStore
 
 
-def parse_rubric(rubric_json: str) -> Rubric:
-    try:
-        rubric = Rubric.model_validate_json(rubric_json)
-    except ValidationError as e:
-        raise ApiError(400, "bad_rubric", f"Rubric is not valid: {e.errors()[0]['msg']}")
-    if not rubric.criterion_defs:
-        raise ApiError(400, "bad_rubric", "Add at least one criterion")
-    return rubric
-
-
 def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, label: str, subject: str,
-                      context: str, rubric_json: str, files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
+                      context: str, rubric_json: str, files: List[Tuple[str, bytes]],
+                      assignment_id: Optional[int] = None) -> Dict[str, Any]:
     label = label.strip()
     if not label:
         raise ApiError(400, "bad_label", "Give the script a label")
@@ -38,11 +29,15 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
         pages = process_uploads(files, storage)
     except UploadError as e:
         raise ApiError(400, "bad_upload", str(e))
+    # A stale id from the SPA (template deleted meanwhile) is dropped rather than rejected.
+    if assignment_id is not None and get_template(db, assignment_id) is None:
+        assignment_id = None
     with db.transaction() as tx:
         sid = tx.insert(
-            "INSERT INTO submissions (label, subject, context, rubric_json, status) "
-            "VALUES (:label, :subject, :context, :rubric, 'uploaded') RETURNING id",
-            {"label": label, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json()},
+            "INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id) "
+            "VALUES (:label, :subject, :context, :rubric, 'uploaded', :aid) RETURNING id",
+            {"label": label, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
+             "aid": assignment_id},
         )
         page_rows = []
         for i, p in enumerate(pages):
@@ -52,6 +47,8 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
                 {"s": sid, "i": i, "h": p.sha256, "p": p.storage_path, "f": p.source_filename, "w": p.width, "ht": p.height},
             )
             page_rows.append({"id": pid, "page_index": i, "width": p.width, "height": p.height})
+    if assignment_id is not None:
+        mark_template_used(db, assignment_id)
     jobs.enqueue("mark", sid)
     return {"id": sid, "status": "queued", "pages": page_rows}
 
@@ -101,8 +98,9 @@ def _corrections(db: Database, run_id: Optional[str]) -> Dict[str, List[int]]:
 
 
 def list_submissions(db: Database) -> List[Dict[str, Any]]:
-    subs = db.query("SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count "
-                    "FROM submissions s ORDER BY s.id DESC")
+    subs = db.query("SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count, "
+                    "a.title AS assignment_title "
+                    "FROM submissions s LEFT JOIN assignment_templates a ON a.id = s.assignment_id ORDER BY s.id DESC")
     out = []
     for s in subs:
         rubric = Rubric.model_validate_json(s["rubric_json"])
@@ -113,6 +111,7 @@ def list_submissions(db: Database) -> List[Dict[str, Any]]:
         out.append({
             "id": s["id"], "label": s["label"], "subject": s["subject"], "page_count": s["page_count"],
             "status": s["status"], "created_at": iso_utc(s["created_at"]),
+            "assignment_id": s["assignment_id"], "assignment_title": s["assignment_title"],
             "total": totals["total"] if totals else None,
             "total_upper": totals["total_upper"] if totals else None,
             "total_max": totals["total_max"] if totals else None,
@@ -122,7 +121,8 @@ def list_submissions(db: Database) -> List[Dict[str, Any]]:
 
 
 def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional[Dict[str, Any]]:
-    rows = db.query("SELECT * FROM submissions WHERE id = :id", {"id": submission_id})
+    rows = db.query("SELECT s.*, a.title AS assignment_title FROM submissions s "
+                    "LEFT JOIN assignment_templates a ON a.id = s.assignment_id WHERE s.id = :id", {"id": submission_id})
     if not rows:
         return None
     s = rows[0]
@@ -151,6 +151,7 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
     return {
         "id": s["id"], "label": s["label"], "subject": s["subject"], "context": s["context"], "status": s["status"],
         "created_at": iso_utc(s["created_at"]), "rubric": rubric.model_dump(), "pages": pages, "marks": marks,
+        "assignment_id": s["assignment_id"], "assignment_title": s["assignment_title"],
         "totals": compute_totals(rubric, marks, set(pending), corrections) if marks else None,
         "feedback": feedback,
         "job": {"status": job["status"], "attempts": job["attempts"], "error": job["error"],

@@ -13,3 +13,5 @@ export function elapsed(iso: string | null | undefined): string {
 }
 
 export const subjectLabel: Record<string, string> = { math: "Maths", language: "English", science: "Science" };
+
+export const schemeLabel: Record<string, string> = { criteria: "Criteria", mark_scheme: "Mark scheme", rubric: "Rubric" };

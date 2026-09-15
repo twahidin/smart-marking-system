@@ -10,6 +10,7 @@ const failed: D = {
   rubric: { criterion_defs: [{ id: "c1", description: "method", max_score: 2 }] },
   pages: [{ id: 1, page_index: 0, width: 100, height: 100 }], marks: [], totals: null, feedback: null,
   job: { status: "failed", attempts: 5, error: "Provider returned HTTP 401", started_at: null, finished_at: null },
+  assignment_id: null, assignment_title: null,
 };
 
 function mockFetch(handlers: Record<string, () => Response>) {

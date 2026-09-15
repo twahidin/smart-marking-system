@@ -24,6 +24,7 @@ export const api = {
   get: json("GET"),
   post: json("POST"),
   put: json("PUT"),
+  delete: json("DELETE"),
   async postForm<T>(path: string, form: FormData): Promise<T> {
     return parse(await fetch(path, { method: "POST", body: form, credentials: "same-origin" }));
   },

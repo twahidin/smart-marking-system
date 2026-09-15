@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -31,7 +31,8 @@ async def _read_capped(f: UploadFile, budget: int) -> bytes:
 
 @router.post("", status_code=202)
 async def create(request: Request, label: str = Form(...), subject: str = Form("math"), context: str = Form(""),
-                 rubric: str = Form(...), files: List[UploadFile] = File(...),
+                 rubric: str = Form(...), assignment_id: Optional[int] = Form(None),
+                 files: List[UploadFile] = File(...),
                  db=Depends(get_db), storage=Depends(get_storage), jobs=Depends(get_jobs),
                  settings=Depends(get_settings_store)):
     content_length = request.headers.get("content-length")
@@ -49,7 +50,8 @@ async def create(request: Request, label: str = Form(...), subject: str = Form("
     # PDF rasterising and image normalising are CPU-bound; keep them off the event loop so
     # other requests (health checks included) are not stalled by a big upload.
     return await run_in_threadpool(create_submission, db, storage, jobs, label=label, subject=subject,
-                                   context=context, rubric_json=rubric, files=payload)
+                                   context=context, rubric_json=rubric, files=payload,
+                                   assignment_id=assignment_id)
 
 
 @router.get("")

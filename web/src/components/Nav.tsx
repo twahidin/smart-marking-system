@@ -9,6 +9,7 @@ export function Nav({ needsYou }: { needsYou: number }) {
       <NavLink to="/submissions" className="nav-brand" end>Smart Marking</NavLink>
       <div className="nav-links">
         <NavLink to="/submissions">Submissions</NavLink>
+        <NavLink to="/assignments">Assignments</NavLink>
         <NavLink to="/review">Review {needsYou > 0 && <span className="key">{needsYou}</span>}</NavLink>
         <NavLink to="/learning">Learning</NavLink>
         <NavLink to="/settings">Settings</NavLink>
