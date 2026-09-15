@@ -124,6 +124,30 @@ describe("SubmissionDetail — per-part marks (v2)", () => {
     expect(screen.getByRole("img", { name: "Page 1" })).toHaveAttribute("src", "/api/pages/1");
   });
 
+  it("a rubric run shows the whole transcription in a collapsible block above the criteria", async () => {
+    const essay = ("Once upon a time. " + "And then more happened. ".repeat(60)).trim();
+    const rubricRun: D = {
+      ...v2, scheme_kind: "rubric", status: "done", totals: { total: 8, total_upper: 8, total_max: 10 },
+      parts: [
+        { q_id: "Content", label: "Content", question_text: "Write a story.", scheme: { criterion: "Content", bands: [{ band: "A", marks: 5, descriptor: "Rich" }] },
+          extracted: essay, workings: "", illegible: false, band: "A", descriptor_met: "Rich", total: 5, max: 5, justification: "Vivid",
+          in_scheme: true, confidence: 0.9, escalated: false, reason: null, reason_text: null, queue_id: null, teacher: null },
+        { q_id: "Language", label: "Language", question_text: "Write a story.", scheme: { criterion: "Language", bands: [{ band: "B", marks: 3, descriptor: "Mostly clear" }] },
+          extracted: essay, workings: "", illegible: false, band: "B", descriptor_met: "", total: 3, max: 5, justification: "Slips",
+          in_scheme: true, confidence: 0.8, escalated: false, reason: null, reason_text: null, queue_id: null, teacher: null },
+      ],
+    };
+    mockFetch({ "/api/submissions/7": () => new Response(JSON.stringify(rubricRun), { status: 200 }) });
+    renderDetail();
+    const table = await screen.findByRole("table", { name: "Marks by criterion" });
+    const block = screen.getByRole("group", { name: "Transcription" });
+    expect(block.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(block).toHaveTextContent(essay); // the whole thing, not a 600-character cut
+    expect(within(block).getByText("Transcription")).toBeInTheDocument();
+    // the rows still carry a short cut so the table stays readable
+    expect(within(table).getAllByRole("row")[1].textContent!.length).toBeLessThan(essay.length);
+  });
+
   it("downloads the record as a blob with the server's filename", async () => {
     const saved: string[] = [];
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
@@ -145,7 +169,7 @@ describe("SubmissionDetail — per-part marks (v2)", () => {
     mockFetch({ "/api/submissions/7": () => new Response(JSON.stringify(gone), { status: 200 }) });
     renderDetail();
     const panel = await screen.findByRole("note", { name: "Pages deleted after marking" });
-    expect(panel).toHaveTextContent("The marking record has everything that was read.");
+    expect(panel).toHaveTextContent("Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark.");
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.queryByRole("tablist", { name: "Pages" })).not.toBeInTheDocument();
   });

@@ -89,11 +89,12 @@ question/part, totals). The default provider is TokenRouter with `z-ai/glm-5.3-f
 from provider** on the Settings page lists every model your key can actually use (some TokenRouter keys
 include the free `z-ai/glm-5.3-free`, limited to 8 requests/min).
 
-**Page deletion**: once a script reaches `done` (marked with nothing left to review, or the last
-escalated part resolved), its uploaded student pages are deleted — the marking record already has
-everything that was read, so the images serve no further purpose. This follows the **"Delete pages
-after marking"** setting, defaulting on; an individual assignment can override it (always keep / always
-delete / follow the default). Question-paper and mark-scheme pages are never deleted.
+**Page deletion**: student pages are deleted as soon as a script is done (marked with nothing left to
+review, or the last escalated part resolved); the marking record keeps the transcription and every
+mark. This follows the **"Delete pages after marking"** setting, defaulting on; an individual
+assignment can override it (always keep / always delete / follow the default — a new essay (rubric)
+assignment starts on "Off", since the whole transcription is what the record keeps). Question-paper
+and mark-scheme pages are never deleted.
 
 ### Settings
 

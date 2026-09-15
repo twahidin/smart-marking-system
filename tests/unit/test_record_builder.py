@@ -97,11 +97,29 @@ def test_rubric_record_has_band_rows_and_a_rubric_page():
     rec = build_record(_detail_v2(parts, {"total": 8, "total_upper": 10, "total_max": 10}, scheme_kind="rubric"), None)
     assert rec.kind == "rubric"
     a, b = rec.rows
+    # the whole essay goes on its own page; the rows point at it rather than repeating a 600-char cut of it
+    assert rec.transcription == "My day..." and a.student_answer == b.student_answer == "See transcription (page 2)"
     assert a.scheme_answer == "Content\nA (5): Rich detail\nB (3): Some detail"
     assert a.justification == "Band A: Vivid throughout" and a.awarded == "5 / 5"
     assert b.awarded == "Teacher to review" and b.justification == "Low confidence"
     assert rec.rubric_page == [{"criterion": "Content", "bands": bands, "awarded_band": "A"},
                                {"criterion": "Language", "bands": bands, "awarded_band": None}]
+
+
+def test_rubric_transcription_is_whole_and_sanitised_and_other_kinds_have_none():
+    essay = "Once upon a time " * 100 + "\x07the end"
+    parts = [{"q_id": "Content", "label": "Content", "question_text": "Essay", "scheme": {"criterion": "Content", "bands": []},
+              "extracted": essay, "workings": "plan: intro, body", "illegible": False, "band": "A", "descriptor_met": "", "total": 5,
+              "max": 5, "justification": "", "in_scheme": True, "confidence": 0.9, "escalated": False, "reason": None,
+              "queue_id": None, "teacher": None}]
+    rec = build_record(_detail_v2(parts, {"total": 5, "total_upper": 5, "total_max": 5}, scheme_kind="rubric"), None)
+    assert rec.transcription == "Once upon a time " * 100 + "the end\nWorkings: plan: intro, body"
+    assert len(rec.transcription) > 600 and rec.rows[0].student_answer == "See transcription (page 2)"
+    illegible = build_record(_detail_v2([dict(parts[0], illegible=True, extracted="")], {"total": 5, "total_upper": 5, "total_max": 5},
+                                        scheme_kind="rubric"), None)
+    assert illegible.rows[0].student_answer == "(illegible)" and illegible.transcription is None
+    ms = build_record(_detail_v2([_part("1a", "1(a)", 2, 2)], {"total": 2, "total_upper": 2, "total_max": 2}), None)
+    assert ms.transcription is None and ms.rows[0].student_answer == "x = 3"
 
 
 def test_v1_rows_summarise_criteria():

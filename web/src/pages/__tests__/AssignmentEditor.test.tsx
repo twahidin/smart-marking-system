@@ -143,6 +143,24 @@ describe("AssignmentEditor — new", () => {
     expect(screen.queryByLabelText("Question 1 id")).not.toBeInTheDocument();
   });
 
+  it("a new essay assignment defaults to keeping the pages; other types follow the default", async () => {
+    mockFetch({ "GET /api/settings": () => json(settings) });
+    renderAt("/assignments/new");
+    await screen.findByRole("heading", { name: "New assignment" });
+    await userEvent.click(screen.getByRole("radio", { name: "Maths / Science — mark scheme" }));
+    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("");
+    await userEvent.click(screen.getByRole("radio", { name: "Essay — rubric" }));
+    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("off");
+    expect(screen.getByText(/the marking record keeps the transcription and every mark/)).toBeInTheDocument();
+    // back to a mark scheme: the essay default is dropped again
+    await userEvent.click(screen.getByRole("radio", { name: "Maths / Science — mark scheme" }));
+    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("");
+    // a choice the teacher made by hand survives a type change
+    await userEvent.selectOptions(screen.getByLabelText("Delete student pages after marking"), "on");
+    await userEvent.click(screen.getByRole("radio", { name: "Essay — rubric" }));
+    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("on");
+  });
+
   it("dropping the paper and the scheme back to back creates the draft once", async () => {
     const calls = mockFetch({
       "GET /api/settings": () => json(settings),

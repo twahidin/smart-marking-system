@@ -67,11 +67,30 @@ def test_records_zip_bundles_docx_per_student_and_markbook(auth, app):
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         assert z.namelist() == ["tan-marking-record.docx", "lim-marking-record.docx", "markbook.xlsx"]
         wb = load_workbook(io.BytesIO(z.read("markbook.xlsx")))
-        rows = [[c.value for c in row] for row in wb["Markbook"].iter_rows()]
+        assert wb.sheetnames == ["Quick mark", "Rows"]  # no assignment on either script
+        rows = [[c.value for c in row] for row in wb["Quick mark"].iter_rows()]
         assert rows[0] == ["Student", "1(a)", "1(b)", "2", "Total", "Max"]
         assert rows[1] == ["Tan", 2, 0, "Review", "3–5", 6]
         assert rows[2] == ["Lim", 2, 0, 1, 3, 6]
         assert wb["Rows"].max_row == 1 + 6
+
+
+def test_records_zip_markbook_has_a_sheet_per_assignment(auth, app):
+    db = app.state.db
+    ta = db.insert("INSERT INTO assignment_templates (title, subject, rubric_json, scheme_kind) VALUES ('Quadratics', 'math', '{\"criterion_defs\": []}', 'mark_scheme') RETURNING id")
+    tb = db.insert("INSERT INTO assignment_templates (title, subject, rubric_json, scheme_kind) VALUES ('Essay', 'language', '{\"criterion_defs\": []}', 'rubric') RETURNING id")
+    a, _ = seed_v2(app, label="Tan", run_id="ra", queue={}, assignment_id=ta)
+    b, _ = seed_v2(app, label="Lim", run_id="rb", kind="rubric", queue={}, assignment_id=tb, subject="language")
+    r = auth.post("/api/submissions/records.zip", json={"ids": [a, b]})
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        wb = load_workbook(io.BytesIO(z.read("markbook.xlsx")))
+        assert wb.sheetnames == ["Quadratics", "Essay", "Rows"]
+        assert [c.value for c in wb["Quadratics"][1]] == ["Student", "1(a)", "1(b)", "2", "Total", "Max"]
+        assert [c.value for c in wb["Essay"][1]] == ["Student", "Content", "Language", "Total", "Max"]
+        assert [c.value for c in wb["Essay"][2]] == ["Lim", 5, 2, 7, 10]
+        rows = [[c.value for c in row] for row in wb["Rows"].iter_rows()]
+        assert rows[0][:2] == ["Student", "Assignment"] and {r[1] for r in rows[1:]} == {"Quadratics", "Essay"}
 
 
 def test_v1_record_still_renders(auth, app):

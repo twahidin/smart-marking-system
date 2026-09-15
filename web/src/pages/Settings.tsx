@@ -129,7 +129,7 @@ export function Settings() {
             <input type="checkbox" checked={form.delete_pages_after_marking} onChange={(e) => setForm({ ...form, delete_pages_after_marking: e.target.checked })} style={{ width: 18, height: 18 }} />
             Delete student pages after marking (default for new assignments)
           </label>
-          <span className="help">Once a script is done, its uploaded pages are removed and only the marking record is kept. Each assignment can override this.</span>
+          <span className="help">Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark. Each assignment can override this.</span>
         </div>
 
         {probe && (

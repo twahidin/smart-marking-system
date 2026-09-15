@@ -84,6 +84,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const [draftSaved, setDraftSaved] = useState(false);
   const [pendingKind, setPendingKind] = useState<SchemeKind | null>(null);
   const [subjectTouched, setSubjectTouched] = useState(false);
+  const [deleteTouched, setDeleteTouched] = useState(false);
   const loadedRef = useRef<number | null>(null);
   const lastSavedRef = useRef<string>("");
   const savingRef = useRef(false);
@@ -167,8 +168,14 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
     if (lost.scheme || lost.questions) { setPendingKind(kind); return; }
     applyKind(kind);
   };
+  // An essay's transcription is the whole record of the script, so a new rubric assignment defaults to keeping the
+  // pages ("Off"); the other types follow the Settings default. A value the teacher chose by hand is left alone.
+  const deletePagesFor = (kind: SchemeKind, d: Draft): boolean | null => {
+    if (!isNew || deleteTouched) return d.deletePages;
+    return kind === "rubric" ? false : null;
+  };
   const applyKind = (kind: SchemeKind) => {
-    setDraft((d) => ({ ...d, kind, scheme: [], questions: kind === "criteria" ? [] : d.questions, subject: subjectTouched ? d.subject : DEFAULT_SUBJECT[kind] }));
+    setDraft((d) => ({ ...d, kind, scheme: [], questions: kind === "criteria" ? [] : d.questions, subject: subjectTouched ? d.subject : DEFAULT_SUBJECT[kind], deletePages: deletePagesFor(kind, d) }));
     setPendingKind(null);
   };
 
@@ -367,12 +374,12 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
               <textarea id="notes" className="input" placeholder="Penalise missing units once. Accept any correct method. ECF applies." value={draft.context} onChange={(e) => patch({ context: e.target.value })} /></div>
             <div className="field" style={{ maxWidth: 360 }}><label htmlFor="delete-pages">Delete student pages after marking</label>
               <select id="delete-pages" className="input" value={draft.deletePages === null ? "" : draft.deletePages ? "on" : "off"}
-                onChange={(e) => patch({ deletePages: e.target.value === "" ? null : e.target.value === "on" })}>
+                onChange={(e) => { setDeleteTouched(true); patch({ deletePages: e.target.value === "" ? null : e.target.value === "on" }); }}>
                 <option value="">Follow default{defaultDelete === null ? "" : ` (${defaultDelete ? "on" : "off"})`}</option>
                 <option value="on">On</option>
                 <option value="off">Off</option>
               </select>
-              <span className="help">Pages are removed once a script is done; the marking record stays. Change the default under Settings.</span></div>
+              <span className="help">Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark. Change the default under Settings.</span></div>
           </section>
 
         </>

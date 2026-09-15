@@ -1,5 +1,6 @@
 """Render a Record as a .docx: A4 landscape, header block, the six-column table with shaded header
-and amber "Teacher to review" cells, totals rows, and (rubrics) a second page with the bands."""
+and amber "Teacher to review" cells, totals rows, and (rubrics) a page with the whole transcription
+followed by a page with the bands."""
 import io
 
 from docx import Document
@@ -103,6 +104,17 @@ def _table(doc: Document, record: Record) -> None:
             cell.width = Cm(width)
 
 
+def _transcription_page(doc: Document, record: Record) -> None:
+    doc.add_page_break()
+    doc.add_heading("Transcription", level=2)
+    for para in (record.transcription or "").split("\n\n"):
+        p = doc.add_paragraph()
+        for i, line in enumerate(para.split("\n")):
+            if i:
+                p.add_run().add_break()
+            p.add_run(line)
+
+
 def _rubric_page(doc: Document, record: Record) -> None:
     doc.add_page_break()
     doc.add_heading("Rubric", level=2)
@@ -131,6 +143,8 @@ def render_docx(record: Record) -> bytes:
     doc.styles["Normal"].font.size = Pt(10)
     _header_block(doc, record)
     _table(doc, record)
+    if record.kind == "rubric" and record.transcription:
+        _transcription_page(doc, record)
     if record.kind == "rubric" and record.rubric_page is not None:
         _rubric_page(doc, record)
     buf = io.BytesIO()

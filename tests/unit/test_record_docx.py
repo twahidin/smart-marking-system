@@ -14,11 +14,26 @@ def _row(label, awarded, to_review=False, **kw):
     return RecordRow(**base)
 
 
-def _record(rubric_page=None, kind="mark_scheme"):
+def _record(rubric_page=None, kind="mark_scheme", transcription=None):
     return Record(title="Sec 4 Quadratics", student="Tan Wei Ling", marked_at="2026-09-15T03:06:07Z", model="openai · gpt-5-mini",
                   rows=[_row("1(a)", "2 / 2"), _row("1(b)", "Teacher to review", to_review=True), _row("2", "2 / 2 (teacher)")],
                   total_awarded=4, total_upper=6, total_max=6, to_review_count=1, rubric_page=rubric_page,
-                  submission_id=5, kind=kind)
+                  submission_id=5, kind=kind, transcription=transcription)
+
+
+def test_docx_rubric_puts_the_whole_transcription_on_its_own_page_before_the_rubric():
+    essay = "Once upon a time.\n\nThe end. " + "More. " * 300
+    page = [{"criterion": "Content", "bands": [{"band": "A", "marks": 5, "descriptor": "Rich"}], "awarded_band": "A"}]
+    doc = Document(io.BytesIO(render_docx(_record(rubric_page=page, kind="rubric", transcription=essay))))
+    heads = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
+    assert heads == ["Sec 4 Quadratics", "Transcription", "Rubric"]
+    texts = [p.text for p in doc.paragraphs]
+    assert "Once upon a time." in texts and any(t.startswith("The end. More.") for t in texts)
+    assert "".join(texts).count("More. ") == 300  # nothing truncated
+    assert doc.element.body.xml.count('w:type="page"') == 2  # one before the transcription, one before the rubric
+    # a rubric record with nothing transcribed skips the page
+    doc0 = Document(io.BytesIO(render_docx(_record(rubric_page=page, kind="rubric"))))
+    assert [p.text for p in doc0.paragraphs if p.style.name.startswith("Heading")] == ["Sec 4 Quadratics", "Rubric"]
 
 
 def _shading(cell):
@@ -111,4 +126,4 @@ def test_rubric_page_is_sanitised_and_renders_in_docx_and_xlsx():
     doc = Document(io.BytesIO(render_docx(rec)))
     assert [c.text for c in doc.tables[1].rows[1].cells] == ["Content", "A", "5", "Richdetail", "✓"]
     wb = load_workbook(io.BytesIO(render_xlsx([rec])))
-    assert [c.value for c in wb["Rows"][2]][1:3] == ["Content", "Content\nA (5): Richdetail\nB (3): Some"]
+    assert [c.value for c in wb["Rows"][2]][1:4] == ["Quick mark", "Content", "Content\nA (5): Richdetail\nB (3): Some"]

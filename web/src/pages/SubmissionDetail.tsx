@@ -97,11 +97,12 @@ export function SubmissionDetail() {
             {!pagesDeleted && <PagePager count={livePages.length} current={Math.min(page, Math.max(0, livePages.length - 1))} onSelect={setPage} />}
           </div>
           {pagesDeleted
-            ? <div className="page-view" role="note" aria-label="Pages deleted after marking" style={{ padding: 24 }}><strong style={{ display: "block", marginBottom: 6 }}>Pages deleted after marking</strong><span className="help">The marking record has everything that was read.</span></div>
+            ? <div className="page-view" role="note" aria-label="Pages deleted after marking" style={{ padding: 24 }}><strong style={{ display: "block", marginBottom: 6 }}>Pages deleted after marking</strong><span className="help">Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark.</span></div>
             : livePages[Math.min(page, livePages.length - 1)] && <div className="page-view"><img className="grayscale" src={`/api/pages/${livePages[Math.min(page, livePages.length - 1)].id}`} alt={`Page ${Math.min(page, livePages.length - 1) + 1}`} /></div>}
         </section>
         <section>
           <h4>{v2 ? (d.scheme_kind === "rubric" ? "Marks by criterion" : "Marks by question part") : "Marks by question"}</h4>
+          {v2 && d.scheme_kind === "rubric" && <Transcription parts={parts} />}
           {v2 ? <PartsTable parts={parts} rubric={d.scheme_kind === "rubric"} inProgress={inProgress} /> : (
             <>
               {d.marks.length === 0 && <p className="muted">{inProgress ? "Marks appear here when marking finishes." : "No questions were found on these pages."}</p>}
@@ -147,6 +148,20 @@ export function SubmissionDetail() {
 }
 
 const clip = (s: string, n = 600) => (s.length > n ? s.slice(0, n).trimEnd() + "…" : s);
+
+/** A rubric marks the response as one, so every criterion carries the same whole transcription: show it once, in
+ *  full, above the table (the rows keep a short cut). Open by default when the pages are gone. */
+function Transcription({ parts }: { parts: Part[] }) {
+  const part = parts.find((p) => !p.illegible && p.extracted.trim());
+  if (!part) return null;
+  return (
+    <details className="callout" style={{ marginBottom: 16 }} role="group" aria-label="Transcription">
+      <summary style={{ cursor: "pointer", fontWeight: 600 }}>Transcription <span className="help">— what was read, in full</span></summary>
+      <div style={{ whiteSpace: "pre-wrap", marginTop: 8, lineHeight: 1.6 }}>{part.extracted}</div>
+      {part.workings && <div className="help" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>Workings: {part.workings}</div>}
+    </details>
+  );
+}
 
 /** Column 2 of the record: the scheme answer with its allocation labels, or the rubric criterion with its bands. */
 function SchemeCell({ part }: { part: Part }) {

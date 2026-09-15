@@ -9,6 +9,7 @@ from sms.schemas.scheme import q_label
 
 ANSWER_LIMIT = 600
 ELLIPSIS = "…"
+SEE_TRANSCRIPTION = "See transcription (page 2)"
 
 # Characters neither Word XML nor openpyxl accept; \n and \t are kept.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -49,6 +50,10 @@ class Record:
     rubric_page: Optional[List[Dict[str, Any]]]  # rubric assignments: [{criterion, bands, awarded_band}]
     submission_id: int
     kind: str                                    # mark_scheme | rubric | criteria (v1)
+    assignment_id: Optional[int] = None          # None = quick mark; the markbook groups sheets by this
+    # rubric assignments: the whole (sanitised) transcription, rendered on its own page; the rows point at
+    # it instead of repeating a 600-character cut of the essay. None for other kinds or nothing read.
+    transcription: Optional[str] = None
 
     @property
     def total_text(self) -> str:
@@ -61,14 +66,18 @@ def truncate(text: str, limit: int = ANSWER_LIMIT) -> str:
     return text if len(text) <= limit else text[:limit] + ELLIPSIS
 
 
-def student_answer(extracted: str, workings: str, illegible: bool) -> str:
-    if illegible:
-        return "(illegible)"
+def _with_workings(extracted: str, workings: str) -> str:
     text = (extracted or "").strip()
     workings = (workings or "").strip()
     if workings:
         text = f"{text}\nWorkings: {workings}" if text else f"Workings: {workings}"
-    return truncate(text)
+    return text
+
+
+def student_answer(extracted: str, workings: str, illegible: bool) -> str:
+    if illegible:
+        return "(illegible)"
+    return truncate(_with_workings(extracted, workings))
 
 
 def _awarded(total: int, mx: int, escalated: bool, teacher_total: Optional[int]):
@@ -111,10 +120,13 @@ def _row_v2(kind: str, part: dict) -> RecordRow:
     else:
         justification = (part.get("justification") or "").strip()
     awarded, marks, to_review = _awarded(total, mx, escalated, teacher_total)
+    answer = student_answer(part.get("extracted", ""), part.get("workings", ""), bool(part.get("illegible")))
+    if kind == "rubric" and not part.get("illegible") and answer:
+        answer = SEE_TRANSCRIPTION  # the whole essay is on the transcription page
     return _clean(RecordRow(
         key=part.get("q_id") or "", label=part.get("label") or q_label(part.get("q_id") or ""),
         scheme_answer=_scheme_text_v2(kind, part),
-        student_answer=student_answer(part.get("extracted", ""), part.get("workings", ""), bool(part.get("illegible"))),
+        student_answer=answer,
         justification=justification, awarded=awarded, teacher="", to_review=to_review, awarded_marks=marks, max_marks=mx,
     ))
 
@@ -172,10 +184,15 @@ def build_record(submission_detail: dict, template: Optional[dict] = None, *, mo
     marked_at = d.get("marked_at") or d.get("created_at") or ""
     kind = d.get("scheme_kind") or "criteria"
     rubric_page = None
+    transcription = None
     if d.get("marks_version") == 2:
         parts = d.get("parts") or []
         rows = [_row_v2(kind, p) for p in parts]
         if kind == "rubric":
+            # a rubric marks the response as one, so every part carries the same whole transcription
+            whole = next((_with_workings(p.get("extracted", ""), p.get("workings", "")) for p in parts
+                          if not p.get("illegible") and (p.get("extracted") or "").strip()), "")
+            transcription = sanitise(whole).strip() or None
             rubric_page = _clean_page([
                 {"criterion": p.get("q_id"), "bands": (p.get("scheme") or {}).get("bands") or [],
                  "awarded_band": (p.get("teacher") or {}).get("band") if p.get("teacher")
@@ -190,4 +207,5 @@ def build_record(submission_detail: dict, template: Optional[dict] = None, *, mo
         total_awarded=int(totals.get("total") or 0), total_upper=int(totals.get("total_upper") or 0),
         total_max=int(totals.get("total_max") or 0), to_review_count=sum(1 for r in rows if r.to_review),
         rubric_page=rubric_page, submission_id=int(d.get("id") or 0), kind=kind,
+        assignment_id=d.get("assignment_id"), transcription=transcription,
     )
