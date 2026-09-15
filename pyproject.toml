@@ -10,6 +10,7 @@ dependencies = [
     "cryptography>=43",
     "instructor>=1.14.5,<2.0.0",
     "openai>=1.99.0",
+    "pillow>=10",
     "psycopg[binary]>=3.2,<4",
     "sqlalchemy>=2.0,<3",
 ]
