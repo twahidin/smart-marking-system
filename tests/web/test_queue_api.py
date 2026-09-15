@@ -97,3 +97,80 @@ def test_learning_endpoints(auth, app):
     assert auth.get("/api/exemplars").json()[0]["status"] == "active"
     stats = auth.get("/api/stats").json()
     assert set(stats) == {"extractor", "marker", "reviewer", "feedback", "reflection"}
+
+
+# --- version 2 (per-part) items ---------------------------------------------------------------
+
+from tests.web.seed_v2 import seed_v2  # noqa: E402
+
+
+def test_queue_v2_item_carries_the_scheme_row_and_the_proposed_part(auth, app):
+    sid, qids = seed_v2(app)
+    items = auth.get("/api/queue").json()
+    assert len(items) == 1
+    it = items[0]
+    assert it["id"] == qids["2"] and it["submission_id"] == sid and it["marks_version"] == 2
+    assert it["q_id"] == "2" and it["label"] == "2" and it["question_text"] == "Expand (x+1)^2" and it["reason"] == "not in scheme"
+    assert it["scheme_row"]["answer"] == "x^2 + 2x + 1" and [m["label"] for m in it["scheme_row"]["marks"]] == ["M1", "A1"]
+    assert it["proposed"]["q_id"] == "2" and it["proposed"]["total"] == 1 and it["proposed"]["in_scheme"] is False
+    assert it["proposed"]["awarded"][0] == {"label": "M1", "marks": 1, "got": True, "why": ""}
+    assert it["transcription"] == "x^2 + 2x + 1" and it["workings"] == "(x+1)(x+1)"
+    assert it["reviewer_note"] == "unsure about 2" and it["page_ids"] and it["submission_label"] == "Tan"
+    assert it["proposed_total"] == 1 and it["proposed_criterion_scores"] == [] and it["criterion_defs"] == []
+
+
+def test_resolve_v2_with_allocations_records_the_v2_correction_and_flips_the_submission(auth, app):
+    sid, qids = seed_v2(app)
+    r = auth.post(f"/api/queue/{qids['2']}/resolve",
+                  json={"allocations": [{"label": "M1", "got": True}, {"label": "A1", "got": True}], "reason": "method valid"})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    c = app.state.db.query("SELECT agent_mark, teacher_mark, criterion_scores_json, reason FROM teacher_corrections")[0]
+    assert (c["agent_mark"], c["teacher_mark"], c["reason"]) == (1, 3, "method valid")
+    assert json.loads(c["criterion_scores_json"]) == {
+        "version": 2, "allocations": [{"label": "M1", "got": True, "marks": 1}, {"label": "A1", "got": True, "marks": 2}], "total": 3}
+    assert auth.get("/api/queue").json() == []
+    d = auth.get(f"/api/submissions/{sid}").json()
+    p2 = d["parts"][2]
+    assert p2["escalated"] is False and p2["teacher"] == {"allocations": [{"label": "M1", "got": True, "marks": 1},
+                                                                          {"label": "A1", "got": True, "marks": 2}], "total": 3}
+    assert d["totals"] == {"total": 5, "total_upper": 5, "total_max": 6} and d["status"] == "done"
+    # allocations left out are recorded as lost: only the labels sent count
+    sid2, qids2 = seed_v2(app, label="Lim", run_id="r3")
+    r = auth.post(f"/api/queue/{qids2['2']}/resolve", json={"allocations": [{"label": "A1", "got": True}], "reason": ""})
+    assert r.status_code == 200
+    d = auth.get(f"/api/submissions/{sid2}").json()
+    assert d["parts"][2]["teacher"]["allocations"] == [{"label": "M1", "got": False, "marks": 1}, {"label": "A1", "got": True, "marks": 2}]
+    assert d["parts"][2]["teacher"]["total"] == 2
+
+
+def test_resolve_v2_validates_against_the_scheme_row(auth, app):
+    _, qids = seed_v2(app)
+    q = qids["2"]
+    r = auth.post(f"/api/queue/{q}/resolve", json={"allocations": [{"label": "Z9", "got": True}], "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_allocations" and "Z9" in r.json()["error"]["message"]
+    r = auth.post(f"/api/queue/{q}/resolve", json={"allocations": [{"label": "M1", "got": True}, {"label": "M1", "got": False}], "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_allocations"
+    r = auth.post(f"/api/queue/{q}/resolve", json={"criterion_scores": [1, 1], "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_allocations"
+    r = auth.post(f"/api/queue/{q}/resolve", json={"band": "A", "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_allocations"
+    assert auth.get("/api/queue").json()[0]["id"] == q  # still pending
+    # a v1 item does not take allocations
+    _, v1_qid = _seed(app)
+    r = auth.post(f"/api/queue/{v1_qid}/resolve", json={"allocations": [{"label": "M1", "got": True}], "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_scores"
+
+
+def test_resolve_v2_rubric_with_a_band(auth, app):
+    sid, qids = seed_v2(app, kind="rubric")
+    it = auth.get("/api/queue").json()[0]
+    assert it["marks_version"] == 2 and it["q_id"] == "Language" and it["scheme_row"]["criterion"] == "Language"
+    assert it["proposed"]["band"] == "B" and it["proposed"]["marks"] == 2
+    r = auth.post(f"/api/queue/{qids['Language']}/resolve", json={"band": "Z", "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_band"
+    r = auth.post(f"/api/queue/{qids['Language']}/resolve", json={"band": "A", "reason": "fine"})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    c = app.state.db.query("SELECT agent_mark, teacher_mark, criterion_scores_json FROM teacher_corrections")[0]
+    assert (c["agent_mark"], c["teacher_mark"]) == (2, 5) and json.loads(c["criterion_scores_json"]) == {"version": 2, "band": "A", "marks": 5}
+    d = auth.get(f"/api/submissions/{sid}").json()
+    assert d["parts"][1]["teacher"] == {"band": "A", "marks": 5, "total": 5} and d["totals"] == {"total": 10, "total_upper": 10, "total_max": 10}

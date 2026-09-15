@@ -232,3 +232,62 @@ def test_create_runs_upload_processing_off_the_event_loop(auth, monkeypatch):
     r = _create(_with_key(auth))
     assert r.status_code == 202
     assert seen["on_loop"] is False
+
+
+# --- version 2 (per-part) runs ---------------------------------------------------------------
+
+from sms.web.services.submissions import compute_totals_v2  # noqa: E402
+from tests.web.seed_v2 import RUBRIC as RUBRIC_BANDS, SCHEME, seed_v2  # noqa: E402
+
+
+def test_detail_v2_parts_follow_the_scheme_and_totals_are_a_range_while_pending(auth, app):
+    sid, qids = seed_v2(app)
+    d = auth.get(f"/api/submissions/{sid}").json()
+    assert d["marks_version"] == 2 and d["marks"] == [] and d["status"] == "needs_you"
+    assert [p["q_id"] for p in d["parts"]] == ["1a", "1b", "2"]
+    p1a, p1b, p2 = d["parts"]
+    assert p1a["label"] == "1(a)" and p1a["question_text"] == "Solve 3x = 9"
+    assert p1a["scheme"] == {"answer": "x = 3", "marks": [{"label": "M1", "marks": 1}, {"label": "A1", "marks": 1}], "notes": ""}
+    assert p1a["extracted"] == "x = 3" and p1a["workings"] == "3x = 9, x = 9/3" and p1a["illegible"] is False
+    assert [a["label"] for a in p1a["awarded"]] == ["M1", "A1"] and p1a["total"] == 2 and p1a["max"] == 2
+    assert p1a["escalated"] is False and p1a["reason"] is None and p1a["queue_id"] is None and p1a["teacher"] is None
+    assert p1a["in_scheme"] is True and p1a["confidence"] == 0.9 and p1a["justification"].startswith("M1 for")
+    assert p1b["total"] == 0 and p1b["max"] == 1
+    assert p2["escalated"] is True and p2["reason"] == "not in scheme" and p2["queue_id"] == qids["2"]
+    assert p2["in_scheme"] is False and p2["max"] == 3
+    # 1a 2/2 + 1b 0/1 settled; part 2 pending: marker's 1 in the lower bound, the row max (3) in the upper
+    assert d["totals"] == {"total": 3, "total_upper": 5, "total_max": 6}
+    lst = auth.get("/api/submissions").json()[0]
+    assert lst["id"] == sid and lst["total"] == 3 and lst["total_upper"] == 5 and lst["total_max"] == 6
+    assert lst["needs_you_qids"] == ["2"]
+
+
+def test_detail_v2_rubric_parts_are_criteria_with_bands(auth, app):
+    sid, qids = seed_v2(app, kind="rubric")
+    d = auth.get(f"/api/submissions/{sid}").json()
+    assert d["marks_version"] == 2 and [p["q_id"] for p in d["parts"]] == ["Content", "Language"]
+    content, language = d["parts"]
+    assert content["label"] == "Content" and content["scheme"]["bands"][0] == {"band": "A", "marks": 5, "descriptor": "Rich, relevant detail"}
+    assert content["band"] == "A" and content["total"] == 5 and content["max"] == 5 and content["escalated"] is False
+    assert content["extracted"]  # the whole response, since a rubric marks the response as one
+    assert language["escalated"] and language["reason"] == "low confidence" and language["queue_id"] == qids["Language"]
+    assert language["band"] == "B" and language["total"] == 2 and language["max"] == 5
+    assert d["totals"] == {"total": 7, "total_upper": 10, "total_max": 10}
+
+
+def test_compute_totals_v2_pure():
+    parts = [{"q_id": "1a", "total": 2}, {"q_id": "1b", "total": 0}, {"q_id": "2", "total": 1}]
+    t = compute_totals_v2("mark_scheme", SCHEME, parts, pending={"2"}, corrections={})
+    assert t == {"total": 3, "total_upper": 5, "total_max": 6}
+    # a teacher's resolution pins the part to the teacher's total on both bounds
+    t = compute_totals_v2("mark_scheme", SCHEME, parts, pending=set(),
+                          corrections={"2": {"version": 2, "allocations": [], "total": 2}})
+    assert t == {"total": 4, "total_upper": 4, "total_max": 6}
+    # a part the marker never returned counts 0 (not pending) and still contributes to the max
+    t = compute_totals_v2("mark_scheme", SCHEME, parts[:2], pending=set(), corrections={})
+    assert t == {"total": 2, "total_upper": 2, "total_max": 6}
+    marks = [{"criterion": "Content", "marks": 5}, {"criterion": "Language", "marks": 2}]
+    t = compute_totals_v2("rubric", RUBRIC_BANDS, marks, pending={"Language"}, corrections={})
+    assert t == {"total": 7, "total_upper": 10, "total_max": 10}
+    t = compute_totals_v2("rubric", RUBRIC_BANDS, marks, pending=set(), corrections={"Language": {"version": 2, "band": "A", "marks": 5}})
+    assert t == {"total": 10, "total_upper": 10, "total_max": 10}

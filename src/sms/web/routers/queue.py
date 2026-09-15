@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -9,8 +9,17 @@ from sms.web.services.queue import list_queue, resolve_queue_item
 router = APIRouter(prefix="/api/queue", tags=["queue"], dependencies=[Depends(require_teacher)])
 
 
+class AllocationChoice(BaseModel):
+    label: str
+    got: bool
+
+
 class ResolveBody(BaseModel):
-    criterion_scores: List[int]
+    """v1 items: criterion_scores. v2 mark-scheme parts: allocations. v2 rubric criteria: band."""
+
+    criterion_scores: Optional[List[int]] = None
+    allocations: Optional[List[AllocationChoice]] = None
+    band: Optional[str] = None
     reason: str = ""
 
 
@@ -21,4 +30,6 @@ def index(db=Depends(get_db)):
 
 @router.post("/{item_id}/resolve")
 def resolve(item_id: int, body: ResolveBody, db=Depends(get_db)):
-    return resolve_queue_item(db, item_id, body.criterion_scores, body.reason.strip())
+    return resolve_queue_item(db, item_id, body.criterion_scores, body.reason.strip(),
+                              allocations=[a.model_dump() for a in body.allocations] if body.allocations is not None else None,
+                              band=body.band)
