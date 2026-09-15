@@ -1,10 +1,12 @@
 import io
 import json
+from datetime import datetime, timezone
 
 from PIL import Image
 
 from sms.schemas.marking import Rubric, RubricCriterion
-from sms.web.services.submissions import compute_totals
+from sms.web.routers import submissions as submissions_router
+from sms.web.services.submissions import compute_totals, iso_utc
 
 RUBRIC = {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2},
                               {"id": "c2", "description": "answer", "max_score": 3}]}
@@ -13,6 +15,12 @@ RUBRIC = {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 
 def _png():
     buf = io.BytesIO()
     Image.new("RGB", (20, 30), "white").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _bigger_png():
+    buf = io.BytesIO()
+    Image.new("RGB", (400, 400), "white").save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -107,3 +115,55 @@ def test_compute_totals_pure():
     assert t == {"total": 5, "total_upper": 9, "total_max": 10}
     t = compute_totals(rubric, final, pending_qids=set(), corrections={"q2": [2, 2]})
     assert t == {"total": 8, "total_upper": 8, "total_max": 10}
+
+
+def test_page_route_missing_file_404(auth, app):
+    body = _create(_with_key(auth)).json()
+    pid = body["pages"][0]["id"]
+    row = app.state.db.query("SELECT storage_path FROM pages WHERE id = :id", {"id": pid})[0]
+    app.state.storage.abs(row["storage_path"]).unlink()
+    r = auth.get(f"/api/pages/{pid}")
+    assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+
+
+def test_iso_utc_none():
+    assert iso_utc(None) is None
+
+
+def test_iso_utc_naive_datetime_assumed_utc():
+    assert iso_utc(datetime(2026, 9, 15, 3, 4, 5)) == "2026-09-15T03:04:05Z"
+
+
+def test_iso_utc_aware_datetime_converted_to_utc():
+    tz = timezone.utc
+    from datetime import timedelta
+    plus8 = timezone(timedelta(hours=8))
+    assert iso_utc(datetime(2026, 9, 15, 11, 4, 5, tzinfo=plus8)) == "2026-09-15T03:04:05Z"
+    assert iso_utc(datetime(2026, 9, 15, 3, 4, 5, tzinfo=tz)) == "2026-09-15T03:04:05Z"
+
+
+def test_iso_utc_sqlite_string():
+    assert iso_utc("2026-09-15 03:04:05") == "2026-09-15T03:04:05Z"
+
+
+def test_iso_utc_string_with_microseconds():
+    assert iso_utc("2026-09-15 03:04:05.123456") == "2026-09-15T03:04:05Z"
+
+
+def test_create_content_length_over_limit_413(auth):
+    auth = _with_key(auth)
+    over_limit = submissions_router.MAX_UPLOAD_BYTES + 1
+    r = auth.post("/api/submissions",
+                  data={"label": "x", "subject": "math", "context": "", "rubric": json.dumps(RUBRIC)},
+                  files=[("files", ("p1.png", _png(), "image/png"))],
+                  headers={"content-length": str(over_limit)})
+    assert r.status_code == 413 and r.json()["error"]["code"] == "too_large"
+
+
+def test_create_body_over_patched_limit_413(auth, monkeypatch):
+    auth = _with_key(auth)
+    monkeypatch.setattr(submissions_router, "MAX_UPLOAD_BYTES", 100)
+    r = auth.post("/api/submissions",
+                  data={"label": "x", "subject": "math", "context": "", "rubric": json.dumps(RUBRIC)},
+                  files=[("files", ("p1.png", _bigger_png(), "image/png"))])
+    assert r.status_code == 413 and r.json()["error"]["code"] == "too_large"

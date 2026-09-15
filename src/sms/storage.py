@@ -9,6 +9,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_LONG_EDGE = 2000
 JPEG_QUALITY = 85
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 PDF_EXTS = {".pdf"}
 
@@ -124,7 +125,7 @@ def _image_from_bytes(filename: str, data: bytes) -> Image.Image:
 
 
 def process_uploads(files: List[Tuple[str, bytes]], storage: PageStorage, max_pages: int = 60,
-                    max_total_bytes: int = 50 * 1024 * 1024) -> List[ProcessedPage]:
+                    max_total_bytes: int = MAX_UPLOAD_BYTES) -> List[ProcessedPage]:
     total = sum(len(b) for _, b in files)
     if total > max_total_bytes:
         raise UploadError(files[0][0] if files else "upload", f"upload is {total // (1024 * 1024)} MB; the limit is {max_total_bytes // (1024 * 1024)} MB")

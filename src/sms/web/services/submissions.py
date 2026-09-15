@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from pydantic import ValidationError
 
@@ -9,6 +10,29 @@ from sms.schemas.marking import Rubric
 from sms.storage import PageStorage, UploadError, process_uploads
 from sms.web.errors import ApiError
 from sms.worker.jobs import JobStore
+
+
+def iso_utc(value: Optional[Union[str, datetime]]) -> Optional[str]:
+    """Normalise a DB timestamp (naive/aware datetime, or SQLite/ISO string) to 'YYYY-MM-DDTHH:MM:SSZ' UTC.
+
+    SQLite returns timestamps as strings like 'YYYY-MM-DD HH:MM:SS[.ffffff]'; Postgres returns
+    `datetime` objects (naive, stored as UTC). Both must render identically to API consumers.
+    """
+    if value is None:
+        return None
+    dt = value
+    if isinstance(dt, str):
+        s = dt.strip()
+        if "T" not in s and " " in s:
+            s = s.replace(" ", "T", 1)
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_rubric(rubric_json: str) -> Rubric:
@@ -111,7 +135,7 @@ def list_submissions(db: Database) -> List[Dict[str, Any]]:
         totals = compute_totals(rubric, final, set(pending), _corrections(db, s["run_id"])) if final else None
         out.append({
             "id": s["id"], "label": s["label"], "subject": s["subject"], "page_count": s["page_count"],
-            "status": s["status"], "created_at": str(s["created_at"]),
+            "status": s["status"], "created_at": iso_utc(s["created_at"]),
             "total": totals["total"] if totals else None,
             "total_upper": totals["total_upper"] if totals else None,
             "total_max": totals["total_max"] if totals else None,
@@ -149,10 +173,10 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
     job = jobs.job_for_submission(submission_id)
     return {
         "id": s["id"], "label": s["label"], "subject": s["subject"], "context": s["context"], "status": s["status"],
-        "created_at": str(s["created_at"]), "rubric": rubric.model_dump(), "pages": pages, "marks": marks,
+        "created_at": iso_utc(s["created_at"]), "rubric": rubric.model_dump(), "pages": pages, "marks": marks,
         "totals": compute_totals(rubric, marks, set(pending), corrections) if marks else None,
         "feedback": feedback,
         "job": {"status": job["status"], "attempts": job["attempts"], "error": job["error"],
-                "started_at": str(job["started_at"]) if job["started_at"] else None,
-                "finished_at": str(job["finished_at"]) if job["finished_at"] else None} if job else None,
+                "started_at": iso_utc(job["started_at"]),
+                "finished_at": iso_utc(job["finished_at"])} if job else None,
     }

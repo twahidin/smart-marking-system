@@ -12,5 +12,8 @@ def page(page_id: int, db=Depends(get_db), storage=Depends(get_storage)):
     rows = db.query("SELECT storage_path FROM pages WHERE id = :id", {"id": page_id})
     if not rows:
         raise ApiError(404, "not_found", "No such page")
-    return FileResponse(storage.abs(rows[0]["storage_path"]), media_type="image/jpeg",
+    path = storage.abs(rows[0]["storage_path"])
+    if not path.is_file():
+        raise ApiError(404, "not_found", "Page image is missing from storage")
+    return FileResponse(path, media_type="image/jpeg",
                         headers={"Cache-Control": "private, max-age=86400"})
