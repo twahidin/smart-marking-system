@@ -82,17 +82,30 @@ def test_claim_orders_by_created(db):
     assert js.claim()["id"] == a and js.claim()["id"] == b
 
 
-def test_enqueue_unique_inserts_once_for_same_payload(db):
+def test_enqueue_unique_blocks_same_key_while_active_then_allows_after_finish(db):
     js = JobStore(db)
-    a = js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7})
+    a = js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}, dedupe_key="reflect:math")
     assert isinstance(a, int)
-    # key order must not matter
-    assert js.enqueue_unique("reflect", {"lookback_days": 7, "subject": "math"}) is None
-    assert js.enqueue_unique("reflect", {"subject": "science", "lookback_days": 7}) is not None
+    # same key, different payload (e.g. a retry that gained run_id): still a duplicate while queued
+    assert js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 14, "run_id": 3}, dedupe_key="reflect:math") is None
+    assert js.enqueue_unique("reflect", {"subject": "science", "lookback_days": 7}, dedupe_key="reflect:science") is not None
     assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 2
-    # a finished job no longer blocks a new one
+    # ...and while running
+    js.claim()
+    assert js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}, dedupe_key="reflect:math") is None
+    # the index only covers queued/running: a finished job no longer blocks a new one
     js.finish(a)
-    assert js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}) is not None
+    b = js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}, dedupe_key="reflect:math")
+    assert isinstance(b, int) and b != a
+    assert db.query("SELECT dedupe_key FROM jobs WHERE id = ?", (b,))[0]["dedupe_key"] == "reflect:math"
+
+
+def test_enqueue_unique_failed_job_does_not_block(db):
+    js = JobStore(db)
+    a = js.enqueue_unique("reflect", {"subject": "math"}, dedupe_key="reflect:math")
+    js.claim()
+    js.fail(a, "boom")
+    assert js.enqueue_unique("reflect", {"subject": "math"}, dedupe_key="reflect:math") is not None
 
 
 def test_enqueue_unique_under_concurrency_creates_one_job(db):
@@ -103,7 +116,7 @@ def test_enqueue_unique_under_concurrency_creates_one_job(db):
 
     def go():
         start.wait()
-        results.append(js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}))
+        results.append(js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}, dedupe_key="reflect:math"))
 
     threads = [threading.Thread(target=go) for _ in range(8)]
     for t in threads:

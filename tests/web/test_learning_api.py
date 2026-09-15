@@ -27,13 +27,17 @@ def test_post_reflect_enqueues_and_409s_while_pending(auth, app):
     assert runs["runs"] == [] and sorted(runs["pending"]) == ["math", "science"]
 
 
-def test_post_reflect_is_atomic_against_a_racing_duplicate(auth, app, monkeypatch):
-    """Even if the pre-check says nothing is pending, the insert itself must refuse a duplicate."""
-    monkeypatch.setattr(app.state.jobs, "pending_reflect_subjects", lambda: set())
-    assert auth.post("/api/reflect", json={"subject": "math"}).status_code == 202
+def test_post_reflect_409_comes_from_the_insert_not_a_precheck(auth, app):
+    """The 409 is decided by the unique index at insert time; a running job whose payload has
+    gained a run_id (so no longer equals a fresh payload) still blocks."""
     r = auth.post("/api/reflect", json={"subject": "math"})
+    assert r.status_code == 202
+    app.state.jobs.claim()
+    app.state.jobs.set_payload(r.json()["job_id"], {"subject": "math", "lookback_days": 7, "run_id": 5})
+    r = auth.post("/api/reflect", json={"subject": "math", "lookback_days": 14})
     assert r.status_code == 409 and r.json()["error"]["code"] == "already_running"
     assert app.state.db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 1
+    assert app.state.db.query("SELECT dedupe_key FROM jobs")[0]["dedupe_key"] == "reflect:math"
 
 
 def test_post_reflect_validates(auth):

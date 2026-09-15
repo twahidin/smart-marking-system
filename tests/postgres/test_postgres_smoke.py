@@ -3,7 +3,7 @@
     SMS_TEST_DATABASE_URL=postgresql://sms:sms@localhost:5432/sms_test uv run pytest tests/postgres -q
 
 Exercises the code paths that differ between SQLite and Postgres: RETURNING, FOR UPDATE SKIP LOCKED,
-aggregate types (Decimal/bigint), and datetime columns.
+ON CONFLICT against a partial unique index, aggregate types (Decimal/bigint), and datetime columns.
 """
 import os
 
@@ -74,3 +74,19 @@ def test_created_at_default_renders_as_utc_z(db, submission_id):
     assert rendered is not None and rendered.endswith("Z") and rendered[10] == "T"
     # The engine pins the session timezone so now()-based defaults are UTC regardless of server config.
     assert db.query("SELECT current_setting('TimeZone') AS tz")[0]["tz"] == "UTC"
+
+
+def test_enqueue_unique_is_backed_by_the_partial_unique_index(db):
+    js = JobStore(db)
+    key = "reflect:pg-smoke"
+    db.execute("DELETE FROM jobs WHERE dedupe_key = :k", {"k": key})
+    try:
+        a = js.enqueue_unique("reflect", {"subject": "pg-smoke", "lookback_days": 7}, dedupe_key=key)
+        assert isinstance(a, int)
+        assert js.enqueue_unique("reflect", {"subject": "pg-smoke", "lookback_days": 7, "run_id": 1}, dedupe_key=key) is None
+        js.finish(a)
+        b = js.enqueue_unique("reflect", {"subject": "pg-smoke", "lookback_days": 7}, dedupe_key=key)
+        assert isinstance(b, int) and b != a
+        assert db.query("SELECT COUNT(*) AS c FROM jobs WHERE dedupe_key = :k", {"k": key})[0]["c"] == 2
+    finally:
+        db.execute("DELETE FROM jobs WHERE dedupe_key = :k", {"k": key})

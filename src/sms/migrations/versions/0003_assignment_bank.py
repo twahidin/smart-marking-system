@@ -48,6 +48,12 @@ def upgrade() -> None:
         b.add_column(sa.Column("template_id", sa.Integer))
     with op.batch_alter_table("jobs") as b:
         b.add_column(sa.Column("payload_json", sa.Text))
+        b.add_column(sa.Column("dedupe_key", sa.Text))
+    # At most one queued/running job per dedupe_key (e.g. "reflect:math"); enqueue_unique relies on
+    # ON CONFLICT against this index, which is what makes it safe under concurrent writers on Postgres.
+    op.create_index("uq_jobs_active_dedupe", "jobs", ["dedupe_key"], unique=True,
+                    postgresql_where=sa.text("status IN ('queued','running')"),
+                    sqlite_where=sa.text("status IN ('queued','running')"))
     with op.batch_alter_table("settings") as b:
         b.add_column(sa.Column("auto_reflect", sa.Boolean, nullable=False, server_default=sa.true()))
 
@@ -55,7 +61,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     with op.batch_alter_table("settings") as b:
         b.drop_column("auto_reflect")
+    op.drop_index("uq_jobs_active_dedupe", table_name="jobs")
     with op.batch_alter_table("jobs") as b:
+        b.drop_column("dedupe_key")
         b.drop_column("payload_json")
     # Template pages have no submission; drop them before submission_id becomes NOT NULL again.
     op.execute("DELETE FROM pages WHERE submission_id IS NULL")

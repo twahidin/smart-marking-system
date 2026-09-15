@@ -127,7 +127,8 @@ class Worker:
                                 "AND error IS NULL", {"s": subject, "cutoff": cutoff})[0]["c"]
             if ran:
                 continue
-            if self.jobs.enqueue_unique("reflect", {"subject": subject, "lookback_days": REFLECT_LOOKBACK_DAYS}) is not None:
+            if self.jobs.enqueue_unique("reflect", {"subject": subject, "lookback_days": REFLECT_LOOKBACK_DAYS},
+                                        dedupe_key=f"reflect:{subject}") is not None:
                 log.info("scheduled nightly reflection for %s", subject)
 
     def start_thread(self, stop: threading.Event) -> threading.Thread:

@@ -35,16 +35,16 @@ class JobStore:
                             {"s": submission_id})
         return job_id
 
-    def enqueue_unique(self, kind: str, payload: dict) -> Optional[int]:
-        """Enqueue a job without a submission unless an identical one (same kind and payload) is
-        already queued or running. One statement, so two racing callers cannot both insert.
-        Returns the new job id, or None when a duplicate exists."""
+    def enqueue_unique(self, kind: str, payload: dict, dedupe_key: str) -> Optional[int]:
+        """Enqueue a job without a submission unless one with the same dedupe_key is already
+        queued or running. The partial unique index uq_jobs_active_dedupe makes the check part of
+        the insert itself, so concurrent callers cannot both succeed — on Postgres as well as
+        SQLite. Returns the new job id, or None when nothing was inserted."""
         with self.db.transaction() as tx:
             rows = tx.query(
-                "INSERT INTO jobs (kind, status, payload_json) SELECT :k, 'queued', :p "
-                "WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE kind = :k AND status IN ('queued', 'running') "
-                "AND payload_json = :p) RETURNING id",
-                {"k": kind, "p": _payload_json(payload)},
+                "INSERT INTO jobs (kind, status, payload_json, dedupe_key) VALUES (:k, 'queued', :p, :d) "
+                "ON CONFLICT (dedupe_key) WHERE status IN ('queued', 'running') DO NOTHING RETURNING id",
+                {"k": kind, "p": _payload_json(payload), "d": dedupe_key},
             )
         return int(rows[0]["id"]) if rows else None
 
