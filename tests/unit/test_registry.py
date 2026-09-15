@@ -16,9 +16,9 @@ def test_default_provider_is_tokenrouter_glm_flash():
     assert "if your key allows" in free.label and free.vision
 
 
-def test_all_six_providers_present_with_vision_default():
+def test_all_seven_providers_present_with_vision_default():
     ids = {p.id for p in PROVIDERS}
-    assert ids == {"tokenrouter", "openrouter", "openai", "anthropic", "moonshot", "qwen"}
+    assert ids == {"tokenrouter", "openrouter", "openai", "anthropic", "moonshot", "qwen", "google"}
     for p in PROVIDERS:
         default = next(m for m in p.models if m.id == p.default_model)
         assert default.vision, f"{p.id} default model must support vision"
@@ -39,6 +39,7 @@ def test_registry_as_dicts_is_json_shaped():
     ("openrouter", instructor.Mode.JSON),
     ("moonshot", instructor.Mode.JSON),
     ("qwen", instructor.Mode.JSON),
+    ("google", instructor.Mode.JSON),
     ("openai", instructor.Mode.TOOLS),
 ])
 def test_build_client_openai_family(pid, mode):
@@ -46,7 +47,7 @@ def test_build_client_openai_family(pid, mode):
     assert client.mode == mode
     spec = get_provider(pid)
     if spec.base_url:
-        assert str(client.client.base_url).rstrip("/") == spec.base_url
+        assert str(client.client.base_url).rstrip("/") == spec.base_url.rstrip("/")
 
 
 def test_build_client_anthropic():
@@ -73,3 +74,19 @@ def test_openrouter_auto_router_is_listed_text_only():
     auto = next(m for m in get_provider("openrouter").models if m.id == "openrouter/auto")
     assert auto.vision is False
     assert "openrouter/auto" in get_provider("openrouter").note
+
+
+def test_google_gemini_provider_is_openai_compatible_with_free_tier_note():
+    g = get_provider("google")
+    assert g.label == "Google Gemini" and g.transport == "openai_compatible" and g.mode == "JSON"
+    assert g.base_url == "https://generativelanguage.googleapis.com/v1beta/openai/"
+    assert g.default_model == "gemini-3.8-flash" and g.default_rpm == 10
+    assert [m.id for m in g.models] == ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
+    assert all(m.vision for m in g.models)
+    assert g.key_url == "https://aistudio.google.com/apikey"
+    assert "Free tier" in g.note and "Test connection" in g.note
+
+
+def test_openrouter_note_mentions_free_models():
+    note = get_provider("openrouter").note
+    assert ":free" in note and "openrouter/auto" in note

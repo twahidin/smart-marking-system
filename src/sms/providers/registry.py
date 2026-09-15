@@ -56,7 +56,9 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         ),
         key_url="https://openrouter.ai/keys",
         note="Auto Router (openrouter/auto) may pick a text-only model. If you use it, set a "
-             "vision model under “Different model for reading pages”.",
+             "vision model under “Different model for reading pages”. OpenRouter's :free models "
+             "cost nothing (≈50 requests/day until you've bought $10 of credits, then 1,000/day) — "
+             "load models and look for the :free suffix.",
     ),
     ProviderSpec(
         id="openai", label="OpenAI", transport="openai", base_url=None, mode="TOOLS",
@@ -103,6 +105,20 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
              "https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1. "
              "If the default URL is rejected, paste yours here.",
         base_url_editable=True,
+    ),
+    ProviderSpec(
+        id="google", label="Google Gemini", transport="openai_compatible",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/", mode="JSON",
+        default_model="gemini-3.8-flash", default_rpm=10,
+        models=(
+            ModelSpec("gemini-3.8-flash", "Gemini 3.8 Flash", True),
+            ModelSpec("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", True),
+            ModelSpec("gemini-2.5-flash", "Gemini 2.5 Flash", True),
+        ),
+        key_url="https://aistudio.google.com/apikey",
+        note="Free tier: no card needed; roughly 10–30 requests a minute and hundreds per day "
+             "depending on the model — enough for a class. Limits change; the Test connection "
+             "button tells you if a model is available on your key.",
     ),
 )
 

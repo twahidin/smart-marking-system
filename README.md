@@ -56,12 +56,12 @@ Minimal `rubric.json`:
 | `sms serve --host --port` | Run the web app (API + SPA + embedded worker) |
 | `sms worker` | Run a standalone marking worker (for use alongside `sms serve --host 0.0.0.0` with `SMS_EMBEDDED_WORKER=0`) |
 
-`--provider` on `mark`/`reflect` selects the LLM provider (`tokenrouter` \| `openrouter` \| `openai` \| `anthropic` \| `moonshot` \| `qwen`); `--api-key` supplies its key. Both default to the configured provider/key when omitted.
+`--provider` on `mark`/`reflect` selects the LLM provider (`tokenrouter` \| `openrouter` \| `openai` \| `anthropic` \| `moonshot` \| `qwen` \| `google`); `--api-key` supplies its key. Both default to the configured provider/key when omitted.
 
 ## Web app
 
 Smart Marking is also a web app: sign in with a shared teacher password, pick an LLM provider
-(TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot/Kimi, Qwen) and enter its API key under
+(TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot/Kimi, Qwen, Google Gemini) and enter its API key under
 **Settings**, upload a script's pages (PDF, JPG, PNG or HEIC) under **Mark a script**, and resolve the
 questions the AI was unsure about under **Review**. The default provider is TokenRouter with
 `z-ai/glm-5.3-flash`; **Load models from provider** on the Settings page lists every model your key
@@ -88,7 +88,7 @@ One service (this repo, Dockerfile) + a Postgres database + a volume mounted at 
 | `SECRET_KEY` | a long random string — signs sessions and encrypts stored API keys (changing it invalidates both) |
 | `TEACHER_PASSWORD` | the password teachers use to sign in |
 | `STORAGE_DIR` | `/data` |
-| `LLM_PROVIDER` | optional — `tokenrouter` (default), `openrouter`, `openai`, `anthropic`, `moonshot`, `qwen` |
+| `LLM_PROVIDER` | optional — `tokenrouter` (default), `openrouter`, `openai`, `anthropic`, `moonshot`, `qwen`, `google` |
 | `LLM_MODEL` | optional — defaults to the provider's default model |
 | `LLM_API_KEY` | optional — pre-seeds the key so the settings page can be skipped |
 

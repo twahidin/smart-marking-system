@@ -63,3 +63,15 @@ def test_provider_error_propagates(monkeypatch):
     monkeypatch.setattr("sms.providers.models._openai_client", lambda api_key, base_url: Boom())
     with pytest.raises(httpx.HTTPError):
         list_models("openai", "k")
+
+
+def test_strips_gemini_models_prefix(monkeypatch):
+    seen = {}
+
+    def factory(api_key, base_url):
+        seen["url"] = base_url
+        return FakeOpenAI(["models/gemini-3.8-flash", "models/gemini-2.5-flash", "gemini-2.5-flash"])
+
+    monkeypatch.setattr("sms.providers.models._openai_client", factory)
+    assert list_models("google", "k") == ["gemini-2.5-flash", "gemini-3.8-flash"]
+    assert seen["url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"

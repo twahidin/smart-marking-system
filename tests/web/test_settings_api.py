@@ -8,9 +8,9 @@ def test_requires_auth(client):
     assert client.get("/api/providers").status_code == 401
 
 
-def test_providers_lists_six(auth):
+def test_providers_lists_seven(auth):
     body = auth.get("/api/providers").json()
-    assert {p["id"] for p in body} == {"tokenrouter", "openrouter", "openai", "anthropic", "moonshot", "qwen"}
+    assert {p["id"] for p in body} == {"tokenrouter", "openrouter", "openai", "anthropic", "moonshot", "qwen", "google"}
 
 
 def test_get_defaults_and_never_leaks_key(auth):

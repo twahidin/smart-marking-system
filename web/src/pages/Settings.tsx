@@ -77,7 +77,7 @@ export function Settings() {
               </label>
             ))}
           </div>
-          {spec.note && <p className="help">{spec.note}</p>}
+          {spec.note && <p className="help">{(spec.id === "google" || spec.id === "openrouter") && <><strong>Free options:</strong> </>}{spec.note}</p>}
         </div>
         <div className="grid-2">
           <div className="field">

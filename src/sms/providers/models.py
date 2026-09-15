@@ -30,5 +30,11 @@ def list_models(provider_id: str, api_key: str, base_url: Optional[str] = None) 
         items = page.data if hasattr(page, "data") else page
     else:
         items = _openai_client(api_key, url).models.list().data
-    ids = {str(m.id) for m in items if getattr(m, "id", None)}
+    # Gemini's OpenAI-compatible /models returns ids like "models/gemini-3.8-flash"; the chat
+    # endpoint wants the bare id, so drop that resource prefix wherever it appears.
+    ids = {_strip_models_prefix(str(m.id)) for m in items if getattr(m, "id", None)}
     return sorted(ids)
+
+
+def _strip_models_prefix(model_id: str) -> str:
+    return model_id[len("models/"):] if model_id.startswith("models/") else model_id

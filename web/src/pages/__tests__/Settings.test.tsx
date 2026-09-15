@@ -10,6 +10,12 @@ const providers = [
     default_model: "z-ai/glm-5.3-flash", default_rpm: 60, key_url: "https://www.tokenrouter.com/", note: "", base_url_editable: false, api_params: null,
     models: [{ id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", vision: true }],
   },
+  {
+    id: "google", label: "Google Gemini", transport: "openai_compatible", base_url: "https://generativelanguage.googleapis.com/v1beta/openai/", mode: "JSON",
+    default_model: "gemini-3.8-flash", default_rpm: 10, key_url: "https://aistudio.google.com/apikey", base_url_editable: false, api_params: null,
+    note: "Free tier: no card needed; roughly 10–30 requests a minute.",
+    models: [{ id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", vision: true }],
+  },
 ];
 const settings = { provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true };
 
@@ -29,6 +35,19 @@ function mockFetch(onModels: () => Response) {
 const saved: any[] = [];
 
 afterEach(() => { vi.unstubAllGlobals(); saved.length = 0; });
+
+describe("Settings — free options", () => {
+  it("labels the note as free options for Google Gemini and adopts its default rpm", async () => {
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    expect(await screen.findByRole("radio", { name: "TokenRouter" })).toBeChecked();
+    expect(screen.queryByText("Free options:")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "Google Gemini" }));
+    expect(screen.getByText("Free options:")).toBeInTheDocument();
+    expect(screen.getByText(/no card needed/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Requests per minute")).toHaveValue(10);
+  });
+});
 
 describe("Settings — nightly reflection", () => {
   it("saves the auto_reflect checkbox with the rest of the settings", async () => {
