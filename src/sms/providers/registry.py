@@ -49,8 +49,13 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
             ModelSpec("anthropic/claude-sonnet-5", "Claude Sonnet 5", True),
             ModelSpec("openai/gpt-5-mini", "GPT-5 mini", True),
             ModelSpec("qwen/qwen3-vl-plus", "Qwen3 VL Plus", True),
+            # Auto Router picks a model per request; it may choose a text-only model,
+            # so it is marked text-only — pair it with a vision model for reading pages.
+            ModelSpec("openrouter/auto", "Auto Router (picks a model per request)", False),
         ),
         key_url="https://openrouter.ai/keys",
+        note="Auto Router (openrouter/auto) may pick a text-only model. If you use it, set a "
+             "vision model under “Different model for reading pages”.",
     ),
     ProviderSpec(
         id="openai", label="OpenAI", transport="openai", base_url=None, mode="TOOLS",

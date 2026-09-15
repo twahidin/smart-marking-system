@@ -65,3 +65,9 @@ def test_build_client_base_url_override():
 def test_build_client_unknown_provider():
     with pytest.raises(KeyError):
         build_client("nope", api_key="k")
+
+
+def test_openrouter_auto_router_is_listed_text_only():
+    auto = next(m for m in get_provider("openrouter").models if m.id == "openrouter/auto")
+    assert auto.vision is False
+    assert "openrouter/auto" in get_provider("openrouter").note
