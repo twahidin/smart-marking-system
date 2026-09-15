@@ -370,3 +370,15 @@ artboards, `screenshots/`, `_ds/…/styles.css`, README) so the mockups live wit
 Classes, students, assignments, release, marks CSV, student flow, page sorter, reflection
 scheduling ("Run reflection" button), multi-teacher accounts, Google sign-in, Anthropic native PDF
 input, websockets/progress bars.
+
+## Amendments (made while writing the implementation plan)
+
+- **`settings.base_url`** (editable per provider, pre-filled from the registry): Alibaba Model Studio now
+  issues workspace-specific endpoints (`https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`),
+  so Qwen users must be able to paste theirs. Shown in the UI only for providers flagged `base_url_editable`.
+- **`ProviderSpec.api_params`** and a `model_api_parameters` passthrough on every agent factory: the
+  Anthropic Messages API requires `max_tokens`; the registry supplies `{"max_tokens": 8192}` for Anthropic.
+- **Anthropic default model** is `claude-opus-5` (curated: Opus 5, Sonnet 5, Haiku 4.5), per the Claude API reference.
+- **Moonshot** curated models: `kimi-k2.6` (default), `kimi-k3` — both vision. Older `moonshot-v1-*` ids are retired.
+- **Rubric table** in slice 1 has no per-question "Q" column: the engine applies `criterion_defs` to every
+  question. Per-question rubrics come with assignments in slice 2.
