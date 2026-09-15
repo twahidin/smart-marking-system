@@ -30,12 +30,14 @@ def mount_spa(app: FastAPI, dist: Path) -> None:
     if (dist / "assets").exists():
         app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
+    root = dist.resolve()
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa(full_path: str, request: Request):
         if full_path.startswith("api/"):
             return JSONResponse(status_code=404, content={"error": {"code": "not_found", "message": "No such route"}})
-        candidate = dist / full_path
-        if full_path and candidate.is_file():
+        candidate = (root / full_path).resolve()
+        if full_path and candidate.is_relative_to(root) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(dist / "index.html")
 

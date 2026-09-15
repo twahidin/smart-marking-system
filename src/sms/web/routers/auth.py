@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
-from sms.web.deps import COOKIE, SESSION_MAX_AGE, require_teacher
+from sms.web.deps import COOKIE, SESSION_MAX_AGE, client_ip, require_teacher
 from sms.web.errors import ApiError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -13,7 +13,7 @@ class LoginBody(BaseModel):
 
 @router.post("/login", status_code=204)
 def login(body: LoginBody, request: Request, response: Response):
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     limiter = request.app.state.login_limiter
     if limiter.blocked(ip):
         raise ApiError(429, "too_many_attempts", "Too many attempts — wait a minute and try again")
@@ -29,7 +29,7 @@ def login(body: LoginBody, request: Request, response: Response):
 
 
 @router.post("/logout", status_code=204)
-def logout(response: Response):
+def logout(response: Response, _: None = Depends(require_teacher)):
     response.delete_cookie(COOKIE, path="/")
     return None
 

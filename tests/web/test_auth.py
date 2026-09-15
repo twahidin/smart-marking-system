@@ -26,3 +26,20 @@ def test_login_rate_limited_after_five_failures(client):
 def test_tampered_cookie_rejected(client):
     client.cookies.set("sms_session", "garbage")
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_login_missing_password_400_validation_shape(client):
+    r = client.post("/api/auth/login", json={})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "validation"
+
+
+def test_login_rate_limit_is_per_forwarded_ip(client):
+    for _ in range(5):
+        client.post("/api/auth/login", json={"password": "nope"}, headers={"X-Forwarded-For": "1.1.1.1"})
+    blocked = client.post("/api/auth/login", json={"password": "nope"}, headers={"X-Forwarded-For": "1.1.1.1"})
+    assert blocked.status_code == 429
+
+    still_allowed = client.post("/api/auth/login", json={"password": "nope"}, headers={"X-Forwarded-For": "2.2.2.2"})
+    assert still_allowed.status_code == 401
+    assert still_allowed.json()["error"]["code"] == "bad_password"

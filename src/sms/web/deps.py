@@ -39,10 +39,22 @@ class LoginLimiter:
         now = time.monotonic()
         while q and now - q[0] > self.window_s:
             q.popleft()
-        return len(q) >= self.limit
+        result = len(q) >= self.limit
+        if not q:
+            self._hits.pop(ip, None)
+        return result
 
     def record_failure(self, ip: str) -> None:
         self._hits[ip].append(time.monotonic())
+
+
+def client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
 
 
 def get_db(request: Request):
