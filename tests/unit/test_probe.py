@@ -1,4 +1,6 @@
-from sms.providers.probe import Digits, Pong, ProbeResult, probe, render_number_png
+import instructor
+
+from sms.providers.probe import PROBE_TIMEOUT_S, Digits, Pong, ProbeResult, probe, render_number_png
 
 
 class FakeInstructor:
@@ -45,6 +47,24 @@ def test_probe_success(monkeypatch):
     r = probe("tokenrouter", "z-ai/glm-5.3-free", "k", client_factory=factory)
     assert r.text.ok and r.vision.ok and r.text.error is None
     assert fake.calls[0]["model"] == "z-ai/glm-5.3-free"
+
+
+def test_probe_vision_message_uses_instructor_image(monkeypatch):
+    """instructor converts an Image per provider; a raw OpenAI-style dict is passed through and Anthropic 400s."""
+    fake = FakeInstructor(vision_number=37)
+    monkeypatch.setattr("sms.providers.probe.random.randint", lambda a, b: 37)
+    probe("anthropic", "claude-sonnet-4-5", "k", client_factory=lambda *a, **k: fake)
+    content = fake.calls[1]["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "What two-digit number is written in this image?"}
+    assert isinstance(content[1], instructor.Image) and not isinstance(content[1], dict)
+    assert content[1].media_type == "image/png"
+    assert content[1].to_anthropic()["source"]["media_type"] == "image/png"
+
+
+def test_probe_passes_timeout_to_both_calls():
+    fake = FakeInstructor(vision_number=5)
+    probe("openai", "gpt-5-mini", "k", client_factory=lambda *a, **k: fake)
+    assert [c["timeout"] for c in fake.calls] == [PROBE_TIMEOUT_S, PROBE_TIMEOUT_S] and PROBE_TIMEOUT_S == 60
 
 
 def test_probe_uses_extractor_model_for_vision(monkeypatch):

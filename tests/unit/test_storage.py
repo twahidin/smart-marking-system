@@ -104,3 +104,37 @@ def test_decompression_bomb_names_the_file(storage, monkeypatch):
     with pytest.raises(UploadError) as e:
         process_uploads([("huge.png", _png(50, 50))], storage)
     assert e.value.filename == "huge.png"
+
+
+def test_module_caps_image_pixels_at_50mp():
+    import sms.storage  # noqa: F401 - importing sets the cap
+    assert Image.MAX_IMAGE_PIXELS == 50_000_000
+
+
+def test_pdf_pages_are_rendered_one_at_a_time(storage, monkeypatch):
+    """Each page is normalised and stored before the next is rasterised (no whole-PDF list in memory)."""
+    events = []
+    real_get_pixmap = fitz.Page.get_pixmap
+
+    def spy_get_pixmap(self, *a, **k):
+        events.append("render")
+        return real_get_pixmap(self, *a, **k)
+
+    real_put = storage.put_jpeg
+
+    def spy_put(data):
+        events.append("store")
+        return real_put(data)
+
+    monkeypatch.setattr(fitz.Page, "get_pixmap", spy_get_pixmap)
+    monkeypatch.setattr(storage, "put_jpeg", spy_put)
+    pages = process_uploads([("scan.pdf", _pdf(3))], storage)
+    assert len(pages) == 3
+    assert events == ["render", "store"] * 3
+
+
+def test_pdf_page_limit_checked_before_rendering(storage, monkeypatch):
+    monkeypatch.setattr(fitz.Page, "get_pixmap", lambda *a, **k: pytest.fail("rendered a page past the limit"))
+    with pytest.raises(UploadError) as e:
+        process_uploads([("many.pdf", _pdf(3))], storage, max_pages=2)
+    assert "limit is 2" in e.value.message

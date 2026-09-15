@@ -5,10 +5,13 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+import instructor
 from pydantic import BaseModel, Field
 
 from sms.providers.client import build_client
 from sms.providers.errors import error_message
+
+PROBE_TIMEOUT_S = 60
 
 
 class Pong(BaseModel):
@@ -49,6 +52,14 @@ def render_number_png(number: int) -> bytes:
     return buf.getvalue()
 
 
+def _image_from_png(png_bytes: bytes) -> instructor.Image:
+    b64 = base64.b64encode(png_bytes).decode()
+    try:
+        return instructor.Image.from_raw_base64(b64)
+    except ValueError:  # pragma: no cover - defensive; PNG magic bytes are always recognised
+        return instructor.Image(source=f"data:image/png;base64,{b64}", media_type="image/png", data=b64)
+
+
 def _timed(fn: Callable[[], Any]) -> Check:
     t0 = time.monotonic()
     try:
@@ -71,13 +82,16 @@ def probe(provider: str, model: str, api_key: str, extractor_model: Optional[str
             messages=[{"role": "user", "content": "Reply with ok=true."}],
             max_retries=0,
             max_tokens=256,
+            timeout=PROBE_TIMEOUT_S,
         )
         assert out.ok, "Model replied but did not return ok=true"
 
     number = random.randint(10, 99)
-    png_b64 = base64.b64encode(render_number_png(number)).decode()
+    image = _image_from_png(render_number_png(number))
 
     def vision_check() -> None:
+        # An instructor.Image is converted per provider (OpenAI image_url vs Anthropic
+        # base64 source block); a raw OpenAI-style dict would be passed through untouched.
         out = client.chat.completions.create(
             model=extractor_model or model,
             response_model=Digits,
@@ -85,11 +99,12 @@ def probe(provider: str, model: str, api_key: str, extractor_model: Optional[str
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "What two-digit number is written in this image?"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{png_b64}"}},
+                    image,
                 ],
             }],
             max_retries=0,
             max_tokens=256,
+            timeout=PROBE_TIMEOUT_S,
         )
         assert out.number == number, f"Model read {out.number}, expected {number} — it may not support images"
 

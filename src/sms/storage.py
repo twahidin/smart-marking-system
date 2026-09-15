@@ -3,9 +3,15 @@ import io
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Iterable, Iterator, List, Tuple
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+
+# Pillow's default decompression-bomb threshold is ~89 MP (warning) / ~178 MP (error). A phone
+# scan of an exam page is well under 50 MP; anything larger is a bomb or a mistake, and decoding
+# it would take hundreds of MB of RAM on a small Railway container. Pillow raises
+# DecompressionBombError above 2x this value, which _image_from_bytes maps to an UploadError.
+Image.MAX_IMAGE_PIXELS = 50_000_000
 
 MAX_LONG_EDGE = 2000
 JPEG_QUALITY = 85
@@ -88,7 +94,12 @@ def _normalise(img: Image.Image) -> Tuple[bytes, int, int]:
     return buf.getvalue(), img.size[0], img.size[1]
 
 
-def _images_from_pdf(filename: str, data: bytes, remaining: int, max_pages: int) -> List[Image.Image]:
+def _images_from_pdf(filename: str, data: bytes, remaining: int, max_pages: int) -> Iterator[Image.Image]:
+    """Open and validate the PDF eagerly, then yield one rasterised page at a time.
+
+    Rendering lazily keeps at most one raw 150-dpi page (~5 MB) alive while the caller
+    normalises and stores it, instead of holding a whole 60-page script in memory.
+    """
     import pymupdf as fitz
     try:
         doc = fitz.open(stream=data, filetype="pdf")
@@ -100,16 +111,19 @@ def _images_from_pdf(filename: str, data: bytes, remaining: int, max_pages: int)
         raise UploadError(filename, "PDF has no pages")
     if doc.page_count > remaining:
         raise UploadError(filename, f"too many pages; the limit is {max_pages} per script")
-    out: List[Image.Image] = []
+    return _render_pdf_pages(filename, doc)
+
+
+def _render_pdf_pages(filename: str, doc) -> Iterator[Image.Image]:
+    import pymupdf as fitz
     try:
         for page in doc:
             pix = page.get_pixmap(dpi=150, colorspace=fitz.csRGB, alpha=False)
-            out.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+            yield Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     except MemoryError:
         raise
     except Exception as e:  # noqa: BLE001
         raise UploadError(filename, f"not a valid PDF ({e})") from e
-    return out
 
 
 def _image_from_bytes(filename: str, data: bytes) -> Image.Image:
@@ -132,6 +146,7 @@ def process_uploads(files: List[Tuple[str, bytes]], storage: PageStorage, max_pa
     pages: List[ProcessedPage] = []
     for filename, data in files:
         ext = Path(filename).suffix.lower()
+        images: Iterable[Image.Image]
         if ext in PDF_EXTS:
             remaining = max_pages - len(pages)
             if remaining <= 0:
@@ -141,10 +156,12 @@ def process_uploads(files: List[Tuple[str, bytes]], storage: PageStorage, max_pa
             images = [_image_from_bytes(filename, data)]
         else:
             raise UploadError(filename, "unsupported file type (use PDF, JPG, PNG or HEIC)")
+        # Normalise and store each page as it is produced so only one raw page is alive at a time.
         for img in images:
             if len(pages) >= max_pages:
                 raise UploadError(filename, f"too many pages; the limit is {max_pages} per script")
             jpeg, w, h = _normalise(img)
+            del img
             digest, rel = storage.put_jpeg(jpeg)
             pages.append(ProcessedPage(sha256=digest, storage_path=rel, width=w, height=h, source_filename=filename))
     return pages
