@@ -24,6 +24,9 @@ def build_extractor(
                 ],
                 steps=[
                     "Scan each image page for question numbers and answers.",
+                    "If the input lists questions, segment the script by exactly those labels: one ExtractedQuestion "
+                    "per listed part with q_id equal to that part's q_id (an unanswered part gets an empty "
+                    "transcription). Otherwise segment by the question numbers found on the pages.",
                     "Transcribe each question's answer and workings verbatim, preserving math notation.",
                     "Lower confidence for messy handwriting but still transcribe your best guess.",
                     "Flag questions you cannot read with needs_human_transcription=True.",

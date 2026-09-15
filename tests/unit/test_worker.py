@@ -330,3 +330,82 @@ def test_run_forever_calls_scheduler(env):
         time.sleep(0.01)
     stop.set(); t.join(timeout=2)
     assert db.query("SELECT status FROM jobs WHERE kind = 'reflect'")[0]["status"] == "done"
+
+
+# --- v2 dispatch: submissions whose assignment has a mark scheme / rubric ------------------------
+
+class FakePipelineV2:
+    def __init__(self, escalations):
+        self.escalations = escalations
+        self.calls = []
+
+    def run(self, images, template, submission_id=None):
+        self.calls.append((images, template, submission_id))
+        from sms.pipeline.marking_pipeline_v2 import MarkingResultV2
+        from sms.schemas.extraction import ExtractedScript
+        from sms.schemas.marking_v2 import MarkedScriptV2
+        return MarkingResultV2(run_id="r2", extracted=ExtractedScript(questions=[]),
+                               final=MarkedScriptV2(kind="mark_scheme"), escalations=self.escalations)
+
+
+def _template(db, kind="mark_scheme"):
+    return db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, scheme_json) "
+                     "VALUES ('T', 'math', 'ECF applies', '{\"criterion_defs\": []}', :k, :q, :s) RETURNING id",
+                     {"k": kind, "q": json.dumps([{"q_id": "1a", "text": "Solve", "max_marks": 2}]),
+                      "s": json.dumps([{"q_id": "1a", "answer": "x=3", "marks": [{"label": "B2", "marks": 2}], "notes": ""}])})
+
+
+def test_run_mark_job_uses_v2_pipeline_for_mark_scheme_assignment(env):
+    db, store, storage, sid = env
+    tid = _template(db, "mark_scheme")
+    db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
+    fp = FakePipelineV2(escalations={})
+    seen = {}
+
+    def factory(**kw):
+        seen.update(kw)
+        return fp
+
+    run_mark_job(db, storage, store, sid, pipeline_factory=factory)
+    assert seen["kind"] == "mark_scheme" and seen["subject"] == "math" and seen["db"] is db
+    images, template, sub_id = fp.calls[0]
+    assert images == [b"\xff\xd8\xffjpegbytes"] and sub_id == sid
+    assert template["scheme_kind"] == "mark_scheme" and template["subject"] == "math" and template["context"] == "ECF applies"
+    assert template["questions"][0]["q_id"] == "1a" and template["scheme"][0]["marks"][0]["label"] == "B2"
+    row = db.query("SELECT status, run_id FROM submissions WHERE id = ?", (sid,))[0]
+    assert row["status"] == "done" and row["run_id"] == "r2"
+    # escalations (a dict for v2) put the script in the queue
+    db.execute("UPDATE submissions SET status = 'uploaded'")
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipelineV2({"1a": "not in scheme"}))
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "needs_you"
+
+
+def test_run_mark_job_keeps_v1_for_criteria_or_no_assignment(env):
+    db, store, storage, sid = env
+    tid = _template(db, "criteria")
+    db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
+    seen = []
+
+    def factory(**kw):
+        seen.append(kw)
+        return FakePipeline([])
+
+    run_mark_job(db, storage, store, sid, pipeline_factory=factory)
+    assert "kind" not in seen[0]
+    assert db.query("SELECT status, marks_version FROM submissions WHERE id = ?", (sid,))[0] == {"status": "done", "marks_version": 1}
+    # a dangling assignment_id (template deleted) also falls back to v1
+    db.execute("UPDATE submissions SET assignment_id = 999999, status = 'uploaded' WHERE id = ?", (sid,))
+    run_mark_job(db, storage, store, sid, pipeline_factory=factory)
+    assert "kind" not in seen[1] and len(seen) == 2
+
+
+def test_default_pipeline_factory_builds_v2_agents(env, monkeypatch):
+    db, store, storage, sid = env
+    from sms.worker import mark_job
+    from sms.pipeline.marking_pipeline_v2 import MarkingPipelineV2
+    from sms.providers.ratelimit import RateLimitedAgent
+    pipeline = mark_job._default_pipeline_factory(db=db, settings=store.load(), subject="math", kind="rubric")
+    assert isinstance(pipeline, MarkingPipelineV2) and pipeline.kind == "rubric"
+    assert all(isinstance(a, RateLimitedAgent) for a in (pipeline.extractor, pipeline.marker, pipeline.reviewer, pipeline.feedback))
+    from sms.pipeline.marking_pipeline import MarkingPipeline
+    assert isinstance(mark_job._default_pipeline_factory(db=db, settings=store.load(), subject="math"), MarkingPipeline)

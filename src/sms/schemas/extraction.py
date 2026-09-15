@@ -5,12 +5,20 @@ from pydantic import BaseModel, Field
 
 from atomic_agents import BaseIOSchema
 
+from sms.schemas.scheme import Question
+
 
 class ExtractionInput(BaseIOSchema):
-    """Input for the Extractor agent: script images and assignment context."""
+    """Input for the Extractor agent: script images, assignment context and (optionally) the paper's
+    question list to segment by."""
 
     assignment_context: str = Field(..., description="Subject, level, question count of the assignment")
     images: List[instructor.Image] = Field(..., description="Script pages as images")
+    questions: List[Question] = Field(
+        default_factory=list,
+        description="When given, the paper's question parts: return exactly one ExtractedQuestion per part, "
+                    "q_id equal to the part's q_id. When empty, segment by the question numbers on the pages.",
+    )
 
 
 class ExtractedQuestion(BaseModel):
