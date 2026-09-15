@@ -165,3 +165,11 @@ textarea.input { min-height: 72px; resize: vertical; }
 .pages-strip { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pages-strip img { width: 36px; height: 48px; object-fit: cover; border: 1px solid var(--color-divider); background: #fff; }
 .drop.compact { min-height: 160px; padding: 20px; }
+
+/* per-part marks (detail): allocation chips and the parts table */
+.table.parts td { vertical-align: top; font-size: 14px; }
+.table.parts th:first-child, .table.parts td:first-child { min-width: 96px; }
+.alloc { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px; border: 1px solid var(--ink); font-variant-numeric: tabular-nums; }
+.alloc.got { background: var(--ink); color: var(--color-bg); }
+.alloc.lost { color: var(--muted); border-color: var(--color-divider); }
+.picker td:first-child { padding-left: 4px; }

@@ -43,11 +43,25 @@ export interface SubmissionRow {
   total: number | null; total_upper: number | null; total_max: number | null; needs_you_qids: string[];
   assignment_id: number | null; assignment_title: string | null;
 }
-export interface Page { id: number; page_index: number; width: number; height: number }
+export interface Page { id: number; page_index: number; width: number; height: number; deleted?: boolean }
 export interface Mark {
   q_id: string; criterion_scores: number[]; total: number; max: number; confidence: number | null;
   evidence: string; rationale: string; escalated: boolean; reason: string | null; queue_id: number | null;
   teacher_scores: number[] | null;
+}
+/** One awarded allocation of a v2 mark-scheme part (M1 / A1 …). */
+export interface AwardedAllocation { label: string; marks: number; got: boolean; why?: string }
+/** The scheme row a v2 part was marked against: a mark-scheme row or a rubric criterion with its bands. */
+export type PartScheme = { answer: string; marks: MarkPoint[]; notes?: string } | { criterion: string; bands: Band[] };
+/** Teacher's resolution of a v2 part, as stored from the review queue. */
+export type TeacherMark = { allocations: AwardedAllocation[]; total: number } | { band: string; marks: number; total: number };
+/** One row of a v2 (per-part) run: a question part (mark scheme) or a criterion (rubric). */
+export interface Part {
+  q_id: string; label: string; question_text: string; scheme: PartScheme | null;
+  extracted: string; workings: string; illegible: boolean;
+  awarded?: AwardedAllocation[]; band?: string; descriptor_met?: string;
+  total: number; max: number; justification: string; in_scheme: boolean; confidence: number | null;
+  escalated: boolean; reason: string | null; queue_id: number | null; teacher: TeacherMark | null;
 }
 export interface Feedback {
   summary: string; strengths: string[];
@@ -59,12 +73,21 @@ export interface SubmissionDetail {
   id: number; label: string; subject: Subject; context: string; status: SubmissionStatus; created_at: string;
   rubric: Rubric; pages: Page[]; marks: Mark[]; totals: { total: number; total_upper: number; total_max: number } | null;
   feedback: Feedback | null; job: Job | null; assignment_id: number | null; assignment_title: string | null;
+  /** 1 = criteria per question (slice 1); 2 = per-part marks against a mark scheme / rubric (`parts`). */
+  marks_version?: 1 | 2; parts?: Part[]; scheme_kind?: SchemeKind | null;
+  pages_deleted?: boolean; run_id?: string | null; marked_at?: string | null;
 }
 export interface QueueItem {
   id: number; submission_id: number; submission_label: string; q_id: string; reason: string; created_at: string;
   transcription: string; workings: string; proposed_criterion_scores: number[]; proposed_total: number | null;
   evidence: string; rationale: string; reviewer_note: string; criterion_defs: Criterion[]; page_ids: number[];
+  /** v2 items: the part's label and question, the scheme row it was marked against and the stored mark as the proposal. */
+  marks_version?: 1 | 2; scheme_kind?: "mark_scheme" | "rubric"; label?: string; question_text?: string;
+  scheme_row?: MarkSchemeEntry | RubricBands | null; proposed?: ProposedPart | null;
 }
+export type ProposedPart = { q_id: string; awarded: AwardedAllocation[]; total: number; justification?: string } | { criterion: string; band: string; marks: number; justification?: string };
+/** Resolve bodies: v1 sends one mark per criterion; v2 sends the allocations got / lost, or the band. */
+export type ResolveBody = { criterion_scores: number[]; reason: string } | { allocations: { label: string; got: boolean }[]; reason: string } | { band: string; reason: string };
 export interface Note { id: number; subject: string; note: string; status: string; created_at?: string }
 export interface Exemplar { id: number; subject: string; topic: string; q_id: string; answer_text: string; awarded: number; max_score: number; why_it_matters: string; status: string }
 export interface ReflectionRun { id: number; subject: string; lookback_days: number; proposed_notes: number; started_at: string; finished_at: string | null; error: string | null }

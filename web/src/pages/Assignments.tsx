@@ -6,6 +6,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
+import { saveBlob } from "../lib/download";
 import { fmtDate, schemeLabel, subjectLabel } from "../lib/format";
 
 type Pending = { kind: "rename"; t: AssignmentTemplate; title: string } | { kind: "delete"; t: AssignmentTemplate };
@@ -44,9 +45,7 @@ export function Assignments() {
     setError(null);
     try {
       const data = await api.get<unknown>("/api/assignments/export");
-      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-      const a = document.createElement("a"); a.href = url; a.download = "assignments.json"; a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      saveBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "assignments.json");
     } catch (e) { setError(e instanceof ApiError ? e.message : "Could not export"); }
   };
 

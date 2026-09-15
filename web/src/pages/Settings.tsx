@@ -4,7 +4,7 @@ import type { ProbeResult, ProviderSpec, Settings as S } from "../api/types";
 import { Button } from "../components/Button";
 import { Notice } from "../components/Notice";
 
-type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean };
+type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean; delete_pages_after_marking: boolean };
 
 export function Settings() {
   const [providers, setProviders] = useState<ProviderSpec[]>([]);
@@ -22,7 +22,7 @@ export function Settings() {
       const listed = spec.models.some((m) => m.id === s.model);
       setForm({ provider: s.provider, model: listed ? s.model : "__custom__", custom_model: listed ? "" : s.model, api_key: "",
                 base_url: s.base_url ?? "", extractor_model: s.extractor_model ?? "", rpm_limit: s.rpm_limit, confidence_threshold: s.confidence_threshold,
-                auto_reflect: s.auto_reflect });
+                auto_reflect: s.auto_reflect, delete_pages_after_marking: s.delete_pages_after_marking ?? true });
     }).catch((e) => setMsg({ kind: "error", text: e.message }));
   }, []);
 
@@ -32,7 +32,7 @@ export function Settings() {
   const modelId = form.model === "__custom__" ? form.custom_model.trim() : form.model;
   const payload = { provider: form.provider, model: modelId, api_key: form.api_key || undefined, base_url: form.base_url || undefined,
                     extractor_model: form.extractor_model || undefined, rpm_limit: form.rpm_limit, confidence_threshold: form.confidence_threshold,
-                    auto_reflect: form.auto_reflect };
+                    auto_reflect: form.auto_reflect, delete_pages_after_marking: form.delete_pages_after_marking };
 
   const changeProvider = (id: string) => {
     const p = providers.find((x) => x.id === id)!;
@@ -123,6 +123,13 @@ export function Settings() {
             Run reflection nightly on new corrections
           </label>
           <span className="help">Turns your Review corrections into draft rubric notes once a day. You can also run it any time from Learning.</span>
+        </div>
+        <div className="field">
+          <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, cursor: "pointer" }}>
+            <input type="checkbox" checked={form.delete_pages_after_marking} onChange={(e) => setForm({ ...form, delete_pages_after_marking: e.target.checked })} style={{ width: 18, height: 18 }} />
+            Delete student pages after marking (default for new assignments)
+          </label>
+          <span className="help">Once a script is done, its uploaded pages are removed and only the marking record is kept. Each assignment can override this.</span>
         </div>
 
         {probe && (

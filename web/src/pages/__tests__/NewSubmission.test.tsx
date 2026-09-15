@@ -41,3 +41,47 @@ describe("NewSubmission — saved assignments", () => {
     expect(screen.queryByLabelText("Assignment questions")).not.toBeInTheDocument();
   });
 });
+
+const markScheme: AssignmentTemplate = {
+  id: 8, title: "Quadratics — Worksheet 3", subject: "math", context: "Sec 4", rubric: { criterion_defs: [{ id: "1a", description: "Solve", max_score: 3 }, { id: "1b", description: "Hence", max_score: 2 }] },
+  criteria_count: 2, total_marks: 5, times_used: 0, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
+  scheme_kind: "mark_scheme", questions: [{ q_id: "1a", text: "Solve 2x + 3 = 7", max_marks: 3 }, { q_id: "1b", text: "Hence find y", max_marks: 2 }],
+  scheme: [{ q_id: "1a", answer: "x = 2", marks: [{ label: "M1", marks: 1 }, { label: "A1", marks: 2 }], notes: "" }, { q_id: "1b", answer: "y = 5", marks: [{ label: "B1", marks: 2 }], notes: "" }],
+  paper_page_ids: [], scheme_page_ids: [], delete_pages_after_marking: null, effective_delete_pages: true,
+};
+
+describe("NewSubmission — assignment first", () => {
+  it("hides the criteria editor for a mark-scheme assignment and sends its id and rubric", async () => {
+    const posted: FormData[] = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/settings") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
+      if (path === "/api/assignments") return Promise.resolve(new Response(JSON.stringify([...templates, markScheme]), { status: 200 }));
+      if (path === "/api/submissions") { posted.push(init!.body as FormData); return Promise.resolve(new Response(JSON.stringify({ id: 12, status: "queued", pages: [] }), { status: 201 })); }
+      return Promise.reject(new Error(`Unexpected fetch to ${path}`));
+    }));
+    render(<MemoryRouter><NewSubmission /></MemoryRouter>);
+    const select = await screen.findByLabelText("Use a saved assignment");
+    expect(screen.getByLabelText("Criterion 1 description")).toBeInTheDocument();
+    await userEvent.selectOptions(select, "8");
+    // The criteria table is replaced by a read-only summary of the saved scheme and its questions.
+    expect(screen.queryByLabelText("Criterion 1 description")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save as assignment" })).not.toBeInTheDocument();
+    const qs = screen.getByLabelText("Assignment questions");
+    expect(qs).toHaveTextContent("2 questions · 5 marks · mark scheme");
+    expect(qs).toHaveTextContent("1(a)");
+    expect(qs).toHaveTextContent("Hence find y");
+    expect(screen.getByRole("radio", { name: "Maths" })).toBeChecked();
+    // Back to Quick mark: the editor returns.
+    await userEvent.selectOptions(select, "");
+    expect(screen.getByLabelText("Criterion 1 description")).toBeInTheDocument();
+    await userEvent.selectOptions(select, "8");
+    await userEvent.type(screen.getByLabelText("Label"), "Lim Jun Hao");
+    const drop = document.querySelector('input[type="file"][multiple]') as HTMLInputElement;
+    await userEvent.upload(drop, new File(["x"], "p1.jpg", { type: "image/jpeg" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].get("assignment_id")).toBe("8");
+    expect(JSON.parse(String(posted[0].get("rubric")))).toEqual(markScheme.rubric);
+  });
+});

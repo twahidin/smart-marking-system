@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { AssignmentTemplate, Settings, Subject } from "../api/types";
+import type { AssignmentTemplate, RubricBands, Settings, Subject } from "../api/types";
 import { Button } from "../components/Button";
 import { CriteriaEditor } from "../components/CriteriaTable";
 import { Dialog } from "../components/Dialog";
@@ -10,9 +10,17 @@ import { Notice } from "../components/Notice";
 import { PageCard } from "../components/PageCard";
 import { canThumbnail } from "../lib/files";
 import { subjectLabel } from "../lib/format";
+import { qLabel, schemeTotal } from "../lib/scheme";
 import { emptyRow, jsonToRows, rowsToRubricJson, validateRows, type Row } from "../lib/rubric";
 
 type Picked = { file: File; url: string };
+
+/** "5 questions · 25 marks · mark scheme" / "3 criteria · 15 marks · rubric". */
+export function schemeSummary(t: AssignmentTemplate): string {
+  const marks = schemeTotal(t.scheme_kind, t.questions, t.scheme);
+  if (t.scheme_kind === "rubric") return `${t.scheme.length} criteri${t.scheme.length === 1 ? "on" : "a"} · ${marks} marks · rubric`;
+  return `${t.questions.length} question${t.questions.length === 1 ? "" : "s"} · ${marks} marks · mark scheme`;
+}
 
 export function NewSubmission() {
   const nav = useNavigate();
@@ -35,6 +43,10 @@ export function NewSubmission() {
 
   // Fills the assignment half of the form; the label is the student's and is left alone.
   const chosen = useMemo(() => templates.find((t) => t.id === assignmentId) ?? null, [templates, assignmentId]);
+  // A mark-scheme / rubric assignment is marked part by part against its saved scheme, so the criteria editor is
+  // replaced by a read-only summary; Quick mark (no assignment, or a criteria one) keeps the editor.
+  const schemed = !!chosen && (chosen.scheme_kind === "mark_scheme" || chosen.scheme_kind === "rubric");
+  const rubricJson = () => (schemed ? JSON.stringify(chosen!.rubric) : rowsToRubricJson(rows));
   const useTemplate = (id: string) => {
     const t = templates.find((x) => String(x.id) === id);
     setAssignmentId(t ? t.id : null);
@@ -62,15 +74,17 @@ export function NewSubmission() {
 
   const problem = useMemo(() => {
     if (!label.trim()) return "Give the script a label, e.g. the student’s name.";
-    const v = validateRows(rows); if (v) return v;
+    if (schemed) {
+      if (chosen!.scheme.length === 0) return `${chosen!.title} has no ${chosen!.scheme_kind === "rubric" ? "rubric" : "mark scheme"} yet — finish it under Assignments.`;
+    } else { const v = validateRows(rows); if (v) return v; }
     if (files.length === 0) return "Add at least one page.";
     return null;
-  }, [label, rows, files]);
+  }, [label, rows, files, schemed, chosen]);
 
   const submit = async () => {
     setBusy(true); setError(null);
     const fd = new FormData();
-    fd.set("label", label.trim()); fd.set("subject", subject); fd.set("context", context.trim()); fd.set("rubric", rowsToRubricJson(rows));
+    fd.set("label", label.trim()); fd.set("subject", subject); fd.set("context", context.trim()); fd.set("rubric", rubricJson());
     if (assignmentId !== null) fd.set("assignment_id", String(assignmentId));
     files.forEach((f) => fd.append("files", f.file, f.file.name));
     try { const r = await api.postForm<{ id: number }>("/api/submissions", fd); nav(`/submissions/${r.id}`); }
@@ -80,7 +94,7 @@ export function NewSubmission() {
   return (
     <div className="page">
       <Link to="/submissions" className="breadcrumb">← Submissions</Link>
-      <div className="page-header"><div><h1>Mark a script</h1><p className="meta">One student’s pages, marked against your criteria.</p></div></div>
+      <div className="page-header"><div><h1>Mark a script</h1><p className="meta">One student’s pages, marked against a saved assignment or your own criteria.</p></div></div>
       {settings && !settings.has_key && <Notice>No API key yet. <Link to="/settings">Add one under Settings</Link> before marking.</Notice>}
       {savedNotice && <Notice kind="ok">Saved to Assignments</Notice>}
       <div className="grid-2" style={{ marginTop: 24 }}>
@@ -90,7 +104,7 @@ export function NewSubmission() {
               <option value="">— none —</option>
               {templates.map((t) => <option key={t.id} value={t.id}>{t.title} · {subjectLabel[t.subject]}</option>)}
             </select>
-            <span className="help">Fills the subject, context and rubric below. Manage them under <Link to="/assignments">Assignments</Link>.</span></div>
+            <span className="help">{schemed ? "Marked part by part against its saved scheme." : "Fills the subject, context and rubric below."} Manage them under <Link to="/assignments">Assignments</Link>.</span></div>
           <div className="field"><label htmlFor="label">Label</label><input id="label" className="input" placeholder="Tan Wei Ling · Worksheet 3" value={label} onChange={(e) => setLabel(e.target.value)} /></div>
           <div className="grid-2">
             <div className="field"><label>Subject</label>
@@ -101,6 +115,20 @@ export function NewSubmission() {
               </div></div>
             <div className="field"><label htmlFor="ctx">Context (optional)</label><input id="ctx" className="input" placeholder="Sec 4 · Quadratic equations · 5 questions" value={context} onChange={(e) => setContext(e.target.value)} /></div>
           </div>
+          {schemed ? (
+            <div className="field" aria-label="Assignment questions">
+              <label>{chosen!.scheme_kind === "rubric" ? "Rubric" : "Mark scheme"}</label>
+              <p className="help" style={{ marginBottom: 4 }}>{schemeSummary(chosen!)}</p>
+              {chosen!.questions.length > 0 && (
+                <table className="table"><tbody>
+                  {chosen!.questions.map((q) => <tr key={q.q_id}><td style={{ width: 56 }}><strong>{qLabel(q.q_id)}</strong></td><td>{q.text}</td><td className="num">{q.max_marks}</td></tr>)}
+                </tbody></table>
+              )}
+              {chosen!.scheme_kind === "rubric" && (
+                <ul style={{ margin: "4px 0 0 18px" }}>{(chosen!.scheme as RubricBands[]).map((c) => <li key={c.criterion}>{c.criterion} <span className="help">· {c.bands.length} band{c.bands.length === 1 ? "" : "s"}</span></li>)}</ul>
+              )}
+            </div>
+          ) : (
           <div className="field">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <label>Rubric <span className="help">— applied to every question</span></label>
@@ -111,14 +139,15 @@ export function NewSubmission() {
             </div>
             {chosen && chosen.questions.length > 0 && (
               <div style={{ marginBottom: 12 }} aria-label="Assignment questions">
-                <p className="help" style={{ marginBottom: 4 }}>{chosen.questions.length} question{chosen.questions.length === 1 ? "" : "s"} · {chosen.questions.reduce((s, q) => s + q.max_marks, 0)} marks{chosen.scheme_kind !== "criteria" ? ` · ${{ mark_scheme: "mark scheme", rubric: "rubric" }[chosen.scheme_kind]} saved` : ""}</p>
+                <p className="help" style={{ marginBottom: 4 }}>{chosen.questions.length} question{chosen.questions.length === 1 ? "" : "s"} · {chosen.questions.reduce((s, q) => s + q.max_marks, 0)} marks</p>
                 <table className="table"><tbody>
-                  {chosen.questions.map((q) => <tr key={q.q_id}><td style={{ width: 56 }}><strong>{q.q_id}</strong></td><td>{q.text}</td><td className="num">{q.max_marks}</td></tr>)}
+                  {chosen.questions.map((q) => <tr key={q.q_id}><td style={{ width: 56 }}><strong>{qLabel(q.q_id)}</strong></td><td>{q.text}</td><td className="num">{q.max_marks}</td></tr>)}
                 </tbody></table>
               </div>
             )}
             <CriteriaEditor rows={rows} onChange={setRows} />
           </div>
+          )}
         </div>
         <div>
           <DropZone onFiles={add} />
