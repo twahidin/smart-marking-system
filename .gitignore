@@ -8,3 +8,5 @@ dist/
 data/
 .env
 .claude/worktrees/
+web/node_modules/
+web/dist/
