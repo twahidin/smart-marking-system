@@ -76,3 +76,97 @@ def test_web_tables_exist(db):
     assert {"submission_id", "final_marks_json"} <= cols
     assert "submission_id" in {r["name"] for r in db.query("PRAGMA table_info(teacher_queue)")}
     assert "criterion_scores_json" in {r["name"] for r in db.query("PRAGMA table_info(teacher_corrections)")}
+
+
+# The seven tables exactly as the pre-Alembic CLI's `Database.SCHEMA` created them (commit b210299).
+LEGACY_CLI_SCHEMA = """
+CREATE TABLE marking_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    rubric_json TEXT NOT NULL,
+    extracted_json TEXT,
+    marks_json TEXT,
+    reviewed_json TEXT,
+    feedback_json TEXT,
+    final_status TEXT NOT NULL DEFAULT 'running',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE teacher_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    q_id TEXT NOT NULL,
+    agent_mark INTEGER,
+    teacher_mark INTEGER,
+    reason TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE rubric_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject TEXT NOT NULL,
+    note TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    source_run_ids_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE exemplar_cases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    q_id TEXT NOT NULL,
+    answer_text TEXT NOT NULL,
+    awarded INTEGER NOT NULL,
+    max_score INTEGER NOT NULL,
+    why_it_matters TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE extraction_cache (
+    hash TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    extracted_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (hash, subject, schema_version)
+);
+CREATE TABLE agent_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT,
+    stage TEXT NOT NULL,
+    agent_role TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    tokens_in INTEGER NOT NULL,
+    tokens_out INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE teacher_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    q_id TEXT NOT NULL,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
+def test_upgrade_stamps_pre_alembic_database(tmp_path):
+    """An sms.db created by the pre-Alembic CLI (seven tables, no alembic_version) must upgrade cleanly."""
+    import sqlite3
+
+    path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(LEGACY_CLI_SCHEMA)
+    conn.execute("INSERT INTO rubric_notes (subject, note, status) VALUES ('math', 'keep me', 'active')")
+    conn.commit()
+    conn.close()
+
+    db = Database(path=str(path))
+    names = {r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"settings", "submissions", "pages", "jobs", "worker_heartbeat", "alembic_version"} <= names
+    assert db.query("SELECT version_num FROM alembic_version")[0]["version_num"] != "0001"
+    assert "submission_id" in {r["name"] for r in db.query("PRAGMA table_info(marking_runs)")}
+    assert db.query("SELECT note FROM rubric_notes")[0]["note"] == "keep me"
+    # Re-opening an already-stamped database is a no-op.
+    Database(path=str(path))

@@ -1,6 +1,5 @@
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from pydantic import ValidationError
 
@@ -8,31 +7,9 @@ from sms.memory.db import Database
 from sms.pipeline.router import SubjectRouter
 from sms.schemas.marking import Rubric
 from sms.storage import PageStorage, UploadError, process_uploads
+from sms.timeutil import iso_utc  # noqa: F401 - re-exported for existing importers
 from sms.web.errors import ApiError
 from sms.worker.jobs import JobStore
-
-
-def iso_utc(value: Optional[Union[str, datetime]]) -> Optional[str]:
-    """Normalise a DB timestamp (naive/aware datetime, or SQLite/ISO string) to 'YYYY-MM-DDTHH:MM:SSZ' UTC.
-
-    SQLite returns timestamps as strings like 'YYYY-MM-DD HH:MM:SS[.ffffff]'; Postgres returns
-    `datetime` objects (naive, stored as UTC). Both must render identically to API consumers.
-    """
-    if value is None:
-        return None
-    dt = value
-    if isinstance(dt, str):
-        s = dt.strip()
-        if "T" not in s and " " in s:
-            s = s.replace(" ", "T", 1)
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_rubric(rubric_json: str) -> Rubric:

@@ -93,6 +93,10 @@ class Database:
         kwargs: Dict[str, Any] = {"future": True, "pool_pre_ping": not self.is_sqlite}
         if self.is_sqlite:
             kwargs["connect_args"] = {"check_same_thread": False}
+        else:
+            # Pin the session timezone so now()-based column defaults are UTC regardless of
+            # the Postgres server's configured timezone.
+            kwargs["connect_args"] = {"options": "-c timezone=UTC"}
         self.engine: Engine = create_engine(self.url, **kwargs)
         if self.is_sqlite:
             @event.listens_for(self.engine, "connect")

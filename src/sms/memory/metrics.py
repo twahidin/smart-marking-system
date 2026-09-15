@@ -31,9 +31,10 @@ class MetricsSummary:
             (agent_role,),
         )
         r = rows[0] if rows else {}
+        # Explicit casts: Postgres returns Decimal for AVG and bigint for SUM/COUNT; callers expect plain ints/floats.
         return {
-            "count": r.get("count") or 0,
+            "count": int(r.get("count") or 0),
             "mean_latency_ms": float(r.get("mean_latency_ms") or 0.0),
-            "total_tokens_in": r.get("total_tokens_in") or 0,
-            "total_tokens_out": r.get("total_tokens_out") or 0,
+            "total_tokens_in": int(r.get("total_tokens_in") or 0),
+            "total_tokens_out": int(r.get("total_tokens_out") or 0),
         }

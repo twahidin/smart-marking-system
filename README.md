@@ -111,6 +111,14 @@ Track progress with `sms evaluate` (agreement %) and `sms stats` (latency/tokens
 uv run pytest -q
 ```
 
+The suite runs on SQLite. To also exercise the Postgres code paths (`RETURNING`, `FOR UPDATE SKIP
+LOCKED`, aggregate and timestamp types), point `SMS_TEST_DATABASE_URL` at a scratch Postgres database
+— migrations run against it and the smoke tests clean up the rows they create:
+
+```sh
+SMS_TEST_DATABASE_URL=postgresql://sms:sms@localhost:5432/sms_test uv run pytest tests/postgres -q
+```
+
 Project layout:
 
 ```

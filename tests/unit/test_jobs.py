@@ -68,6 +68,13 @@ def test_heartbeat(db):
     assert db.query("SELECT COUNT(*) AS c FROM worker_heartbeat")[0]["c"] == 1
 
 
+def test_last_heartbeat_is_iso_utc(db):
+    js = JobStore(db)
+    js.heartbeat()
+    seen = js.last_heartbeat()
+    assert len(seen) == 20 and seen[10] == "T" and seen.endswith("Z")
+
+
 def test_claim_orders_by_created(db):
     js = JobStore(db)
     a = js.enqueue("mark", _submission(db))

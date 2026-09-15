@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sms.memory.db import Database
+from sms.timeutil import iso_utc
 
 MAX_ATTEMPTS = 5
 
@@ -95,7 +96,7 @@ class JobStore:
 
     def last_heartbeat(self) -> Optional[str]:
         rows = self.db.query("SELECT last_seen FROM worker_heartbeat WHERE id = 1")
-        return str(rows[0]["last_seen"]) if rows else None
+        return iso_utc(rows[0]["last_seen"]) if rows else None
 
     def job_for_submission(self, submission_id: int) -> Optional[dict]:
         rows = self.db.query("SELECT * FROM jobs WHERE submission_id = :s ORDER BY id DESC LIMIT 1",
