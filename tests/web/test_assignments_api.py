@@ -241,3 +241,31 @@ def test_duplicate_copies_scheme_and_paper_pages(auth, app):
     auth.delete(f"/api/assignments/{copy['id']}")
     assert auth.get("/api/assignments").json()[0]["paper_page_ids"] == [p["id"] for p in src_pages]
     assert auth.post("/api/assignments/9999/duplicate").status_code == 404
+
+
+# --- delete student pages after marking (per assignment, NULL = follow the global default) ------
+
+def test_delete_pages_flag_defaults_to_null_and_follows_global_setting(auth):
+    t = _create(auth).json()
+    assert t["delete_pages_after_marking"] is None and t["effective_delete_pages"] is True
+    auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60,
+                                    "confidence_threshold": 0, "delete_pages_after_marking": False})
+    got = auth.get("/api/assignments").json()[0]
+    assert got["delete_pages_after_marking"] is None and got["effective_delete_pages"] is False
+    on = _create(auth, title="On", delete_pages_after_marking=True).json()
+    assert on["delete_pages_after_marking"] is True and on["effective_delete_pages"] is True
+
+
+def test_delete_pages_flag_put_get_and_duplicate(auth):
+    t = _create(auth, delete_pages_after_marking=False).json()
+    assert t["delete_pages_after_marking"] is False and t["effective_delete_pages"] is False
+    body = {"title": "W", "subject": "math", "context": "", "rubric": RUBRIC, "delete_pages_after_marking": True}
+    r = auth.put(f"/api/assignments/{t['id']}", json=body)
+    assert r.status_code == 200 and r.json()["delete_pages_after_marking"] is True
+    body["delete_pages_after_marking"] = None
+    assert auth.put(f"/api/assignments/{t['id']}", json=body).json()["delete_pages_after_marking"] is None
+    body["delete_pages_after_marking"] = False
+    auth.put(f"/api/assignments/{t['id']}", json=body)
+    copy = auth.post(f"/api/assignments/{t['id']}/duplicate").json()
+    assert copy["delete_pages_after_marking"] is False
+    assert auth.get("/api/assignments").json()[0]["id"] == copy["id"]

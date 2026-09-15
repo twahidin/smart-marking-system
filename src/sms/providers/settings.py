@@ -19,6 +19,7 @@ class Settings:
     rpm_limit: int = 8
     confidence_threshold: float = 0.0
     auto_reflect: bool = True
+    delete_pages_after_marking: bool = True
 
     @property
     def has_key(self) -> bool:
@@ -73,6 +74,7 @@ class SettingsStore:
             provider=r["provider"], model=r["model"], api_key=key, base_url=r["base_url"],
             extractor_model=r["extractor_model"] or None, rpm_limit=int(r["rpm_limit"]),
             confidence_threshold=float(r["confidence_threshold"]), auto_reflect=bool(r["auto_reflect"]),
+            delete_pages_after_marking=bool(r["delete_pages_after_marking"]),
         )
 
     def save(self, settings: Settings) -> Settings:
@@ -88,19 +90,21 @@ class SettingsStore:
             "extractor_model": settings.extractor_model or None, "key": key_enc,
             "rpm": int(settings.rpm_limit), "thr": float(settings.confidence_threshold),
             "auto_reflect": bool(settings.auto_reflect),
+            "delete_pages": bool(settings.delete_pages_after_marking),
         }
         if existing:
             self.db.execute(
                 "UPDATE settings SET provider = :provider, model = :model, base_url = :base_url, "
                 "extractor_model = :extractor_model, api_key_enc = :key, rpm_limit = :rpm, "
-                "confidence_threshold = :thr, auto_reflect = :auto_reflect, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+                "confidence_threshold = :thr, auto_reflect = :auto_reflect, delete_pages_after_marking = :delete_pages, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = 1",
                 params,
             )
         else:
             self.db.execute(
                 "INSERT INTO settings (id, provider, model, base_url, extractor_model, api_key_enc, "
-                "rpm_limit, confidence_threshold, auto_reflect) VALUES (1, :provider, :model, :base_url, "
-                ":extractor_model, :key, :rpm, :thr, :auto_reflect)",
+                "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking) VALUES (1, :provider, :model, "
+                ":base_url, :extractor_model, :key, :rpm, :thr, :auto_reflect, :delete_pages)",
                 params,
             )
         return self.load()

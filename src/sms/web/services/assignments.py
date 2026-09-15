@@ -1,48 +1,19 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from sms.memory.db import Database
 from sms.pipeline.router import SubjectRouter
 from sms.schemas.marking import Rubric
+# Canonical models live in sms.schemas.scheme; re-exported here for existing importers.
+from sms.schemas.scheme import Band, MarkPoint, MarkSchemeEntry, Question, RubricCriterionBands  # noqa: F401
 from sms.storage import PageStorage, UploadError, process_uploads
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 from sms.web.services.rubric import parse_rubric
 
 SCHEME_KINDS = ("criteria", "mark_scheme", "rubric")
-
-
-# --- shapes of questions_json / scheme_json ---------------------------------------------------
-
-class Question(BaseModel):
-    q_id: str = Field(min_length=1)
-    text: str = ""
-    max_marks: int = Field(ge=0)
-
-
-class MarkPoint(BaseModel):
-    label: str
-    marks: int = Field(ge=0)
-
-
-class MarkSchemeEntry(BaseModel):
-    q_id: str = Field(min_length=1)
-    answer: str = ""
-    marks: List[MarkPoint] = Field(default_factory=list)
-    notes: str = ""
-
-
-class Band(BaseModel):
-    band: str
-    marks: int = Field(ge=0)
-    descriptor: str = ""
-
-
-class RubricCriterionBands(BaseModel):
-    criterion: str = Field(min_length=1)
-    bands: List[Band] = Field(default_factory=list)
 
 
 class _Questions(BaseModel):
@@ -91,7 +62,7 @@ def _validate_scheme(scheme_kind: str, scheme: Any) -> List[dict]:
 
 
 def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_kind: str, questions: Any,
-              scheme: Any) -> Dict[str, Any]:
+              scheme: Any, delete_pages_after_marking: Optional[bool] = None) -> Dict[str, Any]:
     title = title.strip()
     if not title:
         raise ApiError(400, "bad_title", "Give the assignment a title")
@@ -106,7 +77,14 @@ def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_k
         "title": title, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
         "scheme_kind": scheme_kind, "questions": json.dumps(qs) if qs else None,
         "scheme": json.dumps(sc) if sc else None,
+        "delete_pages": None if delete_pages_after_marking is None else bool(delete_pages_after_marking),
     }
+
+
+def global_delete_pages_default(db: Database) -> bool:
+    """The Settings default for deleting a script's pages once it is done (True until saved otherwise)."""
+    rows = db.query("SELECT delete_pages_after_marking FROM settings WHERE id = 1")
+    return bool(rows[0]["delete_pages_after_marking"]) if rows else True
 
 
 def _paper_pages(db: Database, template_ids: List[int]) -> Dict[int, List[int]]:
@@ -116,14 +94,16 @@ def _paper_pages(db: Database, template_ids: List[int]) -> Dict[int, List[int]]:
         return out
     placeholders = ", ".join(f":t{i}" for i in range(len(template_ids)))
     params = {f"t{i}": tid for i, tid in enumerate(template_ids)}
-    for p in db.query(f"SELECT id, template_id FROM pages WHERE template_id IN ({placeholders}) "
+    for p in db.query(f"SELECT id, template_id FROM pages WHERE template_id IN ({placeholders}) AND kind = 'paper' "
                       "ORDER BY template_id, page_index", params):
         out[p["template_id"]].append(p["id"])
     return out
 
 
-def _row_to_dict(r: dict, paper_page_ids: List[int]) -> Dict[str, Any]:
+def _row_to_dict(r: dict, paper_page_ids: List[int], delete_default: bool) -> Dict[str, Any]:
     rubric = Rubric.model_validate_json(r["rubric_json"])
+    flag = r["delete_pages_after_marking"]
+    flag = None if flag is None else bool(flag)
     return {
         "id": r["id"], "title": r["title"], "subject": r["subject"], "context": r["context"],
         "rubric": rubric.model_dump(),
@@ -133,45 +113,53 @@ def _row_to_dict(r: dict, paper_page_ids: List[int]) -> Dict[str, Any]:
         "questions": json.loads(r["questions_json"]) if r["questions_json"] else [],
         "scheme": json.loads(r["scheme_json"]) if r["scheme_json"] else [],
         "paper_page_ids": paper_page_ids,
+        "delete_pages_after_marking": flag,
+        "effective_delete_pages": delete_default if flag is None else flag,
         "times_used": int(r["times_used"]),
         "created_at": iso_utc(r["created_at"]), "updated_at": iso_utc(r["updated_at"]),
     }
 
 
 _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, "
-           "scheme_json) VALUES (:title, :subject, :context, :rubric, :scheme_kind, :questions, :scheme) RETURNING id")
+           "scheme_json, delete_pages_after_marking) VALUES (:title, :subject, :context, :rubric, :scheme_kind, "
+           ":questions, :scheme, :delete_pages) RETURNING id")
 
 
 def list_templates(db: Database) -> List[Dict[str, Any]]:
     rows = db.query("SELECT * FROM assignment_templates ORDER BY times_used DESC, updated_at DESC, id DESC")
     pages = _paper_pages(db, [r["id"] for r in rows])
-    return [_row_to_dict(r, pages[r["id"]]) for r in rows]
+    default = global_delete_pages_default(db)
+    return [_row_to_dict(r, pages[r["id"]], default) for r in rows]
 
 
 def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
     rows = db.query("SELECT * FROM assignment_templates WHERE id = :id", {"id": template_id})
-    return _row_to_dict(rows[0], _paper_pages(db, [template_id])[template_id]) if rows else None
+    if not rows:
+        return None
+    return _row_to_dict(rows[0], _paper_pages(db, [template_id])[template_id], global_delete_pages_default(db))
 
 
 def create_template(db: Database, *, title: str, subject: str, context: str, rubric_json: str,
-                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None) -> Dict[str, Any]:
-    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme)
+                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
+                    delete_pages_after_marking: Optional[bool] = None) -> Dict[str, Any]:
+    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking)
     tid = db.insert(_INSERT, fields)
     return get_template(db, tid)  # type: ignore[return-value]
 
 
 def update_template(db: Database, template_id: int, *, title: str, subject: str, context: str, rubric_json: str,
-                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None) -> Dict[str, Any]:
+                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
+                    delete_pages_after_marking: Optional[bool] = None) -> Dict[str, Any]:
     """Update the template's fields. The paper (pages with this template_id) is owned by
     attach_paper and is never touched here."""
     if get_template(db, template_id) is None:
         raise ApiError(404, "not_found", "No such assignment")
-    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme)
+    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking)
     fields["id"] = template_id
     db.execute(
         "UPDATE assignment_templates SET title = :title, subject = :subject, context = :context, "
         "rubric_json = :rubric, scheme_kind = :scheme_kind, questions_json = :questions, scheme_json = :scheme, "
-        "updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+        "delete_pages_after_marking = :delete_pages, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
         fields,
     )
     return get_template(db, template_id)  # type: ignore[return-value]
@@ -188,11 +176,12 @@ def duplicate_template(db: Database, template_id: int) -> Dict[str, Any]:
         new_id = tx.insert(_INSERT, {
             "title": f"{r['title']} (copy)", "subject": r["subject"], "context": r["context"], "rubric": r["rubric_json"],
             "scheme_kind": r["scheme_kind"], "questions": r["questions_json"], "scheme": r["scheme_json"],
+            "delete_pages": r["delete_pages_after_marking"],
         })
         tx.execute(
-            "INSERT INTO pages (template_id, page_index, sha256, storage_path, source_filename, width, height) "
-            "SELECT :new_id, page_index, sha256, storage_path, source_filename, width, height FROM pages "
-            "WHERE template_id = :src ORDER BY page_index",
+            "INSERT INTO pages (template_id, kind, page_index, sha256, storage_path, source_filename, width, height) "
+            "SELECT :new_id, kind, page_index, sha256, storage_path, source_filename, width, height FROM pages "
+            "WHERE template_id = :src ORDER BY kind, page_index",
             {"new_id": new_id, "src": template_id},
         )
     return get_template(db, new_id)  # type: ignore[return-value]
@@ -223,12 +212,12 @@ def attach_paper(db: Database, storage: PageStorage, template_id: int,
     except UploadError as e:
         raise ApiError(400, "bad_upload", str(e))
     with db.transaction() as tx:
-        tx.execute("DELETE FROM pages WHERE template_id = :t", {"t": template_id})
+        tx.execute("DELETE FROM pages WHERE template_id = :t AND kind = 'paper'", {"t": template_id})
         page_rows = []
         for i, p in enumerate(pages):
             pid = tx.insert(
-                "INSERT INTO pages (template_id, page_index, sha256, storage_path, source_filename, width, height) "
-                "VALUES (:t, :i, :h, :p, :f, :w, :ht) RETURNING id",
+                "INSERT INTO pages (template_id, kind, page_index, sha256, storage_path, source_filename, width, height) "
+                "VALUES (:t, 'paper', :i, :h, :p, :f, :w, :ht) RETURNING id",
                 {"t": template_id, "i": i, "h": p.sha256, "p": p.storage_path, "f": p.source_filename,
                  "w": p.width, "ht": p.height},
             )
@@ -242,6 +231,12 @@ _EXPORT_FIELDS = ("title", "subject", "context", "rubric", "scheme_kind", "quest
 
 def export_templates(db: Database) -> Dict[str, Any]:
     return {"version": 1, "assignments": [{k: t[k] for k in _EXPORT_FIELDS} for t in list_templates(db)]}
+
+
+def _optional_bool(value: Any, index: int) -> Optional[bool]:
+    if value is None or isinstance(value, bool):
+        return value
+    raise ApiError(400, "bad_import", f"Assignment {index + 1}: delete_pages_after_marking must be true, false or null")
 
 
 def import_templates(db: Database, payload: Any) -> int:
@@ -258,7 +253,8 @@ def import_templates(db: Database, payload: Any) -> int:
             raise ApiError(400, "bad_rubric", f"Assignment {i + 1}: rubric must be an object")
         validated.append(_validate(str(item["title"]), str(item["subject"]), str(item.get("context") or ""),
                                    json.dumps(item["rubric"]), str(item.get("scheme_kind") or "criteria"),
-                                   item.get("questions"), item.get("scheme")))
+                                   item.get("questions"), item.get("scheme"),
+                                   _optional_bool(item.get("delete_pages_after_marking"), i)))
     existing = {(t["title"], t["subject"]) for t in list_templates(db)}
     created = 0
     with db.transaction() as tx:

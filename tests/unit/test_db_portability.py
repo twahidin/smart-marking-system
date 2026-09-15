@@ -170,3 +170,35 @@ def test_upgrade_stamps_pre_alembic_database(tmp_path):
     assert db.query("SELECT note FROM rubric_notes")[0]["note"] == "keep me"
     # Re-opening an already-stamped database is a no-op.
     Database(path=str(path))
+
+
+def test_migration_0004_columns_and_page_kind_backfill(tmp_path):
+    """0004 adds the typed-marking columns and marks existing template pages as 'paper'."""
+    from sms.memory.migrate import upgrade
+
+    db = Database(path=str(tmp_path / "m.db"), migrate=False)
+    upgrade(db.engine, "0003")
+    tid = db.insert("INSERT INTO assignment_templates (title, subject, rubric_json) VALUES ('t', 'math', '{}') RETURNING id")
+    sid = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status) "
+                    "VALUES ('s', 'math', '', '{}', 'uploaded') RETURNING id")
+    db.execute("INSERT INTO pages (template_id, page_index, sha256, storage_path, width, height) VALUES (:t, 0, 'h', 'p', 1, 1)",
+               {"t": tid})
+    db.execute("INSERT INTO pages (submission_id, page_index, sha256, storage_path, width, height) VALUES (:s, 0, 'h', 'p', 1, 1)",
+               {"s": sid})
+    upgrade(db.engine, "head")
+
+    def cols(table):
+        return {r["name"]: r for r in db.query(f"PRAGMA table_info({table})")}
+
+    assert "delete_pages_after_marking" in cols("assignment_templates")
+    assert cols("assignment_templates")["delete_pages_after_marking"]["notnull"] == 0
+    assert cols("settings")["delete_pages_after_marking"]["notnull"] == 1
+    assert "deleted_at" in cols("pages") and "kind" in cols("pages")
+    assert cols("submissions")["marks_version"]["notnull"] == 1
+    rows = {r["template_id"] or 0: r for r in db.query("SELECT template_id, kind, deleted_at FROM pages")}
+    assert rows[tid]["kind"] == "paper" and rows[0]["kind"] == "student" and rows[tid]["deleted_at"] is None
+    assert db.query("SELECT marks_version FROM submissions")[0]["marks_version"] == 1
+    assert db.query("SELECT delete_pages_after_marking FROM assignment_templates")[0]["delete_pages_after_marking"] is None
+    # a fresh settings row defaults to deleting pages after marking
+    db.execute("INSERT INTO settings (id, provider, model) VALUES (1, 'openai', 'm')")
+    assert db.query("SELECT delete_pages_after_marking FROM settings")[0]["delete_pages_after_marking"] in (1, True)

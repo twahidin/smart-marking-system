@@ -23,6 +23,7 @@ class SettingsBody(BaseModel):
     rpm_limit: int = Field(ge=0, le=10000)
     confidence_threshold: float = Field(ge=0.0, le=1.0)
     auto_reflect: bool = True
+    delete_pages_after_marking: bool = True
 
 
 class ModelsBody(BaseModel):
@@ -65,7 +66,7 @@ def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings
             base_url=(body.base_url or "").strip() or None,
             extractor_model=(body.extractor_model or "").strip() or None,
             rpm_limit=body.rpm_limit, confidence_threshold=body.confidence_threshold,
-            auto_reflect=body.auto_reflect,
+            auto_reflect=body.auto_reflect, delete_pages_after_marking=body.delete_pages_after_marking,
         ))
     except KeyError as e:
         raise ApiError(400, "bad_provider", str(e))

@@ -90,3 +90,14 @@ def test_list_models_bad_provider_and_provider_error(auth, monkeypatch):
     r = auth.post("/api/settings/models", json={"provider": "openai", "api_key": "k"})
     assert r.status_code == 502 and r.json()["error"]["code"] == "provider_error"
     assert r.json()["error"]["message"] == "HTTP 401: Invalid API key"
+
+
+def test_delete_pages_after_marking_defaults_on_and_round_trips(auth):
+    assert auth.get("/api/settings").json()["delete_pages_after_marking"] is True
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60,
+                                        "confidence_threshold": 0, "delete_pages_after_marking": False})
+    assert r.status_code == 200 and r.json()["delete_pages_after_marking"] is False
+    assert auth.get("/api/settings").json()["delete_pages_after_marking"] is False
+    # omitted -> back to the default
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60, "confidence_threshold": 0})
+    assert r.json()["delete_pages_after_marking"] is True

@@ -70,3 +70,12 @@ def test_load_survives_undecryptable_key(tmp_path):
     s = store_two.load()
     assert s.api_key is None and not s.has_key
     assert s.provider == "openai" and s.model == "gpt-5-mini" and s.rpm_limit == 60
+
+
+def test_delete_pages_after_marking_round_trips_and_defaults_on(store):
+    assert store.load().delete_pages_after_marking is True
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=60))
+    assert store.load().delete_pages_after_marking is True
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=60, delete_pages_after_marking=False))
+    s = store.load()
+    assert s.delete_pages_after_marking is False and s.public_dict()["delete_pages_after_marking"] is False
