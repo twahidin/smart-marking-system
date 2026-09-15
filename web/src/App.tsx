@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError } from "./api/client";
 import type { QueueItem } from "./api/types";
+import { Button } from "./components/Button";
 import { Nav } from "./components/Nav";
+import { Notice } from "./components/Notice";
 import { Learning } from "./pages/Learning";
 import { NewSubmission } from "./pages/NewSubmission";
 import { Review } from "./pages/Review";
@@ -11,19 +13,38 @@ import { SignIn } from "./pages/SignIn";
 import { SubmissionDetail } from "./pages/SubmissionDetail";
 import { Submissions } from "./pages/Submissions";
 
+type AuthState = "loading" | "authed" | "anon" | "error";
+
 function Shell() {
-  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [auth, setAuth] = useState<AuthState>("loading");
   const [needsYou, setNeedsYou] = useState(0);
   const loc = useLocation();
   const refreshQueue = useCallback(async () => {
     try { setNeedsYou((await api.get<QueueItem[]>("/api/queue")).length); } catch { /* ignore */ }
   }, []);
-  useEffect(() => {
-    api.get("/api/auth/me").then(() => setAuthed(true)).catch((e) => setAuthed(!(e instanceof ApiError && e.status === 401)));
+  const checkAuth = useCallback(() => {
+    setAuth("loading");
+    api.get("/api/auth/me").then(
+      () => setAuth("authed"),
+      (e) => setAuth(e instanceof ApiError && e.status === 401 ? "anon" : "error"),
+    );
   }, []);
-  useEffect(() => { if (authed) refreshQueue(); }, [authed, loc.pathname, refreshQueue]);
-  if (authed === null) return <p className="page muted">Loading…</p>;
-  if (!authed) return <Navigate to="/sign-in" replace state={{ from: loc.pathname }} />;
+  useEffect(() => { checkAuth(); }, [checkAuth]);
+  useEffect(() => { if (auth === "authed") refreshQueue(); }, [auth, loc.pathname, refreshQueue]);
+  if (auth === "loading") return <p className="page muted">Loading…</p>;
+  if (auth === "anon") return <Navigate to="/sign-in" replace state={{ from: loc.pathname }} />;
+  if (auth === "error") {
+    return (
+      <div className="page">
+        <Notice kind="error">
+          Can't reach Smart Marking right now.
+          <div style={{ marginTop: 12 }}>
+            <Button variant="secondary" onClick={checkAuth}>Try again</Button>
+          </div>
+        </Notice>
+      </div>
+    );
+  }
   return <><Nav needsYou={needsYou} /><Outlet context={{ refreshQueue }} /></>;
 }
 
