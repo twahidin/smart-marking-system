@@ -31,4 +31,5 @@ def install_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": f"http_{exc.status_code}", "message": str(exc.detail)}},
+            headers=getattr(exc, "headers", None),
         )

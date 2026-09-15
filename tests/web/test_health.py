@@ -26,6 +26,13 @@ def test_api_404_has_uniform_error_shape(app):
         assert r.json()["error"]["code"] == "http_404"
 
 
+def test_405_has_uniform_error_shape_and_preserves_allow_header(client):
+    r = client.get("/api/auth/login")
+    assert r.status_code == 405
+    assert r.json()["error"]["code"] == "http_405"
+    assert "Allow" in r.headers
+
+
 def test_spa_path_traversal_blocked(app, tmp_path):
     from fastapi.testclient import TestClient
     dist = tmp_path / "dist"
