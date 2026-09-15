@@ -11,6 +11,7 @@ from sms.providers.errors import error_message, is_retryable
 from sms.providers.ratelimit import TokenBucket
 from sms.providers.settings import SettingsStore
 from sms.storage import PageStorage
+from sms.web.services.pages_cleanup import sweep_done_submissions
 from sms.worker.extract_jobs import PAPER_KIND, SCHEME_KIND, run_paper_extract_job, run_scheme_extract_job
 from sms.worker.jobs import MAX_ATTEMPTS, JobStore
 from sms.worker.mark_job import run_mark_job
@@ -25,6 +26,8 @@ ExtractRunner = Callable[..., int]
 REFLECT_CHECK_INTERVAL_S = 600.0
 REFLECT_WINDOW_H = 24
 REFLECT_LOOKBACK_DAYS = 7
+PAGE_SWEEP_INTERVAL_S = 3600.0
+PAGE_SWEEP_WINDOW_H = 24
 
 
 class Worker:
@@ -46,6 +49,7 @@ class Worker:
         self.jobs = JobStore(db)
         self._bucket: Optional[TokenBucket] = None
         self._last_reflect_check: Optional[float] = None  # time.monotonic() of the last scheduler pass
+        self._last_page_sweep: Optional[float] = None  # time.monotonic() of the last page sweep
 
     def _bucket_for(self, rpm: int) -> TokenBucket:
         """One TokenBucket for the worker's lifetime; replaced only when rpm changes.
@@ -104,6 +108,7 @@ class Worker:
                     reset_done = True
                 self.jobs.heartbeat()
                 self._maybe_schedule_reflection()
+                self._maybe_sweep_pages()
                 worked = self.run_once()
             except Exception:  # noqa: BLE001
                 log.exception("worker loop error")
@@ -140,6 +145,15 @@ class Worker:
             if self.jobs.enqueue_unique("reflect", {"subject": subject, "lookback_days": REFLECT_LOOKBACK_DAYS},
                                         dedupe_key=f"reflect:{subject}") is not None:
                 log.info("scheduled nightly reflection for %s", subject)
+
+    def _maybe_sweep_pages(self) -> None:
+        """At most once an hour, delete the pages of `done` scripts older than 24 h that still have
+        them — the safety net for an inline deletion that failed."""
+        now = time.monotonic()
+        if self._last_page_sweep is not None and now - self._last_page_sweep < PAGE_SWEEP_INTERVAL_S:
+            return
+        self._last_page_sweep = now
+        sweep_done_submissions(self.db, self.storage, older_than_hours=PAGE_SWEEP_WINDOW_H)
 
     def start_thread(self, stop: threading.Event) -> threading.Thread:
         t = threading.Thread(target=self.run_forever, args=(stop,), name="sms-worker", daemon=True)

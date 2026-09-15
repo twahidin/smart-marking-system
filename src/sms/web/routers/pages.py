@@ -9,9 +9,11 @@ router = APIRouter(prefix="/api/pages", tags=["pages"], dependencies=[Depends(re
 
 @router.get("/{page_id}")
 def page(page_id: int, db=Depends(get_db), storage=Depends(get_storage)):
-    rows = db.query("SELECT storage_path FROM pages WHERE id = :id", {"id": page_id})
+    rows = db.query("SELECT storage_path, deleted_at FROM pages WHERE id = :id", {"id": page_id})
     if not rows:
         raise ApiError(404, "not_found", "No such page")
+    if rows[0]["deleted_at"] is not None:
+        raise ApiError(410, "gone", "Page deleted after marking")
     path = storage.abs(rows[0]["storage_path"])
     if not path.is_file():
         raise ApiError(404, "not_found", "Page image is missing from storage")

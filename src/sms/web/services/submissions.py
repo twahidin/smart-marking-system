@@ -302,8 +302,10 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
         return None
     s = rows[0]
     rubric = Rubric.model_validate_json(s["rubric_json"])
-    pages = db.query("SELECT id, page_index, width, height FROM pages WHERE submission_id = :id ORDER BY page_index",
-                     {"id": submission_id})
+    pages = [{"id": p["id"], "page_index": p["page_index"], "width": p["width"], "height": p["height"],
+              "deleted": p["deleted_at"] is not None}
+             for p in db.query("SELECT id, page_index, width, height, deleted_at FROM pages WHERE submission_id = :id "
+                               "AND kind = 'student' ORDER BY page_index", {"id": submission_id})]
     run = _run_row(db, s["run_id"])
     pending = _pending(db, submission_id)
     corrections = _corrections(db, s["run_id"])
@@ -340,7 +342,8 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
     job = jobs.job_for_submission(submission_id)
     return {
         "id": s["id"], "label": s["label"], "subject": s["subject"], "context": s["context"], "status": s["status"],
-        "created_at": iso_utc(s["created_at"]), "rubric": rubric.model_dump(), "pages": pages, "marks": marks,
+        "created_at": iso_utc(s["created_at"]), "rubric": rubric.model_dump(), "pages": pages,
+        "pages_deleted": bool(pages) and all(p["deleted"] for p in pages), "marks": marks,
         "marks_version": marks_version, "parts": parts, "run_id": s["run_id"],
         "marked_at": iso_utc(run["created_at"]) if run else None,
         "scheme_kind": scheme_info["scheme_kind"] if scheme_info else None,

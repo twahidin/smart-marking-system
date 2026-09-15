@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, Callable, Optional
 
 from sms.agents.extractor import build_extractor
@@ -17,6 +18,9 @@ from sms.providers.registry import get_provider
 from sms.providers.settings import SettingsStore
 from sms.schemas.marking import Rubric
 from sms.storage import PageStorage
+from sms.web.services.pages_cleanup import delete_submission_pages
+
+log = logging.getLogger("sms.worker")
 
 
 V2_KINDS = ("mark_scheme", "rubric")
@@ -80,8 +84,10 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
     settings = settings_store.load()
     if not settings.has_key:
         raise RuntimeError("No API key configured — add one under Settings")
-    pages = db.query("SELECT storage_path FROM pages WHERE submission_id = :id ORDER BY page_index",
-                     {"id": submission_id})
+    pages = db.query("SELECT storage_path, deleted_at FROM pages WHERE submission_id = :id AND kind = 'student' "
+                     "ORDER BY page_index", {"id": submission_id})
+    if any(p["deleted_at"] is not None for p in pages):
+        raise RuntimeError("This script's pages were deleted after marking, so it cannot be marked again")
     images = [storage.read(p["storage_path"]) for p in pages]
     factory = pipeline_factory or _default_pipeline_factory
     template = _v2_template(db, sub.get("assignment_id"))
@@ -97,3 +103,10 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
     status = "needs_you" if result.escalations else "done"
     db.execute("UPDATE submissions SET status = :st, run_id = :rid, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
                {"st": status, "rid": result.run_id, "id": submission_id})
+    if status == "done":
+        # Marking is finished and recorded: a deletion failure (volume hiccup) is logged rather than
+        # failing the job — the worker's hourly sweep deletes the pages later.
+        try:
+            delete_submission_pages(db, storage, submission_id)
+        except Exception:  # noqa: BLE001
+            log.exception("could not delete the pages of submission %s after marking", submission_id)

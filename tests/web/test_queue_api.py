@@ -72,7 +72,7 @@ def test_resolve_is_race_safe_under_concurrent_requests(auth, app):
 
     def _resolve(_):
         try:
-            return ("ok", resolve_queue_item(db, qid, [1, 1], ""))
+            return ("ok", resolve_queue_item(db, qid, [1, 1], "", storage=app.state.storage))
         except ApiError as e:
             return ("error", e.status)
 
@@ -174,3 +174,46 @@ def test_resolve_v2_rubric_with_a_band(auth, app):
     assert (c["agent_mark"], c["teacher_mark"]) == (2, 5) and json.loads(c["criterion_scores_json"]) == {"version": 2, "band": "A", "marks": 5}
     d = auth.get(f"/api/submissions/{sid}").json()
     assert d["parts"][1]["teacher"] == {"band": "A", "marks": 5, "total": 5} and d["totals"] == {"total": 10, "total_upper": 10, "total_max": 10}
+
+
+# --- deleting student pages on the last resolve ----------------------------------------------------
+
+def _real_page(app, sid, content=b"\xff\xd8\xffjpeg", index=0):
+    digest, rel = app.state.storage.put_jpeg(content)
+    pid = app.state.db.insert("INSERT INTO pages (submission_id, page_index, sha256, storage_path, width, height) "
+                              "VALUES (:s, :i, :h, :p, 1, 1) RETURNING id", {"s": sid, "i": index, "h": digest, "p": rel})
+    return pid, rel
+
+
+def test_last_resolve_deletes_student_pages(auth, app):
+    sid, qid = _seed(app)
+    app.state.db.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+    pid, rel = _real_page(app, sid)
+    r = auth.post(f"/api/queue/{qid}/resolve", json={"criterion_scores": [2, 2], "reason": ""})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    assert auth.get(f"/api/pages/{pid}").status_code == 410
+    assert not app.state.storage.abs(rel).exists()
+    assert auth.get(f"/api/submissions/{sid}").json()["pages_deleted"] is True
+
+
+def test_resolve_with_parts_still_pending_keeps_pages(auth, app):
+    sid, qids = seed_v2(app, queue={"1b": "low confidence", "2": "not in scheme"})
+    app.state.db.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+    pid, rel = _real_page(app, sid)
+    r = auth.post(f"/api/queue/{qids['2']}/resolve", json={"allocations": [{"label": "M1", "got": True}, {"label": "A1", "got": False}]})
+    assert r.status_code == 200 and r.json()["submission_status"] == "needs_you"
+    assert auth.get(f"/api/pages/{pid}").status_code == 200 and app.state.storage.abs(rel).exists()
+    r = auth.post(f"/api/queue/{qids['1b']}/resolve", json={"allocations": [{"label": "B1", "got": True}]})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    assert auth.get(f"/api/pages/{pid}").status_code == 410 and not app.state.storage.abs(rel).exists()
+
+
+def test_last_resolve_respects_the_delete_flag(auth, app):
+    auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60,
+                                    "confidence_threshold": 0, "delete_pages_after_marking": False})
+    sid, qid = _seed(app)
+    app.state.db.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+    pid, rel = _real_page(app, sid)
+    r = auth.post(f"/api/queue/{qid}/resolve", json={"criterion_scores": [2, 2], "reason": ""})
+    assert r.json()["submission_status"] == "done"
+    assert auth.get(f"/api/pages/{pid}").status_code == 200 and app.state.storage.abs(rel).exists()

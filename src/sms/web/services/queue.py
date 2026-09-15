@@ -4,7 +4,9 @@ from typing import Any, Dict, List, Optional
 from sms.memory.db import Database
 from sms.schemas.marking import Rubric
 from sms.schemas.scheme import q_label
+from sms.storage import PageStorage
 from sms.web.errors import ApiError
+from sms.web.services.pages_cleanup import effective_delete_pages, mark_pages_deleted, unlink_pages
 from sms.web.services.submissions import iso_utc, mark_key, mark_total, row_key, run_final_v2, run_scheme
 
 
@@ -23,7 +25,7 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
         params = {f"s{i}": sid for i, sid in enumerate(sub_ids)}
         for p in db.query(
             f"SELECT id, submission_id FROM pages WHERE submission_id IN ({placeholders}) "
-            "ORDER BY submission_id, page_index",
+            "AND kind = 'student' AND deleted_at IS NULL ORDER BY submission_id, page_index",
             params,
         ):
             pages_by_sub[p["submission_id"]].append(p["id"])
@@ -130,10 +132,13 @@ def _v2_correction(run: dict, scheme_info: dict, key: str, allocations: Optional
 
 
 def resolve_queue_item(db: Database, item_id: int, criterion_scores: Optional[List[int]] = None, reason: str = "",
-                       *, allocations: Optional[List[dict]] = None, band: Optional[str] = None) -> Dict[str, Any]:
+                       *, storage: PageStorage, allocations: Optional[List[dict]] = None,
+                       band: Optional[str] = None) -> Dict[str, Any]:
     """Record the teacher's decision on a pending item. v1 items take `criterion_scores` (one per
     criterion); v2 items take `allocations` [{label, got}] (mark scheme) or `band` (rubric), validated
-    against the scheme, and store the v2 shape in teacher_corrections.criterion_scores_json."""
+    against the scheme, and store the v2 shape in teacher_corrections.criterion_scores_json. Resolving
+    the last pending part flips the script to `done` and deletes its student pages (when the effective
+    delete flag is on): rows are marked in the same transaction, files removed after it commits."""
     rows = db.query("SELECT q.run_id, q.q_id, q.submission_id, mr.rubric_json, mr.marks_json, mr.final_marks_json "
                     "FROM teacher_queue q JOIN marking_runs mr ON mr.run_id = q.run_id WHERE q.id = :id AND q.status = 'pending'",
                     {"id": item_id})
@@ -173,10 +178,14 @@ def resolve_queue_item(db: Database, item_id: int, criterion_scores: Optional[Li
              "reason": reason, "scores": json.dumps(scores_json)},
         )
         status = None
+        to_unlink: List[str] = []
         if r["submission_id"] is not None:
             remaining = tx.query("SELECT COUNT(*) AS c FROM teacher_queue WHERE submission_id = :s AND status = 'pending'",
                                  {"s": r["submission_id"]})[0]["c"]
             status = "needs_you" if remaining else "done"
             tx.execute("UPDATE submissions SET status = :st, updated_at = CURRENT_TIMESTAMP WHERE id = :s",
                        {"st": status, "s": r["submission_id"]})
+            if status == "done" and effective_delete_pages(tx, r["submission_id"]):
+                to_unlink = mark_pages_deleted(tx, r["submission_id"])
+    unlink_pages(storage, to_unlink)
     return {"id": item_id, "submission_id": r["submission_id"], "submission_status": status}

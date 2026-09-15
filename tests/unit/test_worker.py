@@ -348,6 +348,11 @@ class FakePipelineV2:
                                final=MarkedScriptV2(kind="mark_scheme"), escalations=self.escalations)
 
 
+def _keep_pages(store):
+    """Turn the global delete-after-marking default off, so a `done` script keeps its pages."""
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=0, delete_pages_after_marking=False))
+
+
 def _template(db, kind="mark_scheme", subject="math"):
     return db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, scheme_json) "
                      "VALUES ('T', :subj, 'ECF applies', '{\"criterion_defs\": []}', :k, :q, :s) RETURNING id",
@@ -357,6 +362,7 @@ def _template(db, kind="mark_scheme", subject="math"):
 
 def test_run_mark_job_uses_v2_pipeline_for_mark_scheme_assignment(env):
     db, store, storage, sid = env
+    _keep_pages(store)  # the script is marked twice below
     tid = _template(db, "mark_scheme", subject="science")
     db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
     fp = FakePipelineV2(escalations={})
@@ -383,6 +389,7 @@ def test_run_mark_job_uses_v2_pipeline_for_mark_scheme_assignment(env):
 
 def test_run_mark_job_keeps_v1_for_criteria_or_no_assignment(env):
     db, store, storage, sid = env
+    _keep_pages(store)  # the script is marked twice below
     tid = _template(db, "criteria")
     db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
     seen = []
@@ -410,3 +417,96 @@ def test_default_pipeline_factory_builds_v2_agents(env, monkeypatch):
     assert all(isinstance(a, RateLimitedAgent) for a in (pipeline.extractor, pipeline.marker, pipeline.reviewer, pipeline.feedback))
     from sms.pipeline.marking_pipeline import MarkingPipeline
     assert isinstance(mark_job._default_pipeline_factory(db=db, settings=store.load(), subject="math"), MarkingPipeline)
+
+
+# --- deleting student pages once a script is done -------------------------------------------------
+
+def _page_state(db, storage, sid):
+    rows = db.query("SELECT deleted_at, storage_path FROM pages WHERE submission_id = ?", (sid,))
+    return [(r["deleted_at"] is not None, storage.abs(r["storage_path"]).exists()) for r in rows]
+
+
+def test_run_mark_job_deletes_pages_on_done_but_not_needs_you(env):
+    db, store, storage, sid = env
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline(["q2"]))
+    assert _page_state(db, storage, sid) == [(False, True)]
+    db.execute("UPDATE submissions SET status = 'uploaded'")
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "done"
+    assert _page_state(db, storage, sid) == [(True, False)]
+
+
+def test_run_mark_job_respects_the_delete_flag(env):
+    db, store, storage, sid = env
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=0, delete_pages_after_marking=False))
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "done"
+    assert _page_state(db, storage, sid) == [(False, True)]
+    # the assignment's own setting wins over the global default
+    tid = _template(db, "mark_scheme")
+    db.execute("UPDATE assignment_templates SET delete_pages_after_marking = 1 WHERE id = ?", (tid,))
+    db.execute("UPDATE submissions SET assignment_id = ?, status = 'uploaded' WHERE id = ?", (tid, sid))
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipelineV2({}))
+    assert _page_state(db, storage, sid) == [(True, False)]
+
+
+def test_run_mark_job_done_survives_a_deletion_failure(env, monkeypatch):
+    """Marking is finished: a deletion error must not fail (and re-run) the job — the sweep retries it."""
+    db, store, storage, sid = env
+    from sms.worker import mark_job
+
+    def boom(*a, **k):
+        raise RuntimeError("volume unavailable")
+
+    monkeypatch.setattr(mark_job, "delete_submission_pages", boom)
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "done"
+    assert _page_state(db, storage, sid) == [(False, True)]
+
+
+def test_worker_sweeps_pages_at_most_once_per_hour(env, monkeypatch):
+    db, store, storage, sid = env
+    from sms.worker import worker as worker_mod
+    calls = []
+    monkeypatch.setattr(worker_mod, "sweep_done_submissions", lambda db_, storage_, older_than_hours=24: calls.append(older_than_hours) or 0)
+    w = Worker(db, storage, store)
+    w._maybe_sweep_pages()
+    w._maybe_sweep_pages()
+    assert calls == [24]
+    w._last_page_sweep = None
+    w._maybe_sweep_pages()
+    assert calls == [24, 24]
+
+
+def test_worker_sweep_really_deletes_old_done_pages(env):
+    db, store, storage, sid = env
+    db.execute("UPDATE submissions SET status = 'done', updated_at = ? WHERE id = ?",
+               ((datetime.now(timezone.utc) - timedelta(hours=30)).strftime("%Y-%m-%d %H:%M:%S"), sid))
+    Worker(db, storage, store)._maybe_sweep_pages()
+    assert _page_state(db, storage, sid) == [(True, False)]
+
+
+def test_run_forever_runs_the_page_sweep(env):
+    db, store, storage, sid = env
+    w = Worker(db, storage, store, poll_s=0.01)
+    stop = threading.Event()
+    t = w.start_thread(stop)
+    import time
+    for _ in range(300):
+        if w._last_page_sweep is not None:
+            break
+        time.sleep(0.01)
+    stop.set(); t.join(timeout=2)
+    assert w._last_page_sweep is not None
+
+
+def test_run_mark_job_refuses_a_script_whose_pages_were_deleted(env):
+    """Once the pages are gone there is nothing to mark: a clear, non-retryable error rather than a
+    missing-file traceback."""
+    db, store, storage, sid = env
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
+    assert _page_state(db, storage, sid) == [(True, False)]
+    db.execute("UPDATE submissions SET status = 'uploaded'")
+    with pytest.raises(RuntimeError, match="deleted after marking"):
+        run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
