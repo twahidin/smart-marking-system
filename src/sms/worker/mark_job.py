@@ -57,16 +57,28 @@ def _default_pipeline_factory(*, db: Database, settings, subject: str, bucket: O
     return MarkingPipeline(db=db, subject=subject, confidence_threshold=settings.confidence_threshold, **limited)
 
 
-def _v2_template(db: Database, assignment_id: Optional[int]) -> Optional[dict]:
+KIND_NAMES = {"criteria": "quick mark", "mark_scheme": "mark scheme", "rubric": "rubric"}
+
+
+def _v2_template(db: Database, assignment_id: Optional[int], uploaded_kind: Optional[str]) -> Optional[dict]:
     """The submission's assignment as the v2 pipeline's template dict when it has a mark scheme or a
-    rubric; None (v1 path) for criteria templates, no assignment or a deleted one."""
+    rubric; None (v1 path) for criteria templates or no assignment. A script whose assignment has been
+    deleted, or retyped since it was uploaded (`uploaded_kind`, NULL on legacy rows), is refused with a
+    non-retryable error rather than marked with the wrong pipeline — and then having its pages deleted."""
     if assignment_id is None:
         return None
     rows = db.query("SELECT subject, context, scheme_kind, questions_json, scheme_json FROM assignment_templates "
                     "WHERE id = :id", {"id": assignment_id})
-    if not rows or rows[0]["scheme_kind"] not in V2_KINDS:
-        return None
+    if not rows:
+        raise RuntimeError("The assignment this script was uploaded for has been deleted — upload it again against "
+                           "a current assignment")
     t = rows[0]
+    if uploaded_kind is not None and t["scheme_kind"] != uploaded_kind:
+        raise RuntimeError(f"This script was uploaded against a {KIND_NAMES.get(uploaded_kind, uploaded_kind)} assignment "
+                           f"that is now a {KIND_NAMES.get(t['scheme_kind'], t['scheme_kind'])} — upload it again against "
+                           "a current assignment")
+    if t["scheme_kind"] not in V2_KINDS:
+        return None
     return {
         "subject": t["subject"], "context": t["context"] or "", "scheme_kind": t["scheme_kind"],
         "questions": json.loads(t["questions_json"]) if t["questions_json"] else [],
@@ -90,7 +102,7 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
         raise RuntimeError("This script's pages were deleted after marking, so it cannot be marked again")
     images = [storage.read(p["storage_path"]) for p in pages]
     factory = pipeline_factory or _default_pipeline_factory
-    template = _v2_template(db, sub.get("assignment_id"))
+    template = _v2_template(db, sub.get("assignment_id"), sub.get("scheme_kind"))
     if template is not None:
         # the assignment's subject drives prompts/providers and the run row; the pipeline reads the same key
         pipeline = factory(db=db, settings=settings, subject=template["subject"], bucket=bucket, kind=template["scheme_kind"])

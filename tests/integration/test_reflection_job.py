@@ -83,3 +83,21 @@ def test_reflection_sees_cli_resolved_corrections(tmp_path):
     result = run_reflection(db=db, agent=agent, subject="math", lookback_days=7)
     assert result == 1
     assert agent.last_input.corrections[0].agent_mark == 2
+
+
+def test_reflection_uses_the_whole_transcription_for_a_rubric_run(tmp_path):
+    """A rubric marks the response as one, so a correction on a criterion carries every transcribed
+    answer, not a lookup of the criterion name among the question ids."""
+    db = Database(path=str(tmp_path / "s.db"))
+    rubric_json = '{"scheme_kind": "rubric", "questions": [], "scheme": [], "notes": ""}'
+    db.execute(
+        "INSERT INTO marking_runs (run_id, stage, subject, rubric_json, extracted_json, final_status) VALUES (?, ?, ?, ?, ?, ?)",
+        ("r1", "complete", "language", rubric_json,
+         '{"questions": [{"q_id": "1", "transcribed_answer": "Once upon a time"}, {"q_id": "2", "transcribed_answer": "The end."}]}',
+         "complete"),
+    )
+    db.execute("INSERT INTO teacher_corrections (run_id, q_id, agent_mark, teacher_mark, reason) VALUES ('r1', 'Content', 3, 5, 'richer')")
+    agent = StubReflectionAgent(UPDATE)
+    run_reflection(db=db, agent=agent, subject="language", lookback_days=7)
+    c = agent.last_input.corrections[0]
+    assert c.q_id == "Content" and c.extracted_answer == "Once upon a time\n\nThe end."

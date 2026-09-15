@@ -6,6 +6,7 @@ import pytest
 
 from sms.memory.db import Database
 from sms.providers.crypto import KeyCipher
+from sms.providers.errors import is_retryable
 from sms.providers.settings import Settings, SettingsStore
 from sms.storage import PageStorage
 from sms.worker.jobs import JobStore
@@ -401,10 +402,35 @@ def test_run_mark_job_keeps_v1_for_criteria_or_no_assignment(env):
     run_mark_job(db, storage, store, sid, pipeline_factory=factory)
     assert "kind" not in seen[0]
     assert db.query("SELECT status, marks_version FROM submissions WHERE id = ?", (sid,))[0] == {"status": "done", "marks_version": 1}
-    # a dangling assignment_id (template deleted) also falls back to v1
+    # a dangling assignment_id (template deleted) is refused, not silently marked as quick mark
     db.execute("UPDATE submissions SET assignment_id = 999999, status = 'uploaded' WHERE id = ?", (sid,))
+    with pytest.raises(RuntimeError, match="has been deleted"):
+        run_mark_job(db, storage, store, sid, pipeline_factory=factory)
+    assert len(seen) == 1
+
+
+def test_run_mark_job_refuses_when_the_assignment_is_gone_or_its_kind_changed(env):
+    """A retry after the assignment was deleted or retyped must not mark with the wrong pipeline (and then
+    delete the pages): both are non-retryable errors that tell the teacher what to do."""
+    db, store, storage, sid = env
+    tid = _template(db, "mark_scheme")
+    db.execute("UPDATE submissions SET assignment_id = ?, scheme_kind = 'mark_scheme' WHERE id = ?", (tid, sid))
+    calls = []
+    factory = lambda **kw: (calls.append(kw), FakePipelineV2({}))[1]  # noqa: E731
+    db.execute("UPDATE assignment_templates SET scheme_kind = 'rubric', scheme_json = '[]' WHERE id = ?", (tid,))
+    with pytest.raises(RuntimeError, match="mark scheme.*rubric") as e:
+        run_mark_job(db, storage, store, sid, pipeline_factory=factory)
+    assert not is_retryable(e.value) and calls == []
+    db.execute("DELETE FROM assignment_templates WHERE id = ?", (tid,))
+    with pytest.raises(RuntimeError, match="deleted") as e:
+        run_mark_job(db, storage, store, sid, pipeline_factory=factory)
+    assert not is_retryable(e.value) and calls == []
+    row = db.query("SELECT status, deleted_at FROM submissions s JOIN pages p ON p.submission_id = s.id WHERE s.id = ?", (sid,))[0]
+    assert row["status"] == "uploaded" and row["deleted_at"] is None
+    # a legacy row (scheme_kind NULL) is marked with whatever the template says now
+    db.execute("UPDATE submissions SET assignment_id = ?, scheme_kind = NULL WHERE id = ?", (_template(db, "rubric"), sid))
     run_mark_job(db, storage, store, sid, pipeline_factory=factory)
-    assert "kind" not in seen[1] and len(seen) == 2
+    assert calls[0]["kind"] == "rubric"
 
 
 def test_default_pipeline_factory_builds_v2_agents(env, monkeypatch):

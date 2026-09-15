@@ -37,6 +37,8 @@ def _record(db, jobs, model: str, submission_id: int) -> Record:
 
 
 def _model_line(settings_store) -> str:
+    # TODO: "Marked by" is the provider/model configured now, not necessarily the one that marked the script.
+    # Store provider and model on marking_runs at marking time and read them from the run here.
     s = settings_store.load()
     return f"{s.provider} · {s.model}" if s.model else s.provider
 

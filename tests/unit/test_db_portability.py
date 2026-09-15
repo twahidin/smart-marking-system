@@ -202,3 +202,22 @@ def test_migration_0004_columns_and_page_kind_backfill(tmp_path):
     # a fresh settings row defaults to deleting pages after marking
     db.execute("INSERT INTO settings (id, provider, model) VALUES (1, 'openai', 'm')")
     assert db.query("SELECT delete_pages_after_marking FROM settings")[0]["delete_pages_after_marking"] in (1, True)
+
+
+def test_migration_0005_adds_scheme_kind_and_backfills_from_the_template(tmp_path):
+    from sms.memory.migrate import upgrade
+
+    db = Database(path=str(tmp_path / "m.db"), migrate=False)
+    upgrade(db.engine, "0004")
+    tid = db.insert("INSERT INTO assignment_templates (title, subject, rubric_json, scheme_kind) VALUES ('t', 'math', '{}', 'rubric') RETURNING id")
+    with_t = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id) "
+                       "VALUES ('a', 'math', '', '{}', 'uploaded', :t) RETURNING id", {"t": tid})
+    without = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status) "
+                        "VALUES ('b', 'math', '', '{}', 'uploaded') RETURNING id")
+    dangling = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id) "
+                         "VALUES ('c', 'math', '', '{}', 'uploaded', 999) RETURNING id")
+    upgrade(db.engine, "head")
+    cols = {r["name"]: r for r in db.query("PRAGMA table_info(submissions)")}
+    assert cols["scheme_kind"]["notnull"] == 0 and "marks_version" in cols
+    kinds = {r["id"]: r["scheme_kind"] for r in db.query("SELECT id, scheme_kind FROM submissions")}
+    assert kinds == {with_t: "rubric", without: None, dangling: None}

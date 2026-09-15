@@ -22,7 +22,9 @@ class ExtractionInput(BaseIOSchema):
 
 
 class ExtractedQuestion(BaseModel):
-    q_id: str = Field(..., description="Question identifier, e.g. 'q1'")
+    q_id: str = Field(..., description="Question or part id in the short form '1a', '2bii', '3' (number, then letter, then "
+                                       "roman numerals; no 'Q', spaces or brackets) — exactly the q_id of the matching "
+                                       "question when a question list is given")
     transcribed_answer: str = Field(..., description="Student's transcribed answer")
     workings: str = Field(default="", description="Transcribed working steps, if any")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Transcription confidence 0-1")

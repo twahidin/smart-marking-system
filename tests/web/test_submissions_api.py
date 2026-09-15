@@ -308,3 +308,30 @@ def test_create_rejects_a_typed_assignment_with_no_scheme(auth, app):
     # a criteria assignment has no per-question scheme and uploads as before
     t = auth.post("/api/assignments", json={"title": "Quick", "subject": "math", "context": "", "rubric": RUBRIC, "scheme_kind": "criteria"}).json()
     assert _create(auth, assignment_id=str(t["id"])).status_code == 202
+
+
+def test_create_stores_the_scheme_kind_the_script_was_uploaded_against(auth, app):
+    _with_key(auth)
+    t = auth.post("/api/assignments", json={"title": "Essay", "subject": "language", "context": "", "rubric": RUBRIC, "scheme_kind": "rubric",
+                                           "scheme": [{"criterion": "Content", "bands": [{"band": "A", "marks": 5, "descriptor": ""}]}]}).json()
+    typed = _create(auth, assignment_id=str(t["id"])).json()["id"]
+    quick = _create(auth).json()["id"]
+    kinds = {r["id"]: r["scheme_kind"] for r in app.state.db.query("SELECT id, scheme_kind FROM submissions")}
+    assert kinds == {typed: "rubric", quick: "criteria"}
+
+
+def test_detail_matches_extraction_q_ids_loosely(auth, app):
+    """The extractor may write "Q1(a)" where the scheme says "1a": the student's answer still lands on the row."""
+    extracted = {"questions": [
+        {"q_id": "Q1(a)", "transcribed_answer": "x = 3", "workings": "3x = 9", "confidence": 0.9, "needs_human_transcription": False},
+        {"q_id": "1 (b)", "transcribed_answer": "6", "workings": "", "confidence": 0.8, "needs_human_transcription": True},
+        {"q_id": "Q2", "transcribed_answer": "x^2 + 2x + 1", "workings": "", "confidence": 0.9, "needs_human_transcription": False},
+    ]}
+    sid, qids = seed_v2(app, extracted=extracted)
+    d = auth.get(f"/api/submissions/{sid}").json()
+    p1a, p1b, p2 = d["parts"]
+    assert p1a["extracted"] == "x = 3" and p1a["workings"] == "3x = 9" and p1a["illegible"] is False
+    assert p1b["extracted"] == "6" and p1b["illegible"] is True
+    assert p2["extracted"] == "x^2 + 2x + 1"
+    it = auth.get("/api/queue").json()[0]
+    assert it["q_id"] == "2" and it["transcription"] == "x^2 + 2x + 1"

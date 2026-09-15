@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from sms.schemas.scheme import (
-    Band, MarkPoint, MarkSchemeEntry, Question, RubricCriterionBands, q_label, scheme_total,
+    Band, MarkPoint, MarkSchemeEntry, Question, RubricCriterionBands, norm_qid, q_label, scheme_total,
 )
 
 
@@ -40,6 +40,15 @@ def test_models_validate_as_before():
 ])
 def test_q_label(q_id, label):
     assert q_label(q_id) == label
+
+
+@pytest.mark.parametrize("raw, norm", [
+    ("1a", "1a"), ("Q1(a)", "1a"), ("q1 (a)", "1a"), ("1 a", "1a"), ("1.a", "1a"), ("2(b)(ii)", "2bii"), ("Q2", "2"),
+    ("1A", "1a"), (" 1a ", "1a"), ("Content", "content"), ("Section A", "sectiona"), ("", ""), (None, ""),
+    ("quality", "quality"),  # only a leading q followed by a digit is a question prefix
+])
+def test_norm_qid(raw, norm):
+    assert norm_qid(raw) == norm
 
 
 QS = [Question(q_id="1a", text="", max_marks=2), Question(q_id="1b", text="", max_marks=3),

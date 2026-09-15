@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from sms.memory.db import Database
 from sms.reasons import reason_text
 from sms.schemas.marking import Rubric
-from sms.schemas.scheme import q_label
+from sms.schemas.scheme import norm_qid, q_label
 from sms.storage import PageStorage
 from sms.web.errors import ApiError
 from sms.web.services.pages_cleanup import effective_delete_pages, mark_pages_deleted, reconcile_done, unlink_pages
@@ -37,7 +37,7 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
         extracted = json.loads(r["extracted_json"] or '{"questions": []}')
         marks = json.loads(r["marks_json"] or '{"marks": []}')
         reviewed = json.loads(r["reviewed_json"] or '{"verdicts": []}')
-        eq = next((x for x in extracted.get("questions", []) if x["q_id"] == q), {})
+        eq = next((x for x in extracted.get("questions", []) if norm_qid(x["q_id"]) == norm_qid(q)), {})
         mq = next((x for x in marks.get("marks", []) if x["q_id"] == q), {})
         rv = next((x for x in reviewed.get("verdicts", []) if x["q_id"] == q), {})
         page_ids = pages_by_sub.get(r["submission_id"], []) if r["submission_id"] else []

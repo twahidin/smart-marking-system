@@ -1,9 +1,27 @@
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 from sms.memory.db import Database
 from sms.schemas.reflection import CorrectionRow, ReflectionInput
+from sms.schemas.scheme import norm_qid
+
+
+def _extracted_answer(rubric_json: Optional[str], extracted: dict, q_id: str) -> str:
+    """The transcription a correction is about. A v2 rubric run marks the response as one (q_id is a
+    criterion name), so it is the whole transcription; otherwise the question's answer, matched loosely
+    ("Q1(a)" is "1a")."""
+    questions = extracted.get("questions") or []
+    scheme_kind = None
+    try:
+        data = json.loads(rubric_json) if rubric_json else None
+        scheme_kind = data.get("scheme_kind") if isinstance(data, dict) else None
+    except ValueError:
+        pass
+    if scheme_kind == "rubric":
+        return "\n\n".join(t for t in ((q.get("transcribed_answer") or "").strip() for q in questions) if t)
+    key = norm_qid(q_id)
+    return next((q.get("transcribed_answer", "") for q in questions if norm_qid(q.get("q_id")) == key), "")
 
 
 def run_reflection(db: Database, agent: Any, subject: str, lookback_days: int = 7) -> int:
@@ -26,14 +44,13 @@ def run_reflection(db: Database, agent: Any, subject: str, lookback_days: int = 
     corrections = []
     for r in rows:
         extracted = json.loads(r["extracted_json"]) if r["extracted_json"] else {"questions": []}
-        answers = {q["q_id"]: q.get("transcribed_answer", "") for q in extracted.get("questions", [])}
         corrections.append(
             CorrectionRow(
                 run_id=r["run_id"],
                 q_id=r["q_id"],
                 subject=r["subject"],
                 rubric_json=r["rubric_json"] or "{}",
-                extracted_answer=answers.get(r["q_id"], ""),
+                extracted_answer=_extracted_answer(r["rubric_json"], extracted, r["q_id"]),
                 agent_mark=r["agent_mark"],
                 teacher_mark=r["teacher_mark"],
                 reason=r["reason"] or "",

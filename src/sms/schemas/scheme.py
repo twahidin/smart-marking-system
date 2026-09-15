@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 
 
 class Question(BaseModel):
-    q_id: str = Field(min_length=1, description="Question or part id as written on the paper, e.g. '1a', '2bii'")
+    q_id: str = Field(min_length=1, description="Question or part id in the short form '1a', '2bii', '3' (number, then "
+                                                "letter, then roman numerals; no 'Q', spaces or brackets)")
     text: str = Field(default="", description="The full question text for this part")
     max_marks: int = Field(ge=0, description="Marks shown on the paper for this part (0 if absent)")
 
@@ -37,6 +38,17 @@ class RubricCriterionBands(BaseModel):
 
 _Q_ID = re.compile(r"^(q)?(\d+)([a-z])?([ivx]+)?$", re.IGNORECASE)
 _ROMAN = re.compile(r"^[ivx]+$")
+_QID_NOISE = re.compile(r"[\s().]+")
+
+
+def norm_qid(q_id: Any) -> str:
+    """Matching key for a question id, so the extractor's "Q1(a)" / "1 (a)" and the scheme's "1a" meet:
+    lowercase, a leading "q" before a digit dropped, spaces, parentheses and dots removed. Every place that
+    looks an extracted question up by a scheme row's q_id compares these keys, never the raw strings."""
+    key = _QID_NOISE.sub("", str(q_id or "")).lower()
+    if len(key) > 1 and key[0] == "q" and key[1].isdigit():
+        key = key[1:]
+    return key
 
 
 def q_label(q_id: str) -> str:

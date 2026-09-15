@@ -23,7 +23,7 @@ from sms.schemas.marking_v2 import (
     ReviewedScriptV2,
     RubricMark,
 )
-from sms.schemas.scheme import MarkSchemeEntry, Question, RubricCriterionBands
+from sms.schemas.scheme import MarkSchemeEntry, Question, RubricCriterionBands, norm_qid
 
 # The only strings written to teacher_queue.reason by this pipeline.
 ILLEGIBLE = "illegible"
@@ -212,15 +212,17 @@ class MarkingPipelineV2:
         scheme part gets a final mark, a part the marker skipped is synthesised and escalated, a part the
         marker invented is kept but escalated as not in the scheme."""
         verdicts = {v.q_id: v for v in reviewed.verdicts}
-        illegible = {q.q_id for q in extracted.questions if q.needs_human_transcription}
+        # extracted q_ids are matched to scheme rows loosely ("Q1(a)" is row "1a"): see norm_qid
+        illegible_ex = {norm_qid(q.q_id) for q in extracted.questions if q.needs_human_transcription}
         if self.kind == "mark_scheme":
             marker_marks: List[Mark] = list(marked.parts)
             rows: List[Any] = [MarkSchemeEntry.model_validate(r) for r in scheme]
+            illegible = {r.q_id for r in rows if norm_qid(r.q_id) in illegible_ex}
         else:
             marker_marks = list(marked.rubric)
             rows = [RubricCriterionBands.model_validate(c) for c in scheme]
             # a rubric marks one response: if any of it is unreadable every criterion goes to the teacher
-            illegible = {c.criterion for c in rows} if illegible else set()
+            illegible = {c.criterion for c in rows} if illegible_ex else set()
         by_key: Dict[str, Mark] = {}
         for m in marker_marks:  # duplicate q_ids / criteria: the first one counts
             by_key.setdefault(_key(m), m)
@@ -325,4 +327,6 @@ class MarkingPipelineV2:
                     {"run_id": run_id, "q_id": key, "reason": reason, "submission_id": submission_id},
                 )
             if submission_id is not None:
+                # marks_version 2 = this per-part final_marks_json shape (1 = the criteria-per-question shape);
+                # readers detect the shape from the run's rubric_json instead, so nothing reads the column yet.
                 tx.execute("UPDATE submissions SET marks_version = 2 WHERE id = :id", {"id": submission_id})

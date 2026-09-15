@@ -5,7 +5,7 @@ from sms.memory.db import Database
 from sms.reasons import reason_text
 from sms.pipeline.router import SubjectRouter
 from sms.schemas.marking import Rubric
-from sms.schemas.scheme import q_label
+from sms.schemas.scheme import norm_qid, q_label
 from sms.storage import PageStorage, UploadError, process_uploads
 from sms.timeutil import iso_utc  # noqa: F401 - re-exported for existing importers
 from sms.web.errors import ApiError
@@ -38,12 +38,15 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
     elif template["scheme_kind"] in V2_KINDS and not template["scheme"]:
         what = "rubric" if template["scheme_kind"] == "rubric" else "mark scheme"
         raise ApiError(400, "no_scheme", f"{template['title']} has no {what} yet — add one under Assignments before uploading")
+    # The assignment type the script is uploaded against is kept on the row ('criteria' for a quick mark) so
+    # a later retry can refuse to mark it with a different pipeline once the assignment has changed or gone.
+    scheme_kind = template["scheme_kind"] if template else "criteria"
     with db.transaction() as tx:
         sid = tx.insert(
-            "INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id) "
-            "VALUES (:label, :subject, :context, :rubric, 'uploaded', :aid) RETURNING id",
+            "INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id, scheme_kind) "
+            "VALUES (:label, :subject, :context, :rubric, 'uploaded', :aid, :kind) RETURNING id",
             {"label": label, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
-             "aid": assignment_id},
+             "aid": assignment_id, "kind": scheme_kind},
         )
         page_rows = []
         for i, p in enumerate(pages):
@@ -220,14 +223,16 @@ def serialise_parts_v2(scheme_info: dict, final: dict, extracted: dict, pending:
     for m in marks:
         by_key.setdefault(mark_key(kind, m), m)
     ex_qs = extracted.get("questions") or []
-    ex_by_q = {q["q_id"]: q for q in ex_qs}
+    ex_by_q: Dict[str, dict] = {}
+    for q in ex_qs:  # extracted ids are matched loosely ("Q1(a)" is row "1a"); the first match counts
+        ex_by_q.setdefault(norm_qid(q.get("q_id")), q)
     whole = "\n\n".join(t for t in ((q.get("transcribed_answer") or "").strip() for q in ex_qs) if t)
     whole_workings = "\n\n".join(t for t in ((q.get("workings") or "").strip() for q in ex_qs) if t)
     any_illegible = any(q.get("needs_human_transcription") for q in ex_qs)
 
     def build(key: str, row: Optional[dict], mark: Optional[dict]) -> dict:
         if kind == "mark_scheme":
-            eq = ex_by_q.get(key, {})
+            eq = ex_by_q.get(norm_qid(key), {})
             base = {
                 "q_id": key, "label": q_label(key), "question_text": questions.get(key, {}).get("text", ""),
                 "scheme": {"answer": row.get("answer", ""), "marks": row.get("marks") or [], "notes": row.get("notes", "")} if row else None,

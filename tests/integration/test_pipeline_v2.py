@@ -140,6 +140,16 @@ def test_v2_escalates_illegible(tmp_path):
     assert db.query("SELECT final_status FROM marking_runs")[0]["final_status"] == "escalated"
 
 
+def test_v2_illegible_matches_extraction_q_ids_loosely(tmp_path):
+    ex = ExtractedScript(questions=[
+        ExtractedQuestion(q_id="Q1(a)", transcribed_answer="x=3", confidence=0.9),
+        ExtractedQuestion(q_id="1 (b)", transcribed_answer="??", confidence=0.2, needs_human_transcription=True),
+    ])
+    db, agents, pipeline = make(tmp_path, extract=ex)
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {"1b": "illegible"} and queue(db) == {"1b": "illegible"}
+
+
 def test_v2_escalates_not_in_scheme_even_when_reviewer_approves(tmp_path):
     db, agents, pipeline = make(tmp_path, mark=marked([part("1a", (True, False), 1, in_scheme=False, confidence=0.9),
                                                        part("1b", (True,), 1, confidence=0.9)]))
