@@ -11,6 +11,9 @@ are never deleted here.
 The DB step and the file step are separate on purpose: callers that already hold a transaction
 (`resolve_queue_item`) mark the rows inside it and unlink after commit, so a rolled-back resolve never
 loses a file.
+
+`reconcile_done` is the second line of defence for the flip to `done` itself: a `needs_you`
+submission with no pending queue item is done, whatever an interleaved resolve wrote.
 """
 import logging
 from datetime import datetime, timedelta, timezone
@@ -74,10 +77,36 @@ def delete_submission_pages(db: Database, storage: PageStorage, submission_id: i
     return int(before)
 
 
+RECONCILE_DONE_SQL = ("UPDATE submissions SET status = 'done', updated_at = CURRENT_TIMESTAMP "
+                      "WHERE id = :s AND status = 'needs_you' "
+                      "AND NOT EXISTS (SELECT 1 FROM teacher_queue WHERE submission_id = :s AND status = 'pending')")
+
+
+def reconcile_done(db: Database, storage: PageStorage, submission_id: int) -> bool:
+    """Flip a `needs_you` submission with no pending queue item to `done` and delete its pages (per
+    the effective flag). Idempotent; True when this call made the flip. Heals the lost update of two
+    concurrent resolves that each saw the other's part still pending and both wrote `needs_you`."""
+    with db.transaction() as tx:
+        flipped = tx.execute(RECONCILE_DONE_SQL, {"s": submission_id}) == 1
+        paths = mark_pages_deleted(tx, submission_id) if flipped and effective_delete_pages(tx, submission_id) else []
+    unlink_pages(storage, paths)
+    return flipped
+
+
 def sweep_done_submissions(db: Database, storage: PageStorage, older_than_hours: int = 24) -> int:
-    """Safety net for an inline deletion that failed: delete the pages of every `done` submission last
-    updated more than `older_than_hours` ago that still has undeleted student pages (and whose effective
-    flag is on). Returns the number of submissions whose pages were deleted."""
+    """Safety net for an inline deletion that failed: first move any `needs_you` submission with nothing
+    pending to `done` (deleting its pages), then delete the pages of every `done` submission last updated
+    more than `older_than_hours` ago that still has undeleted student pages (and whose effective flag is
+    on). Returns the number of submissions swept in the second step."""
+    healed = 0
+    for r in db.query("SELECT id FROM submissions s WHERE status = 'needs_you' AND NOT EXISTS "
+                      "(SELECT 1 FROM teacher_queue q WHERE q.submission_id = s.id AND q.status = 'pending') ORDER BY id"):
+        try:
+            healed += reconcile_done(db, storage, r["id"])
+        except Exception:  # noqa: BLE001
+            log.exception("could not reconcile submission %s to done", r["id"])
+    if healed:
+        log.info("page sweep: %d script(s) with nothing left to review moved to done", healed)
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=older_than_hours)).strftime("%Y-%m-%d %H:%M:%S")
     rows = db.query("SELECT DISTINCT s.id FROM submissions s JOIN pages p ON p.submission_id = s.id "
                     "WHERE s.status = 'done' AND s.updated_at < :cutoff AND p.kind = 'student' AND p.deleted_at IS NULL "

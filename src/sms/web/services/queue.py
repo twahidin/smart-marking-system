@@ -6,7 +6,7 @@ from sms.schemas.marking import Rubric
 from sms.schemas.scheme import q_label
 from sms.storage import PageStorage
 from sms.web.errors import ApiError
-from sms.web.services.pages_cleanup import effective_delete_pages, mark_pages_deleted, unlink_pages
+from sms.web.services.pages_cleanup import effective_delete_pages, mark_pages_deleted, reconcile_done, unlink_pages
 from sms.web.services.submissions import iso_utc, mark_key, mark_total, row_key, run_final_v2, run_scheme
 
 
@@ -138,7 +138,9 @@ def resolve_queue_item(db: Database, item_id: int, criterion_scores: Optional[Li
     criterion); v2 items take `allocations` [{label, got}] (mark scheme) or `band` (rubric), validated
     against the scheme, and store the v2 shape in teacher_corrections.criterion_scores_json. Resolving
     the last pending part flips the script to `done` and deletes its student pages (when the effective
-    delete flag is on): rows are marked in the same transaction, files removed after it commits."""
+    delete flag is on): rows are marked in the same transaction, files removed after it commits.
+    Resolves of one submission serialise on its row (Postgres `FOR UPDATE`); after commit a reconcile
+    pass makes sure a script with nothing left pending is `done`, and the returned status is re-read."""
     rows = db.query("SELECT q.run_id, q.q_id, q.submission_id, mr.rubric_json, mr.marks_json, mr.final_marks_json "
                     "FROM teacher_queue q JOIN marking_runs mr ON mr.run_id = q.run_id WHERE q.id = :id AND q.status = 'pending'",
                     {"id": item_id})
@@ -165,6 +167,8 @@ def resolve_queue_item(db: Database, item_id: int, criterion_scores: Optional[Li
         agent_mark = next((m["total"] for m in marks.get("marks", []) if m["q_id"] == r["q_id"]), None)
         scores_json, teacher_mark = criterion_scores, sum(criterion_scores)
     with db.transaction() as tx:
+        if r["submission_id"] is not None and not db.is_sqlite:
+            tx.query("SELECT id FROM submissions WHERE id = :s FOR UPDATE", {"s": r["submission_id"]})
         changed = tx.execute(
             "UPDATE teacher_queue SET status = 'resolved' WHERE id = :id AND status = 'pending'",
             {"id": item_id},
@@ -188,4 +192,8 @@ def resolve_queue_item(db: Database, item_id: int, criterion_scores: Optional[Li
             if status == "done" and effective_delete_pages(tx, r["submission_id"]):
                 to_unlink = mark_pages_deleted(tx, r["submission_id"])
     unlink_pages(storage, to_unlink)
+    if r["submission_id"] is not None:
+        if status == "needs_you":
+            reconcile_done(db, storage, r["submission_id"])
+        status = db.query("SELECT status FROM submissions WHERE id = :s", {"s": r["submission_id"]})[0]["status"]
     return {"id": item_id, "submission_id": r["submission_id"], "submission_status": status}

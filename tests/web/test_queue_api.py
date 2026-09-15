@@ -217,3 +217,41 @@ def test_last_resolve_respects_the_delete_flag(auth, app):
     r = auth.post(f"/api/queue/{qid}/resolve", json={"criterion_scores": [2, 2], "reason": ""})
     assert r.json()["submission_status"] == "done"
     assert auth.get(f"/api/pages/{pid}").status_code == 200 and app.state.storage.abs(rel).exists()
+
+
+def test_concurrent_resolves_of_two_parts_converge_on_done(auth, app):
+    """Two teachers resolve different pending parts of one script at the same moment: the script must
+    end `done` (never stuck at `needs_you` with an empty queue), with one correction per part and its
+    pages deleted."""
+    sid, qids = seed_v2(app, queue={"1b": "low confidence", "2": "not in scheme"})
+    db = app.state.db
+    db.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+    pid, rel = _real_page(app, sid)
+    bodies = {qids["2"]: [{"label": "M1", "got": True}, {"label": "A1", "got": False}],
+              qids["1b"]: [{"label": "B1", "got": True}]}
+
+    def _resolve(qid):
+        return resolve_queue_item(db, qid, None, "", storage=app.state.storage, allocations=bodies[qid])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        results = list(ex.map(_resolve, list(bodies)))
+    statuses = [r["submission_status"] for r in results]
+    assert "done" in statuses and set(statuses) <= {"done", "needs_you"}  # the later one always sees done
+    assert db.query("SELECT status FROM submissions WHERE id = :s", {"s": sid})[0]["status"] == "done"
+    assert db.query("SELECT COUNT(*) AS c FROM teacher_corrections")[0]["c"] == 2
+    assert db.query("SELECT COUNT(*) AS c FROM teacher_queue WHERE status = 'pending'")[0]["c"] == 0
+    assert auth.get(f"/api/pages/{pid}").status_code == 410 and not app.state.storage.abs(rel).exists()
+    assert auth.get("/api/queue").json() == []
+
+
+def test_resolve_heals_a_script_stuck_at_needs_you(auth, app):
+    """A lost update left the script `needs_you` although only one part is still pending: resolving
+    that part reports `done` from a fresh read and deletes the pages."""
+    sid, qids = seed_v2(app, queue={"1b": "low confidence", "2": "not in scheme"})
+    db = app.state.db
+    db.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+    pid, rel = _real_page(app, sid)
+    db.execute("UPDATE teacher_queue SET status = 'resolved' WHERE id = :id", {"id": qids["2"]})
+    r = auth.post(f"/api/queue/{qids['1b']}/resolve", json={"allocations": [{"label": "B1", "got": True}]})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    assert auth.get(f"/api/pages/{pid}").status_code == 410 and not app.state.storage.abs(rel).exists()

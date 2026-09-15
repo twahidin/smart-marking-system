@@ -5,7 +5,8 @@ import pytest
 
 from sms.memory.db import Database
 from sms.storage import PageStorage
-from sms.web.services.pages_cleanup import delete_submission_pages, effective_delete_pages, sweep_done_submissions
+from sms.web.services.pages_cleanup import (delete_submission_pages, effective_delete_pages, reconcile_done,
+                                            sweep_done_submissions)
 
 
 @pytest.fixture
@@ -45,6 +46,15 @@ def _set_global(db, value: bool):
 
 def _deleted(db, page_id):
     return db.query("SELECT deleted_at FROM pages WHERE id = :id", {"id": page_id})[0]["deleted_at"]
+
+
+def _queue_item(db, sid, status="pending"):
+    return db.insert("INSERT INTO teacher_queue (run_id, q_id, reason, status, submission_id) "
+                     "VALUES ('r', '1a', 'low', :st, :s) RETURNING id", {"st": status, "s": sid})
+
+
+def _status(db, sid):
+    return db.query("SELECT status FROM submissions WHERE id = :s", {"s": sid})[0]["status"]
 
 
 # --- effective flag ------------------------------------------------------------------------------
@@ -156,6 +166,7 @@ def test_sweep_covers_old_done_submissions_with_pages_left(env):
     old_done = _submission(db, age_hours=30)
     recent_done = _submission(db, age_hours=1)
     old_needs_you = _submission(db, status="needs_you", age_hours=30)
+    _queue_item(db, old_needs_you)  # genuinely waiting for the teacher
     old_off = _submission(db, assignment_id=_template(db, False), age_hours=30)
     old_swept = _submission(db, age_hours=30)
     pages = {sid: _page(db, storage, f"p{sid}".encode(), submission_id=sid)
@@ -170,3 +181,50 @@ def test_sweep_covers_old_done_submissions_with_pages_left(env):
     # a shorter window picks up the recent one
     assert sweep_done_submissions(db, storage, older_than_hours=0) == 1
     assert _deleted(db, pages[recent_done][0])
+
+
+# --- reconcile: needs_you with nothing pending is done ---------------------------------------------
+
+def test_reconcile_flips_a_stuck_needs_you_and_deletes_pages(env):
+    db, storage = env
+    sid = _submission(db, status="needs_you")
+    _queue_item(db, sid, status="resolved")
+    p, rel = _page(db, storage, b"stuck", submission_id=sid)
+    assert reconcile_done(db, storage, sid) is True
+    assert _status(db, sid) == "done" and _deleted(db, p) and not storage.abs(rel).exists()
+    # idempotent
+    assert reconcile_done(db, storage, sid) is False
+
+
+def test_reconcile_leaves_pending_and_other_statuses_alone(env):
+    db, storage = env
+    waiting = _submission(db, status="needs_you")
+    _queue_item(db, waiting)
+    marking = _submission(db, status="marking")
+    pages = {sid: _page(db, storage, f"k{sid}".encode(), submission_id=sid) for sid in (waiting, marking)}
+    assert reconcile_done(db, storage, waiting) is False and _status(db, waiting) == "needs_you"
+    assert reconcile_done(db, storage, marking) is False and _status(db, marking) == "marking"
+    for p, rel in pages.values():
+        assert _deleted(db, p) is None and storage.abs(rel).exists()
+
+
+def test_reconcile_respects_the_delete_flag(env):
+    db, storage = env
+    _set_global(db, False)
+    sid = _submission(db, status="needs_you")
+    _queue_item(db, sid, status="resolved")
+    p, rel = _page(db, storage, b"keep", submission_id=sid)
+    assert reconcile_done(db, storage, sid) is True
+    assert _status(db, sid) == "done" and _deleted(db, p) is None and storage.abs(rel).exists()
+
+
+def test_sweep_heals_stragglers_stuck_at_needs_you(env):
+    db, storage = env
+    stuck = _submission(db, status="needs_you")           # recent, nothing pending: a lost update
+    _queue_item(db, stuck, status="resolved")
+    waiting = _submission(db, status="needs_you", age_hours=30)
+    _queue_item(db, waiting)
+    pages = {sid: _page(db, storage, f"s{sid}".encode(), submission_id=sid) for sid in (stuck, waiting)}
+    sweep_done_submissions(db, storage, older_than_hours=24)
+    assert _status(db, stuck) == "done" and _deleted(db, pages[stuck][0]) and not storage.abs(pages[stuck][1]).exists()
+    assert _status(db, waiting) == "needs_you" and _deleted(db, pages[waiting][0]) is None
