@@ -89,3 +89,26 @@ def test_control_characters_are_stripped_by_the_builder_and_render():
     assert row.scheme_answer == "x= 3" and row.student_answer == "x= 3" and row.justification == "fine"
     doc = Document(io.BytesIO(render_docx(rec)))
     assert doc.tables[0].rows[1].cells[2].text == "x= 3"
+
+
+def test_rubric_page_is_sanitised_and_renders_in_docx_and_xlsx():
+    from openpyxl import load_workbook
+
+    from sms.records.builder import build_record
+    from sms.records.xlsx import render_xlsx
+    bands = [{"band": "A\x00", "marks": 5, "descriptor": "Rich\x0bdetail"}, {"band": "B", "marks": 3, "descriptor": "Some\x0c"}]
+    part = {"q_id": "Con\x08tent", "label": "Con\x08tent", "question_text": "Essay", "scheme": {"criterion": "Con\x08tent", "bands": bands},
+            "extracted": "My day", "workings": "", "illegible": False, "band": "A\x00", "descriptor_met": "", "total": 5, "max": 5,
+            "justification": "Vivid\x1f", "in_scheme": True, "confidence": 0.9, "escalated": False, "reason": None,
+            "queue_id": None, "teacher": None}
+    d = {"id": 1, "label": "Tan", "context": "", "created_at": "2026-09-15T03:04:05Z", "marks_version": 2, "parts": [part],
+         "scheme_kind": "rubric", "assignment_title": "Essay", "totals": {"total": 5, "total_upper": 5, "total_max": 5},
+         "marks": [], "rubric": {"criterion_defs": []}, "marked_at": "2026-09-15T03:06:07Z"}
+    rec = build_record(d, None)
+    assert rec.rubric_page == [{"criterion": "Content", "awarded_band": "A",
+                                "bands": [{"band": "A", "marks": 5, "descriptor": "Richdetail"}, {"band": "B", "marks": 3, "descriptor": "Some"}]}]
+    assert rec.rows[0].scheme_answer == "Content\nA (5): Richdetail\nB (3): Some" and rec.rows[0].justification == "Band A: Vivid"
+    doc = Document(io.BytesIO(render_docx(rec)))
+    assert [c.text for c in doc.tables[1].rows[1].cells] == ["Content", "A", "5", "Richdetail", "✓"]
+    wb = load_workbook(io.BytesIO(render_xlsx([rec])))
+    assert [c.value for c in wb["Rows"][2]][1:3] == ["Content", "Content\nA (5): Richdetail\nB (3): Some"]

@@ -144,6 +144,20 @@ def _clean(row: RecordRow) -> RecordRow:
     return row
 
 
+def _clean_page(page: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The rubric page with every string (criterion, band, descriptor, awarded band, ...) sanitised;
+    numbers and None pass through."""
+    def value(v: Any) -> Any:
+        if isinstance(v, str):
+            return sanitise(v)
+        if isinstance(v, dict):
+            return {k: value(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [value(x) for x in v]
+        return v
+    return [value(item) for item in page]
+
+
 def _row_v1(mark: dict, criteria: List[dict]) -> RecordRow:
     scores = list(mark.get("criterion_scores") or [])
     teacher_scores = mark.get("teacher_scores")
@@ -181,10 +195,11 @@ def build_record(submission_detail: dict, template: Optional[dict] = None, *, mo
         parts = d.get("parts") or []
         rows = [_row_v2(kind, p) for p in parts]
         if kind == "rubric":
-            rubric_page = [{"criterion": p.get("q_id"), "bands": (p.get("scheme") or {}).get("bands") or [],
-                            "awarded_band": (p.get("teacher") or {}).get("band") if p.get("teacher")
-                            else (None if p.get("escalated") else (p.get("band") or None))}
-                           for p in parts]
+            rubric_page = _clean_page([
+                {"criterion": p.get("q_id"), "bands": (p.get("scheme") or {}).get("bands") or [],
+                 "awarded_band": (p.get("teacher") or {}).get("band") if p.get("teacher")
+                 else (None if p.get("escalated") else (p.get("band") or None))}
+                for p in parts])
     else:
         criteria = (d.get("rubric") or {}).get("criterion_defs") or []
         rows = [_row_v1(m, criteria) for m in d.get("marks") or []]
