@@ -1,4 +1,5 @@
 import base64
+import binascii
 import hashlib
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -17,5 +18,5 @@ class KeyCipher:
     def decrypt(self, token: str) -> str:
         try:
             return self._fernet.decrypt(token.encode("ascii")).decode("utf-8")
-        except InvalidToken as e:
+        except (InvalidToken, UnicodeError, ValueError, TypeError, binascii.Error) as e:
             raise ValueError("Stored API key cannot be decrypted with this SECRET_KEY") from e
