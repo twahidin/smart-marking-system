@@ -114,6 +114,29 @@ describe("Review — per-part items (v2)", () => {
     expect(posted[0]).toEqual({ path: "/api/queue/42/resolve", body: { band: "A", reason: "" } });
   });
 
+  it("a rubric criterion not in the rubric is resolved with the proposed band, or 0 marks", async () => {
+    const posted = setup([{ ...bandItem, id: 44, q_id: "Flair", label: "Flair", reason: "not in scheme", reason_text: "Not in the rubric", scheme_row: null, proposed: { criterion: "Flair", band: "B", marks: 3, justification: "" }, proposed_total: 3 }]);
+    expect(await screen.findByText(/This criterion is not in the rubric/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save & next/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole("radio", { name: /Award 0/ }));
+    expect(screen.getByLabelText("Your mark")).toHaveTextContent("0 / 3");
+    await userEvent.click(screen.getByRole("button", { name: /Save & next/ }));
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ path: "/api/queue/44/resolve", body: { band: "B", marks: 0, reason: "" } });
+  });
+
+  it("a mark-scheme part with no allocations is resolved with a typed total", async () => {
+    const posted = setup([{ ...partItem, id: 45, q_id: "3", label: "3", reason: "not in scheme", reason_text: "Not in the scheme", scheme_row: null, proposed: { q_id: "3", awarded: [], total: 2, justification: "" }, proposed_total: 2 }]);
+    await screen.findByText("Question 3");
+    expect(screen.getByRole("button", { name: /Save & next/ })).toBeDisabled();
+    const input = screen.getByRole("spinbutton", { name: "Your mark" });
+    expect(input).toHaveAttribute("max", "2");
+    await userEvent.type(input, "1");
+    await userEvent.click(screen.getByRole("button", { name: /Save & next/ }));
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ path: "/api/queue/45/resolve", body: { total: 1, reason: "" } });
+  });
+
   it("v1 items still use the criteria table, show the teacher-facing reason and post criterion_scores", async () => {
     const posted = setup([v1Item]);
     await screen.findByText("Question 2");

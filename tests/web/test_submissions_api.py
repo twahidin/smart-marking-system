@@ -295,3 +295,16 @@ def test_compute_totals_v2_pure():
     assert t == {"total": 7, "total_upper": 10, "total_max": 10}
     t = compute_totals_v2("rubric", RUBRIC_BANDS, marks, pending=set(), corrections={"Language": {"version": 2, "band": "A", "marks": 5}})
     assert t == {"total": 10, "total_upper": 10, "total_max": 10}
+
+
+def test_create_rejects_a_typed_assignment_with_no_scheme(auth, app):
+    """A mark-scheme / rubric assignment whose scheme is still empty cannot be marked against: 400 no_scheme."""
+    _with_key(auth)
+    for kind in ("mark_scheme", "rubric"):
+        t = auth.post("/api/assignments", json={"title": f"Empty {kind}", "subject": "math", "context": "", "rubric": RUBRIC,
+                                               "scheme_kind": kind, "questions": [{"q_id": "1", "text": "Q", "max_marks": 2}]}).json()
+        r = _create(auth, assignment_id=str(t["id"]))
+        assert r.status_code == 400 and r.json()["error"]["code"] == "no_scheme", kind
+    # a criteria assignment has no per-question scheme and uploads as before
+    t = auth.post("/api/assignments", json={"title": "Quick", "subject": "math", "context": "", "rubric": RUBRIC, "scheme_kind": "criteria"}).json()
+    assert _create(auth, assignment_id=str(t["id"])).status_code == 202

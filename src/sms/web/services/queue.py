@@ -8,7 +8,7 @@ from sms.schemas.scheme import q_label
 from sms.storage import PageStorage
 from sms.web.errors import ApiError
 from sms.web.services.pages_cleanup import effective_delete_pages, mark_pages_deleted, reconcile_done, unlink_pages
-from sms.web.services.submissions import iso_utc, mark_key, mark_total, row_key, run_final_v2, run_scheme
+from sms.web.services.submissions import iso_utc, mark_key, mark_total, row_key, row_max, run_final_v2, run_scheme
 
 
 def list_queue(db: Database) -> List[Dict[str, Any]]:
@@ -97,20 +97,32 @@ def _v2_fields(run: dict, scheme_info: dict, key: str, extracted: dict) -> Dict[
     return fields
 
 
-def _v2_correction(run: dict, scheme_info: dict, key: str, allocations: Optional[List[dict]], band: Optional[str]):
+def _v2_correction(run: dict, scheme_info: dict, key: str, allocations: Optional[List[dict]], band: Optional[str],
+                   total: Optional[int] = None, marks: Optional[int] = None):
     """Validate a v2 resolve body against the scheme and return (criterion_scores_json dict, teacher total,
     agent total). mark_scheme: `allocations` [{label, got}] with labels from the scheme row (or, for a part
-    the scheme has no row for, from the marker's own allocations); labels left out count as lost. rubric:
-    `band` must be one of the criterion's bands; its marks come from the rubric."""
+    the scheme has no row for, from the marker's own allocations); labels left out count as lost. When
+    there is nothing to tick (no row or a row with no allocations, and a proposal without any), a bare
+    `total` between 0 and the row max / proposed total is taken instead. rubric: `band` must be one of
+    the criterion's bands and its marks come from the rubric; a criterion the rubric has no row (or no
+    bands) for cannot validate a band, so the proposed band is accepted as given with the marker's marks,
+    or `marks` between 0 and those (award 0)."""
     kind = scheme_info["scheme_kind"]
     row, mark = _v2_row_and_mark(run, scheme_info, key)
     agent = mark_total(kind, mark) if mark else None
     if kind == "mark_scheme":
+        points = row.get("marks") if row else [{"label": a["label"], "marks": a.get("marks", 0)} for a in (mark or {}).get("awarded") or []]
+        valid = {p["label"]: int(p.get("marks", 0)) for p in points or []}
+        if not valid:
+            if total is None:
+                raise ApiError(400, "bad_allocations", "This part has no allocations to tick — send the total mark as {total}")
+            upper = max(row_max(kind, row) if row else 0, agent or 0)
+            if total < 0 or total > upper:
+                raise ApiError(400, "bad_allocations", f"Mark must be between 0 and {upper}")
+            return {"version": 2, "allocations": [], "total": int(total)}, int(total), agent
         if allocations is None:
             raise ApiError(400, "bad_allocations", "This part is marked against a mark scheme — send the allocations "
                                                    "as [{label, got}]")
-        points = row.get("marks") if row else [{"label": a["label"], "marks": a.get("marks", 0)} for a in (mark or {}).get("awarded") or []]
-        valid = {p["label"]: int(p.get("marks", 0)) for p in points or []}
         seen = set()
         allocations = [{**a, "label": str(a["label"]).strip()} for a in allocations]
         for a in allocations:
@@ -127,6 +139,16 @@ def _v2_correction(run: dict, scheme_info: dict, key: str, allocations: Optional
     if band is None:
         raise ApiError(400, "bad_band", "This criterion is marked against a rubric — send the band")
     bands = {b["band"]: int(b.get("marks", 0)) for b in (row or {}).get("bands") or []}
+    if not bands:
+        band = band.strip()
+        if not band:
+            raise ApiError(400, "bad_band", "This criterion is not in the rubric — send the proposed band")
+        proposed = agent or 0
+        if marks is None:
+            marks = proposed
+        if marks < 0 or marks > proposed:
+            raise ApiError(400, "bad_band", f"Marks for {key} must be between 0 and {proposed}")
+        return {"version": 2, "band": band, "marks": int(marks)}, int(marks), agent
     if band not in bands:
         raise ApiError(400, "bad_band", f"{band} is not a band of {key} ({', '.join(bands) or 'none'})")
     return {"version": 2, "band": band, "marks": bands[band]}, bands[band], agent
@@ -134,10 +156,12 @@ def _v2_correction(run: dict, scheme_info: dict, key: str, allocations: Optional
 
 def resolve_queue_item(db: Database, item_id: int, criterion_scores: Optional[List[int]] = None, reason: str = "",
                        *, storage: PageStorage, allocations: Optional[List[dict]] = None,
-                       band: Optional[str] = None) -> Dict[str, Any]:
+                       band: Optional[str] = None, total: Optional[int] = None,
+                       marks: Optional[int] = None) -> Dict[str, Any]:
     """Record the teacher's decision on a pending item. v1 items take `criterion_scores` (one per
     criterion); v2 items take `allocations` [{label, got}] (mark scheme) or `band` (rubric), validated
-    against the scheme, and store the v2 shape in teacher_corrections.criterion_scores_json. Resolving
+    against the scheme, and store the v2 shape in teacher_corrections.criterion_scores_json; `total` and
+    `marks` cover the parts the scheme cannot account for (see _v2_correction). Resolving
     the last pending part flips the script to `done` and deletes its student pages (when the effective
     delete flag is on): rows are marked in the same transaction, files removed after it commits.
     Resolves of one submission serialise on its row (Postgres `FOR UPDATE`); after commit a reconcile
@@ -154,9 +178,9 @@ def resolve_queue_item(db: Database, item_id: int, criterion_scores: Optional[Li
             kind = scheme_info["scheme_kind"]
             raise ApiError(400, "bad_allocations" if kind == "mark_scheme" else "bad_band",
                            "This part is marked per part — send allocations (mark scheme) or a band (rubric), not criterion scores")
-        scores_json, teacher_mark, agent_mark = _v2_correction(r, scheme_info, r["q_id"], allocations, band)
+        scores_json, teacher_mark, agent_mark = _v2_correction(r, scheme_info, r["q_id"], allocations, band, total, marks)
     else:
-        if criterion_scores is None or allocations is not None or band is not None:
+        if criterion_scores is None or allocations is not None or band is not None or total is not None:
             raise ApiError(400, "bad_scores", "This question is marked by criteria — send criterion_scores")
         rubric = Rubric.model_validate_json(r["rubric_json"])
         if len(criterion_scores) != len(rubric.criterion_defs):

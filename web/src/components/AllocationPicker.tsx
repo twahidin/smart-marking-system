@@ -3,6 +3,8 @@ import type { AwardedAllocation, MarkPoint } from "../api/types";
 type Props = {
   marks: MarkPoint[]; got: string[]; onChange: (got: string[]) => void;
   proposed?: AwardedAllocation[]; disabled?: boolean;
+  /** For a part with no allocations to tick: the typed total, its setter and the most it can be. */
+  total?: number | null; onTotal?: (n: number) => void; max?: number;
 };
 
 const plural = (n: number) => `${n} mark${n === 1 ? "" : "s"}`;
@@ -19,7 +21,21 @@ export const allocationMax = (marks: MarkPoint[]): number => marks.reduce((s, m)
 
 /** The mark-scheme row's allocations as checkboxes (M1 / A1 …): tick what the student earned. The proposed
  *  column shows the marker's decision so the teacher can see where they differ. */
-export function AllocationPicker({ marks, got, onChange, proposed, disabled = false }: Props) {
+export function AllocationPicker({ marks, got, onChange, proposed, disabled = false, total = null, onTotal, max = 0 }: Props) {
+  if (marks.length === 0) {
+    const proposedTotal = proposed ? proposed.reduce((s, a) => s + (a.got ? a.marks : 0), 0) : null;
+    return (
+      <div>
+        <p className="help" role="note">This part has no allocations to tick — give the mark as a number, out of {max}.</p>
+        <table className="table criteria picker" aria-label="Allocations">
+          <thead><tr><th>Part</th><th className="num">Proposed</th><th className="num" style={{ width: 120 }}>Your mark</th></tr></thead>
+          <tfoot><tr><td>Part total</td><td className="num">{proposedTotal === null ? "—" : `${proposedTotal} / ${max}`}</td>
+            <td className="num"><input type="number" className="input" inputMode="numeric" min={0} max={max} step={1} value={total ?? ""} disabled={disabled} aria-label="Your mark" style={{ width: 72, fontSize: 18, textAlign: "right" }}
+              onChange={(e) => { const n = Math.floor(Number(e.target.value)); if (e.target.value !== "" && Number.isFinite(n) && onTotal) onTotal(Math.max(0, Math.min(max, n))); }} /> <span className="help">/ {max}</span></td></tr></tfoot>
+        </table>
+      </div>
+    );
+  }
   const proposedBy = new Map((proposed ?? []).map((a) => [a.label, a.got]));
   const proposedTotal = proposed ? proposed.reduce((s, a) => s + (a.got ? a.marks : 0), 0) : null;
   return (

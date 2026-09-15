@@ -32,8 +32,12 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
     except UploadError as e:
         raise ApiError(400, "bad_upload", str(e))
     # A stale id from the SPA (template deleted meanwhile) is dropped rather than rejected.
-    if assignment_id is not None and get_template(db, assignment_id) is None:
+    template = get_template(db, assignment_id) if assignment_id is not None else None
+    if template is None:
         assignment_id = None
+    elif template["scheme_kind"] in V2_KINDS and not template["scheme"]:
+        what = "rubric" if template["scheme_kind"] == "rubric" else "mark scheme"
+        raise ApiError(400, "no_scheme", f"{template['title']} has no {what} yet — add one under Assignments before uploading")
     with db.transaction() as tx:
         sid = tx.insert(
             "INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id) "

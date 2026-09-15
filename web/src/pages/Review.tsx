@@ -27,6 +27,13 @@ const proposedGot = (item: QueueItem): string[] => (item.proposed && "awarded" i
 const typingField = (target: EventTarget | null): boolean =>
   target instanceof HTMLInputElement && !["checkbox", "radio"].includes(target.type);
 const proposedBand = (item: QueueItem): string | null => (item.proposed && "band" in item.proposed ? item.proposed.band : null);
+const proposedMarks = (item: QueueItem): number | null => (item.proposed && "marks" in item.proposed ? item.proposed.marks : null);
+/** The most a part with nothing to tick can be given: the scheme row's total, else the marker's proposed total. */
+const totalMax = (item: QueueItem): number => {
+  const row = item.scheme_row;
+  const rowMax = row && "marks" in row ? row.marks.reduce((s, m) => s + m.marks, 0) : 0;
+  return Math.max(rowMax, item.proposed_total ?? 0);
+};
 
 export function Review() {
   const { refreshQueue } = useOutletContext<{ refreshQueue: () => void }>();
@@ -35,6 +42,8 @@ export function Review() {
   const [values, setValues] = useState<(number | "")[]>([]);
   const [got, setGot] = useState<string[]>([]);
   const [band, setBand] = useState<string | null>(null);
+  const [bandMarks, setBandMarks] = useState<number | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
   const [decided, setDecided] = useState(false);
   const [reason, setReason] = useState("");
   const [page, setPage] = useState(0);
@@ -54,28 +63,30 @@ export function Review() {
   const item = items?.[i];
   const v2 = item?.marks_version === 2;
   const kind = v2 ? item!.scheme_kind ?? "mark_scheme" : null;
-  useEffect(() => { if (item) { setValues(item.criterion_defs.map(() => "")); setGot([]); setBand(null); setDecided(false); setReason(""); setPage(0); } }, [item?.id]);
+  useEffect(() => { if (item) { setValues(item.criterion_defs.map(() => "")); setGot([]); setBand(null); setBandMarks(null); setTotal(null); setDecided(false); setReason(""); setPage(0); } }, [item?.id]);
 
+  const noAllocations = kind === "mark_scheme" && !!item && allocationsOf(item).length === 0;
   const complete = useMemo(() => {
-    if (kind === "mark_scheme") return decided;
+    if (kind === "mark_scheme") return noAllocations ? total !== null : decided;
     if (kind === "rubric") return band !== null;
     return values.length > 0 && values.every((v) => v !== "");
-  }, [kind, decided, band, values]);
+  }, [kind, noAllocations, total, decided, band, values]);
 
   const acceptProposed = () => {
     if (!item) return;
-    if (kind === "mark_scheme") { setGot(proposedGot(item)); setDecided(true); }
-    else if (kind === "rubric") setBand(proposedBand(item));
+    if (kind === "mark_scheme") { if (noAllocations) setTotal(item.proposed_total ?? 0); else { setGot(proposedGot(item)); setDecided(true); } }
+    else if (kind === "rubric") { setBand(proposedBand(item)); setBandMarks(null); }
     else setValues(item.proposed_criterion_scores.map((v) => v));
   };
   const changeGot = (next: string[]) => { setGot(next); setDecided(true); };
+  const changeBand = (b: string, marks?: number) => { setBand(b); setBandMarks(marks ?? null); };
 
   const save = async () => {
     if (!item || !complete) return;
     setBusy(true); setError(null);
     const body: ResolveBody = kind === "mark_scheme"
-      ? { allocations: allocationsOf(item).map((m) => ({ label: m.label, got: got.includes(m.label) })), reason }
-      : kind === "rubric" ? { band: band!, reason } : { criterion_scores: values as number[], reason };
+      ? noAllocations ? { total: total!, reason } : { allocations: allocationsOf(item).map((m) => ({ label: m.label, got: got.includes(m.label) })), reason }
+      : kind === "rubric" ? { band: band!, ...(bandMarks === null ? {} : { marks: bandMarks }), reason } : { criterion_scores: values as number[], reason };
     try {
       await api.post(`/api/queue/${item.id}/resolve`, body);
       const rest = items!.filter((x) => x.id !== item.id);
@@ -147,8 +158,8 @@ export function Review() {
             </div>
           )}
           {item.rationale && <p className="help">{item.rationale}</p>}
-          {kind === "mark_scheme" && <AllocationPicker marks={allocationsOf(item)} got={got} onChange={changeGot} proposed={item.proposed && "awarded" in item.proposed ? item.proposed.awarded : undefined} />}
-          {kind === "rubric" && <BandPicker bands={bandsOf(item)} value={band} onChange={setBand} proposed={proposedBand(item)} />}
+          {kind === "mark_scheme" && <AllocationPicker marks={allocationsOf(item)} got={got} onChange={changeGot} proposed={item.proposed && "awarded" in item.proposed ? item.proposed.awarded : undefined} total={total} onTotal={setTotal} max={totalMax(item)} />}
+          {kind === "rubric" && <BandPicker bands={bandsOf(item)} value={band} marks={bandMarks} onChange={changeBand} proposed={proposedBand(item)} proposedMarks={proposedMarks(item)} />}
           {!v2 && <CriteriaReview defs={item.criterion_defs} proposed={item.proposed_criterion_scores} evidence={item.evidence} values={values} onChange={setValues} />}
           <div className="field" style={{ marginTop: 16 }}>
             <label htmlFor="reason">Reason (kept with your correction)</label>
@@ -158,7 +169,7 @@ export function Review() {
           <div className="actions" style={{ marginTop: 16, paddingTop: 16, borderTop: "2px solid var(--color-divider)" }}>
             <Button size="lg" onClick={() => setI(Math.max(0, i - 1))} disabled={i === 0}>← Previous</Button>
             <Button size="lg" onClick={acceptProposed} keyHint="A" disabled={v2 && !item.proposed}>Accept proposed</Button>
-            <Button size="lg" variant="primary" wide onClick={save} disabled={!complete || busy} keyHint="↵" title={complete ? undefined : kind === "mark_scheme" ? "Tick the allocations earned, or accept the proposed marks." : kind === "rubric" ? "Pick a band." : undefined}>{busy ? "Saving…" : "Save & next"}</Button>
+            <Button size="lg" variant="primary" wide onClick={save} disabled={!complete || busy} keyHint="↵" title={complete ? undefined : kind === "mark_scheme" ? (noAllocations ? "Type the mark, or accept the proposed total." : "Tick the allocations earned, or accept the proposed marks.") : kind === "rubric" ? "Pick a band." : undefined}>{busy ? "Saving…" : "Save & next"}</Button>
           </div>
         </section>
       </div>

@@ -257,3 +257,75 @@ def test_resolve_heals_a_script_stuck_at_needs_you(auth, app):
     r = auth.post(f"/api/queue/{qids['1b']}/resolve", json={"allocations": [{"label": "B1", "got": True}]})
     assert r.status_code == 200 and r.json()["submission_status"] == "done"
     assert auth.get(f"/api/pages/{pid}").status_code == 410 and not app.state.storage.abs(rel).exists()
+
+
+# --- parts the scheme cannot account for: the resolve must still be possible ---------------------
+
+def test_resolve_rubric_criterion_not_in_scheme_accepts_the_proposed_band(auth, app):
+    """A criterion the marker invented has no rubric row, so no band can validate against it: the
+    proposed band is accepted with the marker's marks (or 0), and the script is not stuck at needs_you."""
+    invented = {"criterion": "Flair", "band": "B", "marks": 3, "descriptor_met": "", "justification": "Stylish", "confidence": 0.7}
+    rubric = [{"criterion": "Content", "band": "A", "marks": 5, "descriptor_met": "", "justification": "", "confidence": 0.9},
+              {"criterion": "Language", "band": "A", "marks": 5, "descriptor_met": "", "justification": "", "confidence": 0.9}, invented]
+    sid, qids = seed_v2(app, kind="rubric", rubric=rubric, queue={"Flair": "not in scheme"})
+    it = auth.get("/api/queue").json()[0]
+    assert it["q_id"] == "Flair" and it["scheme_row"] is None and it["proposed"]["band"] == "B" and it["proposed_total"] == 3
+    r = auth.post(f"/api/queue/{qids['Flair']}/resolve", json={"band": "  ", "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_band"
+    r = auth.post(f"/api/queue/{qids['Flair']}/resolve", json={"band": "B", "marks": 9, "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_band"
+    r = auth.post(f"/api/queue/{qids['Flair']}/resolve", json={"band": "B", "reason": "fair"})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    c = app.state.db.query("SELECT agent_mark, teacher_mark, criterion_scores_json FROM teacher_corrections")[0]
+    assert (c["agent_mark"], c["teacher_mark"]) == (3, 3) and json.loads(c["criterion_scores_json"]) == {"version": 2, "band": "B", "marks": 3}
+    d = auth.get(f"/api/submissions/{sid}").json()
+    assert d["status"] == "done" and d["parts"][2]["teacher"] == {"band": "B", "marks": 3, "total": 3}
+    # a criterion whose rubric row has no bands behaves the same, and 0 can be awarded instead
+    sid2, qids2 = seed_v2(app, kind="rubric", label="Lim", run_id="r4", rubric=rubric[:2] + [invented],
+                          scheme=RUBRIC_NO_BANDS, queue={"Flair": "low confidence"})
+    r = auth.post(f"/api/queue/{qids2['Flair']}/resolve", json={"band": "B", "marks": 0, "reason": ""})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    c = app.state.db.query("SELECT teacher_mark, criterion_scores_json FROM teacher_corrections WHERE run_id = 'r4'")[0]
+    assert c["teacher_mark"] == 0 and json.loads(c["criterion_scores_json"]) == {"version": 2, "band": "B", "marks": 0}
+    # a criterion that IS in the rubric still validates the band and ignores `marks`
+    sid3, qids3 = seed_v2(app, kind="rubric", label="Ng", run_id="r5")
+    r = auth.post(f"/api/queue/{qids3['Language']}/resolve", json={"band": "A", "marks": 0, "reason": ""})
+    assert r.status_code == 200
+    c = app.state.db.query("SELECT teacher_mark FROM teacher_corrections WHERE run_id = 'r5'")[0]
+    assert c["teacher_mark"] == 5
+
+
+RUBRIC_NO_BANDS = [{"criterion": "Content", "bands": [{"band": "A", "marks": 5, "descriptor": ""}]},
+                   {"criterion": "Language", "bands": [{"band": "A", "marks": 5, "descriptor": ""}]},
+                   {"criterion": "Flair", "bands": []}]
+
+
+def test_resolve_mark_scheme_part_with_no_allocations_takes_a_total(auth, app):
+    """A part with nothing to tick (no scheme row and a proposal without allocations, or a row with no
+    allocations) is resolved with {"total": n}, 0 <= n <= the row max or the proposed total."""
+    from tests.web.seed_v2 import DEFAULT_PARTS, part
+    parts = DEFAULT_PARTS[:2] + [part("3", [], 2, "Bonus question", in_scheme=False, confidence=0.6)]
+    sid, qids = seed_v2(app, parts=parts, queue={"3": "not in scheme"})
+    it = auth.get("/api/queue").json()[0]
+    assert it["q_id"] == "3" and it["scheme_row"] is None and it["proposed"]["awarded"] == [] and it["proposed_total"] == 2
+    r = auth.post(f"/api/queue/{qids['3']}/resolve", json={"total": 3, "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_allocations"
+    r = auth.post(f"/api/queue/{qids['3']}/resolve", json={"total": -1, "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_allocations"
+    r = auth.post(f"/api/queue/{qids['3']}/resolve", json={"total": 1, "reason": "half"})
+    assert r.status_code == 200 and r.json()["submission_status"] == "done"
+    c = app.state.db.query("SELECT agent_mark, teacher_mark, criterion_scores_json FROM teacher_corrections")[0]
+    assert (c["agent_mark"], c["teacher_mark"]) == (2, 1) and json.loads(c["criterion_scores_json"]) == {"version": 2, "allocations": [], "total": 1}
+    d = auth.get(f"/api/submissions/{sid}").json()
+    assert d["parts"][3]["q_id"] == "3" and d["parts"][3]["teacher"] == {"allocations": [], "total": 1}
+    # a scheme row with no allocations: the row max is 0, so only 0 can be given as a total
+    scheme = [{"q_id": "1a", "answer": "x = 3", "marks": [], "notes": ""}]
+    sid2, qids2 = seed_v2(app, label="Lim", run_id="r6", scheme=scheme, parts=[part("1a", [], 0, "", confidence=0.2)],
+                          queue={"1a": "low confidence"})
+    r = auth.post(f"/api/queue/{qids2['1a']}/resolve", json={"total": 1, "reason": ""})
+    assert r.status_code == 400
+    assert auth.post(f"/api/queue/{qids2['1a']}/resolve", json={"total": 0, "reason": ""}).status_code == 200
+    # a part with allocations to tick does not take a bare total
+    _, qids3 = seed_v2(app, label="Ng", run_id="r7")
+    r = auth.post(f"/api/queue/{qids3['2']}/resolve", json={"total": 1, "reason": ""})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_allocations"

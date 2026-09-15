@@ -87,8 +87,9 @@ export interface QueueItem {
   scheme_row?: MarkSchemeEntry | RubricBands | null; proposed?: ProposedPart | null;
 }
 export type ProposedPart = { q_id: string; awarded: AwardedAllocation[]; total: number; justification?: string } | { criterion: string; band: string; marks: number; justification?: string };
-/** Resolve bodies: v1 sends one mark per criterion; v2 sends the allocations got / lost, or the band. */
-export type ResolveBody = { criterion_scores: number[]; reason: string } | { allocations: { label: string; got: boolean }[]; reason: string } | { band: string; reason: string };
+/** Resolve bodies: v1 sends one mark per criterion; v2 sends the allocations got / lost (or a bare total when the part has
+ *  none to tick), or the band (with marks 0 to award nothing for a criterion the rubric has no bands for). */
+export type ResolveBody = { criterion_scores: number[]; reason: string } | { allocations: { label: string; got: boolean }[]; reason: string } | { total: number; reason: string } | { band: string; marks?: number; reason: string };
 export interface Note { id: number; subject: string; note: string; status: string; created_at?: string }
 export interface Exemplar { id: number; subject: string; topic: string; q_id: string; answer_text: string; awarded: number; max_score: number; why_it_matters: string; status: string }
 export interface ReflectionRun { id: number; subject: string; lookback_days: number; proposed_notes: number; started_at: string; finished_at: string | null; error: string | null }

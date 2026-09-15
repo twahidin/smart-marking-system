@@ -38,6 +38,17 @@ describe("AllocationPicker", () => {
     expect(toggleAllocation(marks, ["M1"], 4)).toEqual(["M1"]);
   });
 
+  it("with nothing to tick, takes the mark as a number capped at the part's max", async () => {
+    const seen: number[] = [];
+    render(<AllocationPicker marks={[]} got={[]} onChange={() => {}} total={null} onTotal={(n) => seen.push(n)} max={2} />);
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText(/no allocations to tick/i)).toBeInTheDocument();
+    const input = screen.getByRole("spinbutton", { name: "Your mark" });
+    expect(input).toHaveAttribute("max", "2");
+    await userEvent.type(input, "1");
+    expect(seen).toEqual([1]);
+  });
+
   it("shows the proposed decision per allocation", () => {
     render(<AllocationPicker marks={marks} got={["M1"]} onChange={() => {}} proposed={[{ label: "M1", marks: 1, got: true }, { label: "A1", marks: 2, got: false }]} />);
     const rows = screen.getAllByRole("row");
@@ -47,6 +58,16 @@ describe("AllocationPicker", () => {
 });
 
 describe("BandPicker", () => {
+  it("with no bands (criterion not in the rubric) offers the proposed band or 0 and says why", async () => {
+    const seen: [string, number | undefined][] = [];
+    render(<BandPicker bands={[]} value={null} onChange={(b, m) => seen.push([b, m])} proposed="B" proposedMarks={3} />);
+    expect(screen.getByText(/This criterion is not in the rubric/)).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("radio", { name: /Band B · 3 marks/ }));
+    await userEvent.click(screen.getByRole("radio", { name: /Award 0/ }));
+    expect(seen).toEqual([["B", undefined], ["B", 0]]);
+  });
+
   it("picks one band by radio, showing marks and descriptors, and totals it", async () => {
     render(<Bands />);
     expect(screen.getByLabelText("Your mark")).toHaveTextContent("— / 5");
