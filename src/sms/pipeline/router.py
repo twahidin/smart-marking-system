@@ -1,5 +1,7 @@
 import importlib
 
+from sms.subjects import scheme_prompts
+
 
 class SubjectRouter:
     """Resolves subject names to their prompt configuration modules."""
@@ -22,3 +24,11 @@ class SubjectRouter:
             "reviewer_steps": module.REVIEWER_STEPS,
             "reviewer_output_instructions": module.REVIEWER_OUTPUT_INSTRUCTIONS,
         }
+
+    def scheme_prompt_config(self, scheme_kind: str) -> dict:
+        """Marker/reviewer prompts for the per-part path, chosen by the assignment's scheme kind
+        ('mark_scheme' or 'rubric') rather than by subject. Same keys as marker_prompt_config."""
+        try:
+            return scheme_prompts.BY_KIND[scheme_kind]
+        except KeyError:
+            raise KeyError(f"Unknown scheme kind: {scheme_kind!r}. Known: {list(scheme_prompts.BY_KIND)}")
