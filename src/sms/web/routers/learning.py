@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from sms.learning.reflection_job import activate_exemplar, activate_note
 from sms.memory.metrics import MetricsSummary
-from sms.web.deps import get_db, require_teacher
+from sms.pipeline.router import SubjectRouter
+from sms.web.deps import get_db, get_jobs, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.submissions import iso_utc
 
@@ -51,3 +54,33 @@ def approve_exemplar(exemplar_id: int, db=Depends(get_db)):
 def stats(db=Depends(get_db)):
     ms = MetricsSummary(db)
     return {role: ms.summarize(agent_role=role) for role in ("extractor", "marker", "reviewer", "feedback", "reflection")}
+
+
+class ReflectBody(BaseModel):
+    subject: str
+    lookback_days: int = Field(default=7, ge=1, le=365)
+
+
+@router.post("/reflect", status_code=202)
+def reflect(body: ReflectBody, jobs=Depends(get_jobs)):
+    try:
+        subject = SubjectRouter().resolve(body.subject)
+    except KeyError:
+        raise ApiError(400, "bad_subject", "Subject must be math, language or science")
+    if subject in jobs.pending_reflect_subjects():
+        raise ApiError(409, "already_running", "Reflection is already queued for this subject")
+    job_id = jobs.enqueue("reflect", payload={"subject": subject, "lookback_days": body.lookback_days})
+    return JSONResponse(status_code=202, content={"job_id": job_id})
+
+
+@router.get("/reflect/runs")
+def reflect_runs(db=Depends(get_db), jobs=Depends(get_jobs)):
+    rows = db.query("SELECT id, subject, lookback_days, proposed_notes, started_at, finished_at, error "
+                    "FROM reflection_runs ORDER BY id DESC LIMIT 20")
+    runs = []
+    for r in rows:
+        row = dict(r)
+        row["started_at"] = iso_utc(row["started_at"])
+        row["finished_at"] = iso_utc(row["finished_at"])
+        runs.append(row)
+    return {"runs": runs, "pending": sorted(jobs.pending_reflect_subjects())}

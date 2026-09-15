@@ -22,6 +22,7 @@ class SettingsBody(BaseModel):
     extractor_model: Optional[str] = None
     rpm_limit: int = Field(ge=0, le=10000)
     confidence_threshold: float = Field(ge=0.0, le=1.0)
+    auto_reflect: bool = True
 
 
 class ModelsBody(BaseModel):
@@ -64,6 +65,7 @@ def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings
             base_url=(body.base_url or "").strip() or None,
             extractor_model=(body.extractor_model or "").strip() or None,
             rpm_limit=body.rpm_limit, confidence_threshold=body.confidence_threshold,
+            auto_reflect=body.auto_reflect,
         ))
     except KeyError as e:
         raise ApiError(400, "bad_provider", str(e))

@@ -8,7 +8,7 @@ export interface ProviderSpec {
 }
 export interface Settings {
   provider: string; model: string; base_url: string | null; extractor_model: string | null;
-  rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string;
+  rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string; auto_reflect: boolean;
 }
 export interface Check { ok: boolean; latency_ms: number; error: string | null }
 export interface ProbeResult { text: Check; vision: Check }
@@ -55,4 +55,6 @@ export interface QueueItem {
 }
 export interface Note { id: number; subject: string; note: string; status: string; created_at?: string }
 export interface Exemplar { id: number; subject: string; topic: string; q_id: string; answer_text: string; awarded: number; max_score: number; why_it_matters: string; status: string }
+export interface ReflectionRun { id: number; subject: string; lookback_days: number; proposed_notes: number; started_at: string; finished_at: string | null; error: string | null }
+export interface ReflectionRuns { runs: ReflectionRun[]; pending: string[] }
 export type Stats = Record<string, { count: number; mean_latency_ms: number; total_tokens_in: number; total_tokens_out: number }>;

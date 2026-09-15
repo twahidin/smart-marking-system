@@ -4,7 +4,7 @@ import type { ProbeResult, ProviderSpec, Settings as S } from "../api/types";
 import { Button } from "../components/Button";
 import { Notice } from "../components/Notice";
 
-type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number };
+type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean };
 
 export function Settings() {
   const [providers, setProviders] = useState<ProviderSpec[]>([]);
@@ -21,7 +21,8 @@ export function Settings() {
       const spec = p.find((x) => x.id === s.provider)!;
       const listed = spec.models.some((m) => m.id === s.model);
       setForm({ provider: s.provider, model: listed ? s.model : "__custom__", custom_model: listed ? "" : s.model, api_key: "",
-                base_url: s.base_url ?? "", extractor_model: s.extractor_model ?? "", rpm_limit: s.rpm_limit, confidence_threshold: s.confidence_threshold });
+                base_url: s.base_url ?? "", extractor_model: s.extractor_model ?? "", rpm_limit: s.rpm_limit, confidence_threshold: s.confidence_threshold,
+                auto_reflect: s.auto_reflect });
     }).catch((e) => setMsg({ kind: "error", text: e.message }));
   }, []);
 
@@ -30,7 +31,8 @@ export function Settings() {
 
   const modelId = form.model === "__custom__" ? form.custom_model.trim() : form.model;
   const payload = { provider: form.provider, model: modelId, api_key: form.api_key || undefined, base_url: form.base_url || undefined,
-                    extractor_model: form.extractor_model || undefined, rpm_limit: form.rpm_limit, confidence_threshold: form.confidence_threshold };
+                    extractor_model: form.extractor_model || undefined, rpm_limit: form.rpm_limit, confidence_threshold: form.confidence_threshold,
+                    auto_reflect: form.auto_reflect };
 
   const changeProvider = (id: string) => {
     const p = providers.find((x) => x.id === id)!;
@@ -115,6 +117,13 @@ export function Settings() {
         <div className="field" style={{ maxWidth: 340 }}><label htmlFor="thr">Ask me when confidence is below</label>
           <input id="thr" className="input" type="number" min={0} max={1} step={0.05} value={form.confidence_threshold} onChange={(e) => setForm({ ...form, confidence_threshold: Number(e.target.value) })} />
           <span className="help">0 turns this off. 0.6 is a sensible start.</span></div>
+        <div className="field">
+          <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, cursor: "pointer" }}>
+            <input type="checkbox" checked={form.auto_reflect} onChange={(e) => setForm({ ...form, auto_reflect: e.target.checked })} style={{ width: 18, height: 18 }} />
+            Run reflection nightly on new corrections
+          </label>
+          <span className="help">Turns your Review corrections into draft rubric notes once a day. You can also run it any time from Learning.</span>
+        </div>
 
         {probe && (
           <Notice kind={probe.text.ok && probe.vision.ok ? "ok" : "amber"}>

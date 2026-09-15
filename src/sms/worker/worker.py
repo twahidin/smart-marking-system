@@ -1,33 +1,45 @@
+import json
 import logging
 import threading
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 from sms.memory.db import Database
+from sms.pipeline.router import SubjectRouter
 from sms.providers.errors import error_message, is_retryable
 from sms.providers.ratelimit import TokenBucket
 from sms.providers.settings import SettingsStore
 from sms.storage import PageStorage
 from sms.worker.jobs import MAX_ATTEMPTS, JobStore
 from sms.worker.mark_job import run_mark_job
+from sms.worker.reflect_job import run_reflect_job
 
 log = logging.getLogger("sms.worker")
 
 Runner = Callable[..., None]
+ReflectRunner = Callable[..., int]
+
+REFLECT_CHECK_INTERVAL_S = 600.0
+REFLECT_WINDOW_H = 24
+REFLECT_LOOKBACK_DAYS = 7
 
 
 class Worker:
     def __init__(self, db: Database, storage: PageStorage, settings_store: SettingsStore,
                  runner: Runner = run_mark_job, poll_s: float = 2.0, max_attempts: int = MAX_ATTEMPTS,
-                 base_backoff_s: float = 30.0):
+                 base_backoff_s: float = 30.0, reflect_runner: ReflectRunner = run_reflect_job):
         self.db = db
         self.storage = storage
         self.settings_store = settings_store
         self.runner = runner
+        self.reflect_runner = reflect_runner
         self.poll_s = poll_s
         self.max_attempts = max_attempts
         self.base_backoff_s = base_backoff_s
         self.jobs = JobStore(db)
         self._bucket: Optional[TokenBucket] = None
+        self._last_reflect_check: Optional[float] = None  # time.monotonic() of the last scheduler pass
 
     def _bucket_for(self, rpm: int) -> TokenBucket:
         """One TokenBucket for the worker's lifetime; replaced only when rpm changes.
@@ -44,10 +56,15 @@ class Worker:
         if job is None:
             return False
         try:
-            if job["kind"] != "mark":
-                raise ValueError(f"unknown job kind {job['kind']!r}")
             bucket = self._bucket_for(self.settings_store.load().rpm_limit)
-            self.runner(self.db, self.storage, self.settings_store, job["submission_id"], bucket=bucket)
+            if job["kind"] == "mark":
+                self.runner(self.db, self.storage, self.settings_store, job["submission_id"], bucket=bucket)
+            elif job["kind"] == "reflect":
+                payload = json.loads(job["payload_json"] or "{}")
+                self.reflect_runner(self.db, self.settings_store, payload["subject"],
+                                    int(payload.get("lookback_days", REFLECT_LOOKBACK_DAYS)), bucket=bucket)
+            else:
+                raise ValueError(f"unknown job kind {job['kind']!r}")
             self.jobs.finish(job["id"])
         except Exception as e:  # noqa: BLE001 - every failure is recorded on the job
             msg = error_message(e)
@@ -70,12 +87,41 @@ class Worker:
                         log.info("re-queued %d interrupted job(s)", reset)
                     reset_done = True
                 self.jobs.heartbeat()
+                self._maybe_schedule_reflection()
                 worked = self.run_once()
             except Exception:  # noqa: BLE001
                 log.exception("worker loop error")
                 worked = False
             if not worked:
                 stop.wait(self.poll_s)
+
+    def _maybe_schedule_reflection(self) -> None:
+        """Nightly reflection: at most every 10 minutes, enqueue a reflect job for each subject
+        that has teacher corrections in the last 24 h, no reflection run in the last 24 h and no
+        reflect job already queued or running."""
+        now = time.monotonic()
+        if self._last_reflect_check is not None and now - self._last_reflect_check < REFLECT_CHECK_INTERVAL_S:
+            return
+        self._last_reflect_check = now
+        settings = self.settings_store.load()
+        if not settings.auto_reflect or not settings.has_key:
+            return
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=REFLECT_WINDOW_H)).strftime("%Y-%m-%d %H:%M:%S")
+        pending = self.jobs.pending_reflect_subjects()
+        for subject in SubjectRouter.KNOWN_SUBJECTS:
+            if subject in pending:
+                continue
+            corrected = self.db.query(
+                "SELECT COUNT(*) AS c FROM teacher_corrections tc JOIN marking_runs mr ON mr.run_id = tc.run_id "
+                "WHERE mr.subject = :s AND tc.created_at >= :cutoff", {"s": subject, "cutoff": cutoff})[0]["c"]
+            if not corrected:
+                continue
+            ran = self.db.query("SELECT COUNT(*) AS c FROM reflection_runs WHERE subject = :s AND started_at >= :cutoff",
+                                {"s": subject, "cutoff": cutoff})[0]["c"]
+            if ran:
+                continue
+            self.jobs.enqueue("reflect", payload={"subject": subject, "lookback_days": REFLECT_LOOKBACK_DAYS})
+            log.info("scheduled nightly reflection for %s", subject)
 
     def start_thread(self, stop: threading.Event) -> threading.Thread:
         t = threading.Thread(target=self.run_forever, args=(stop,), name="sms-worker", daemon=True)

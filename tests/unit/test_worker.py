@@ -1,4 +1,6 @@
+import json
 import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -187,3 +189,111 @@ def test_worker_reuses_rate_limit_bucket_across_jobs_until_rpm_changes(env):
     w.run_once()
     assert seen_buckets[2] is not seen_buckets[0]
     assert seen_buckets[2].rpm == 5
+
+
+# --- reflect jobs and the nightly scheduler ------------------------------------------------------
+
+def _corrections(db, subject="math", run_id="r1", age_hours=0):
+    db.execute("INSERT INTO marking_runs (run_id, stage, subject, rubric_json, final_status) VALUES (?, 'complete', ?, '{}', 'complete')",
+               (run_id, subject))
+    db.execute("INSERT INTO teacher_corrections (run_id, q_id, agent_mark, teacher_mark, reason, created_at) "
+               "VALUES (?, 'q1', 1, 2, 'x', ?)",
+               (run_id, (datetime.now(timezone.utc) - timedelta(hours=age_hours)).strftime("%Y-%m-%d %H:%M:%S")))
+
+
+def test_worker_dispatches_reflect_job_with_payload(env):
+    db, store, storage, sid = env
+    js = JobStore(db)
+    jid = js.enqueue("reflect", payload={"subject": "science", "lookback_days": 3})
+    assert db.query("SELECT submission_id, payload_json FROM jobs WHERE id = ?", (jid,))[0]["submission_id"] is None
+    seen = []
+
+    def reflect_runner(db_, store_, subject, lookback_days, bucket=None):
+        seen.append((subject, lookback_days, bucket))
+        return 0
+
+    w = Worker(db, storage, store, runner=lambda *a, **k: pytest.fail("mark runner must not run"), reflect_runner=reflect_runner)
+    assert w.run_once() is True
+    assert seen == [("science", 3, w._bucket)]
+    assert db.query("SELECT status FROM jobs WHERE id = ?", (jid,))[0]["status"] == "done"
+    # the submission row is untouched by a job without a submission_id
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
+
+
+def test_worker_reflect_failure_is_recorded_without_touching_submissions(env):
+    db, store, storage, sid = env
+    JobStore(db).enqueue("reflect", payload={"subject": "math", "lookback_days": 7})
+
+    def reflect_runner(*a, **k):
+        raise ValueError("boom")
+
+    Worker(db, storage, store, reflect_runner=reflect_runner).run_once()
+    assert db.query("SELECT status, error FROM jobs")[0] == {"status": "failed", "error": "boom"}
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
+
+
+def test_scheduler_enqueues_once_per_subject_with_recent_corrections(env):
+    db, store, storage, sid = env
+    _corrections(db, "math", "r1")
+    _corrections(db, "science", "r2", age_hours=30)  # too old
+    w = Worker(db, storage, store)
+    w._maybe_schedule_reflection()
+    jobs = db.query("SELECT kind, status, payload_json FROM jobs")
+    assert len(jobs) == 1 and jobs[0]["kind"] == "reflect"
+    assert json.loads(jobs[0]["payload_json"]) == {"subject": "math", "lookback_days": 7}
+    # a second check (throttle bypassed) does not duplicate the queued job
+    w._last_reflect_check = None
+    w._maybe_schedule_reflection()
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 1
+    # once the job has run and a reflection_runs row exists, nothing new is scheduled for 24 h
+    w.reflect_runner = lambda *a, **k: db.execute("INSERT INTO reflection_runs (subject, lookback_days, proposed_notes, finished_at) "
+                                                  "VALUES ('math', 7, 0, CURRENT_TIMESTAMP)")
+    w.run_once()
+    w._last_reflect_check = None
+    w._maybe_schedule_reflection()
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 1
+    # a new correction after a stale (>24 h) run schedules again
+    db.execute("UPDATE reflection_runs SET started_at = ?",
+               ((datetime.now(timezone.utc) - timedelta(hours=25)).strftime("%Y-%m-%d %H:%M:%S"),))
+    w._last_reflect_check = None
+    w._maybe_schedule_reflection()
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 2
+
+
+def test_scheduler_is_throttled_and_respects_auto_reflect(env):
+    db, store, storage, sid = env
+    _corrections(db, "math", "r1")
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=0, auto_reflect=False))
+    w = Worker(db, storage, store)
+    w._maybe_schedule_reflection()
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 0
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=0, auto_reflect=True))
+    w._maybe_schedule_reflection()  # within the 10-minute throttle window: no check
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 0
+    w._last_reflect_check = None
+    w._maybe_schedule_reflection()
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 1
+
+
+def test_scheduler_skips_without_api_key(env):
+    db, store, storage, sid = env
+    _corrections(db, "math", "r1")
+    db.execute("UPDATE settings SET api_key_enc = NULL")
+    Worker(db, storage, store)._maybe_schedule_reflection()
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 0
+
+
+def test_run_forever_calls_scheduler(env):
+    db, store, storage, sid = env
+    _corrections(db, "math", "r1")
+    w = Worker(db, storage, store, reflect_runner=lambda *a, **k: 0, poll_s=0.01)
+    stop = threading.Event()
+    t = w.start_thread(stop)
+    import time
+    for _ in range(300):
+        rows = db.query("SELECT status FROM jobs WHERE kind = 'reflect'")
+        if rows and rows[0]["status"] == "done":
+            break
+        time.sleep(0.01)
+    stop.set(); t.join(timeout=2)
+    assert db.query("SELECT status FROM jobs WHERE kind = 'reflect'")[0]["status"] == "done"

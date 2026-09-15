@@ -1,5 +1,6 @@
+import json
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Set
 
 from sms.memory.db import Database
 from sms.timeutil import iso_utc
@@ -19,10 +20,10 @@ class JobStore:
     def __init__(self, db: Database):
         self.db = db
 
-    def enqueue(self, kind: str, submission_id: Optional[int]) -> int:
+    def enqueue(self, kind: str, submission_id: Optional[int] = None, payload: Optional[dict] = None) -> int:
         job_id = self.db.insert(
-            "INSERT INTO jobs (kind, submission_id, status) VALUES (:k, :s, 'queued') RETURNING id",
-            {"k": kind, "s": submission_id},
+            "INSERT INTO jobs (kind, submission_id, status, payload_json) VALUES (:k, :s, 'queued', :p) RETURNING id",
+            {"k": kind, "s": submission_id, "p": json.dumps(payload) if payload is not None else None},
         )
         if submission_id is not None:
             self.db.execute("UPDATE submissions SET status = 'queued', updated_at = CURRENT_TIMESTAMP WHERE id = :s",
@@ -97,6 +98,16 @@ class JobStore:
     def last_heartbeat(self) -> Optional[str]:
         rows = self.db.query("SELECT last_seen FROM worker_heartbeat WHERE id = 1")
         return iso_utc(rows[0]["last_seen"]) if rows else None
+
+    def pending_reflect_subjects(self) -> Set[str]:
+        """Subjects with a queued or running reflect job."""
+        rows = self.db.query("SELECT payload_json FROM jobs WHERE kind = 'reflect' AND status IN ('queued', 'running')")
+        out: Set[str] = set()
+        for r in rows:
+            payload = json.loads(r["payload_json"]) if r["payload_json"] else {}
+            if payload.get("subject"):
+                out.add(payload["subject"])
+        return out
 
     def job_for_submission(self, submission_id: int) -> Optional[dict]:
         rows = self.db.query("SELECT * FROM jobs WHERE submission_id = :s ORDER BY id DESC LIMIT 1",

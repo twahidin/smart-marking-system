@@ -11,22 +11,37 @@ const providers = [
     models: [{ id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", vision: true }],
   },
 ];
-const settings = { provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd" };
+const settings = { provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true };
 
 function mockFetch(onModels: () => Response) {
   vi.stubGlobal(
     "fetch",
-    vi.fn((input: RequestInfo | URL) => {
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/providers") return Promise.resolve(new Response(JSON.stringify(providers), { status: 200 }));
-      if (path === "/api/settings") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
+      if (path === "/api/settings" && init?.method !== "PUT") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
+      if (path === "/api/settings" && init?.method === "PUT") { saved.push(JSON.parse(String(init.body))); return Promise.resolve(new Response(JSON.stringify({ ...settings, ...saved[saved.length - 1] }), { status: 200 })); }
       if (path === "/api/settings/models") return Promise.resolve(onModels());
       return Promise.reject(new Error(`Unexpected fetch to ${path}`));
     }),
   );
 }
+const saved: any[] = [];
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); saved.length = 0; });
+
+describe("Settings — nightly reflection", () => {
+  it("saves the auto_reflect checkbox with the rest of the settings", async () => {
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    const box = await screen.findByRole("checkbox", { name: "Run reflection nightly on new corrections" });
+    expect(box).toBeChecked();
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    expect(saved[0].auto_reflect).toBe(false);
+  });
+});
 
 describe("Settings — load models from provider", () => {
   it("adds the account's models to the dropdown, without duplicating curated ones", async () => {

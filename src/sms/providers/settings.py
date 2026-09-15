@@ -18,6 +18,7 @@ class Settings:
     extractor_model: Optional[str] = None
     rpm_limit: int = 8
     confidence_threshold: float = 0.0
+    auto_reflect: bool = True
 
     @property
     def has_key(self) -> bool:
@@ -71,7 +72,7 @@ class SettingsStore:
         return Settings(
             provider=r["provider"], model=r["model"], api_key=key, base_url=r["base_url"],
             extractor_model=r["extractor_model"] or None, rpm_limit=int(r["rpm_limit"]),
-            confidence_threshold=float(r["confidence_threshold"]),
+            confidence_threshold=float(r["confidence_threshold"]), auto_reflect=bool(r["auto_reflect"]),
         )
 
     def save(self, settings: Settings) -> Settings:
@@ -86,19 +87,20 @@ class SettingsStore:
             "provider": settings.provider, "model": settings.model, "base_url": settings.base_url or None,
             "extractor_model": settings.extractor_model or None, "key": key_enc,
             "rpm": int(settings.rpm_limit), "thr": float(settings.confidence_threshold),
+            "auto_reflect": bool(settings.auto_reflect),
         }
         if existing:
             self.db.execute(
                 "UPDATE settings SET provider = :provider, model = :model, base_url = :base_url, "
                 "extractor_model = :extractor_model, api_key_enc = :key, rpm_limit = :rpm, "
-                "confidence_threshold = :thr, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+                "confidence_threshold = :thr, auto_reflect = :auto_reflect, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
                 params,
             )
         else:
             self.db.execute(
                 "INSERT INTO settings (id, provider, model, base_url, extractor_model, api_key_enc, "
-                "rpm_limit, confidence_threshold) VALUES (1, :provider, :model, :base_url, "
-                ":extractor_model, :key, :rpm, :thr)",
+                "rpm_limit, confidence_threshold, auto_reflect) VALUES (1, :provider, :model, :base_url, "
+                ":extractor_model, :key, :rpm, :thr, :auto_reflect)",
                 params,
             )
         return self.load()
