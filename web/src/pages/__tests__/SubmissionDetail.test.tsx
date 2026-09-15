@@ -81,13 +81,13 @@ const v2: D = {
   parts: [
     { q_id: "1a", label: "1(a)", question_text: "Solve 2x + 3 = 7", scheme: { answer: "x = 2", marks: [{ label: "M1", marks: 1 }, { label: "A1", marks: 2 }], notes: "" },
       extracted: "2x = 4 so x = 2", workings: "", illegible: false, awarded: [{ label: "M1", marks: 1, got: true }, { label: "A1", marks: 2, got: true }], total: 3, max: 3,
-      justification: "M1 for isolating x; A1 correct value.", in_scheme: true, confidence: 0.95, escalated: false, reason: null, queue_id: null, teacher: null },
+      justification: "M1 for isolating x; A1 correct value.", in_scheme: true, confidence: 0.95, escalated: false, reason: null, reason_text: null, queue_id: null, teacher: null },
     { q_id: "1b", label: "1(b)", question_text: "Hence find y", scheme: { answer: "y = 5", marks: [{ label: "B1", marks: 2 }], notes: "" },
       extracted: "", workings: "", illegible: true, awarded: [], total: 0, max: 2,
-      justification: "", in_scheme: true, confidence: 0.2, escalated: true, reason: "Unclear handwriting", queue_id: 41, teacher: null },
+      justification: "", in_scheme: true, confidence: 0.2, escalated: true, reason: "marker/reviewer disagree", reason_text: "Marker and reviewer disagreed", queue_id: 41, teacher: null },
     { q_id: "2", label: "2", question_text: "Sketch the curve", scheme: { answer: "Parabola through (0, 3)", marks: [{ label: "B1", marks: 2 }, { label: "B2", marks: 2 }], notes: "" },
       extracted: "sketch", workings: "", illegible: false, awarded: [{ label: "B1", marks: 2, got: true }, { label: "B2", marks: 2, got: false }], total: 2, max: 4,
-      justification: "Different method", in_scheme: false, confidence: 0.6, escalated: false, reason: null, queue_id: null,
+      justification: "Different method", in_scheme: false, confidence: 0.6, escalated: false, reason: null, reason_text: null, queue_id: null,
       teacher: { allocations: [{ label: "B1", marks: 2, got: true }, { label: "B2", marks: 2, got: false }], total: 2 } },
   ],
 };
@@ -107,16 +107,19 @@ describe("SubmissionDetail — per-part marks (v2)", () => {
     expect(rows[1]).toHaveTextContent("M1 ✓");
     expect(rows[1]).toHaveTextContent("A1 ✓");
     expect(rows[1]).toHaveTextContent("3 / 3");
-    // Escalated part: amber pill with the human reason and a link into the queue; extracted shows (illegible).
+    // Escalated part: amber pill with the teacher-facing reason (never the pipeline code) and a link into the queue; extracted shows (illegible).
     expect(rows[2]).toHaveTextContent("Needs you");
-    expect(rows[2]).toHaveTextContent("Unclear handwriting");
+    expect(rows[2]).toHaveTextContent("Marker and reviewer disagreed");
+    expect(rows[2]).not.toHaveTextContent("marker/reviewer disagree");
     expect(rows[2]).toHaveTextContent("(illegible)");
     expect(within(rows[2]).getByRole("link", { name: /Resolve in the review queue/ })).toHaveAttribute("href", "/review?item=41");
     // Teacher-resolved part shows the teacher's total, not a pill.
     expect(rows[3]).toHaveTextContent("2 / 4 (teacher)");
     expect(rows[3]).not.toHaveTextContent("Needs you");
     // Header: range total, needs-you notice names the part label, download enabled.
-    expect(screen.getByRole("alert")).toHaveTextContent("1 part needs you: 1(b)");
+    const notice = screen.getByRole("alert");
+    expect(notice).toHaveTextContent("1 part needs you: 1(b)");
+    expect(notice.querySelectorAll("svg")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Download marking record" })).toBeEnabled();
     expect(screen.getByRole("img", { name: "Page 1" })).toHaveAttribute("src", "/api/pages/1");
   });

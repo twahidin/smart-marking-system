@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from sms.memory.db import Database
+from sms.reasons import reason_text
 from sms.schemas.marking import Rubric
 from sms.schemas.scheme import q_label
 from sms.storage import PageStorage
@@ -42,7 +43,7 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
         page_ids = pages_by_sub.get(r["submission_id"], []) if r["submission_id"] else []
         item = {
             "id": r["id"], "submission_id": r["submission_id"], "submission_label": r["submission_label"] or r["run_id"],
-            "q_id": q, "reason": r["reason"], "created_at": iso_utc(r["created_at"]),
+            "q_id": q, "reason": r["reason"], "reason_text": reason_text(r["reason"]), "created_at": iso_utc(r["created_at"]),
             "transcription": eq.get("transcribed_answer", ""), "workings": eq.get("workings", ""),
             "reviewer_note": rv.get("reviewer_note", ""),
             "page_ids": page_ids,

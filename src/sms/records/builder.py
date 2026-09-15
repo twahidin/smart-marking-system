@@ -4,23 +4,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from sms.reasons import REASON_TEXT, TEACHER_TO_REVIEW, reason_text  # noqa: F401 - re-exported for the renderers and tests
 from sms.schemas.scheme import q_label
 
-TEACHER_TO_REVIEW = "Teacher to review"
 ANSWER_LIMIT = 600
 ELLIPSIS = "…"
-
-# Queue reasons (marking_pipeline_v2 and the v1 pipeline) -> what the teacher reads in the record.
-REASON_TEXT: Dict[str, str] = {
-    "illegible": "Unclear handwriting",
-    "not in scheme": "Answer not in the scheme — different method",
-    "reviewer escalated": "Marker and reviewer disagreed",
-    "marker/reviewer disagree": "Marker and reviewer disagreed",
-    "low confidence": "Low confidence",
-    # v1 wording (marking_pipeline)
-    "low marker confidence": "Low confidence",
-    "illegible transcription": "Unclear handwriting",
-}
 
 # Characters neither Word XML nor openpyxl accept; \n and \t are kept.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -66,13 +54,6 @@ class Record:
     def total_text(self) -> str:
         """"4" when settled, "4–6" while parts are still to review."""
         return str(self.total_awarded) if self.total_upper == self.total_awarded else f"{self.total_awarded}–{self.total_upper}"
-
-
-def reason_text(reason: Optional[str]) -> str:
-    """The teacher-facing reason for an escalated part; unknown reasons read "Teacher to review"."""
-    if not reason:
-        return TEACHER_TO_REVIEW
-    return REASON_TEXT.get(reason.strip().lower(), TEACHER_TO_REVIEW)
 
 
 def truncate(text: str, limit: int = ANSWER_LIMIT) -> str:

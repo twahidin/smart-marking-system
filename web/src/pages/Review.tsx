@@ -22,6 +22,10 @@ function allocationsOf(item: QueueItem): MarkPoint[] {
 }
 const bandsOf = (item: QueueItem): Band[] => (item.scheme_row && "bands" in item.scheme_row ? item.scheme_row.bands : []);
 const proposedGot = (item: QueueItem): string[] => (item.proposed && "awarded" in item.proposed ? item.proposed.awarded.filter((a) => a.got).map((a) => a.label) : []);
+/** True when the key was typed into a text-like input (the digit belongs to the text, not the picker); a focused
+ *  checkbox or radio still lets the digit keys toggle allocations. */
+const typingField = (target: EventTarget | null): boolean =>
+  target instanceof HTMLInputElement && !["checkbox", "radio"].includes(target.type);
 const proposedBand = (item: QueueItem): string | null => (item.proposed && "band" in item.proposed ? item.proposed.band : null);
 
 export function Review() {
@@ -89,7 +93,7 @@ export function Review() {
       else if (e.key === "ArrowRight" && tag !== "INPUT") setI((x) => Math.min((items?.length ?? 1) - 1, x + 1));
       else if (e.key.toLowerCase() === "a" && tag !== "INPUT") acceptProposed();
       else if (e.key === "Enter" && tag !== "INPUT") { e.preventDefault(); save(); }
-      else if (/^[1-9]$/.test(e.key) && item && kind === "mark_scheme") { e.preventDefault(); changeGot(toggleAllocation(allocationsOf(item), got, Number(e.key))); }
+      else if (/^[1-9]$/.test(e.key) && item && kind === "mark_scheme" && !typingField(e.target)) { e.preventDefault(); changeGot(toggleAllocation(allocationsOf(item), got, Number(e.key))); }
       else if (/^[0-9]$/.test(e.key) && tag !== "INPUT" && item && !v2) {
         const focusIdx = 0; const max = item.criterion_defs[focusIdx].max_score;
         setValues((v) => v.map((x, j) => (j === focusIdx ? Math.min(max, Number(e.key)) : x)));
@@ -129,7 +133,7 @@ export function Review() {
             : <p className="help">Pages deleted after marking — the transcription below is what was read.</p>}
           <div className="label-caps" style={{ marginTop: 16 }}>What we read</div>
           <div className="page-view" style={{ padding: 12, fontSize: 15, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{item.transcription || <span className="tertiary">Nothing legible for this question.</span>}{item.workings && <div className="help" style={{ marginTop: 8 }}>Workings: {item.workings}</div>}</div>
-          <div style={{ marginTop: 16 }}><Notice><strong>Why this is here</strong> — {item.reason}.{item.reviewer_note && <> Reviewer: “{item.reviewer_note}”.</>}</Notice></div>
+          <div style={{ marginTop: 16 }}><Notice><strong>Why this is here</strong> — <span title={item.reason}>{item.reason_text ?? "Teacher to review"}</span>.{item.reviewer_note && <> Reviewer: “{item.reviewer_note}”.</>}</Notice></div>
         </section>
         <section>
           <div className="label-caps">{heading}</div>

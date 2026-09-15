@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sms.memory.db import Database
+from sms.reasons import reason_text
 from sms.pipeline.router import SubjectRouter
 from sms.schemas.marking import Rubric
 from sms.schemas.scheme import q_label
@@ -245,6 +246,7 @@ def serialise_parts_v2(scheme_info: dict, final: dict, extracted: dict, pending:
         base["confidence"] = (mark or {}).get("confidence")
         base["escalated"] = key in pending
         base["reason"] = pending[key]["reason"] if key in pending else None
+        base["reason_text"] = reason_text(pending[key]["reason"]) if key in pending else None
         base["queue_id"] = pending[key]["id"] if key in pending else None
         base["teacher"] = _teacher_view(corrections[key]) if key in corrections else None
         return base
@@ -334,6 +336,7 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
                 "q_id": q, "criterion_scores": m["criterion_scores"], "total": m["total"], "max": per_q_max,
                 "confidence": m.get("confidence"), "evidence": m.get("evidence", ""), "rationale": m.get("rationale", ""),
                 "escalated": q in pending, "reason": pending[q]["reason"] if q in pending else None,
+                "reason_text": reason_text(pending[q]["reason"]) if q in pending else None,
                 "queue_id": pending[q]["id"] if q in pending else None,
                 "teacher_scores": corrections.get(q),
             })

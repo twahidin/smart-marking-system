@@ -7,19 +7,19 @@ import { Review } from "../Review";
 
 const base = { submission_id: 9, submission_label: "Lim Jun Hao", created_at: "2026-09-15T03:04:05Z", workings: "", evidence: "", reviewer_note: "", criterion_defs: [], proposed_criterion_scores: [], proposed_total: null, page_ids: [3] };
 const partItem: QueueItem = {
-  ...base, id: 41, q_id: "1b", reason: "Reviewer and marker disagreed", transcription: "y = 2x + 1 = 5", rationale: "M1 for substitution",
+  ...base, id: 41, q_id: "1b", reason: "marker/reviewer disagree", reason_text: "Marker and reviewer disagreed", transcription: "y = 2x + 1 = 5", rationale: "M1 for substitution",
   marks_version: 2, scheme_kind: "mark_scheme", label: "1(b)", question_text: "Hence find y",
   scheme_row: { q_id: "1b", answer: "y = 5", marks: [{ label: "M1", marks: 1 }, { label: "A1", marks: 2 }], notes: "Accept 5.0" },
   proposed: { q_id: "1b", awarded: [{ label: "M1", marks: 1, got: true }, { label: "A1", marks: 2, got: false }], total: 1, justification: "M1 for substitution" },
 };
 const bandItem: QueueItem = {
-  ...base, id: 42, q_id: "Organisation", reason: "Confidence below threshold", transcription: "Once upon a time…", rationale: "",
+  ...base, id: 42, q_id: "Organisation", reason: "low confidence", reason_text: "Low confidence", transcription: "Once upon a time…", rationale: "",
   marks_version: 2, scheme_kind: "rubric", label: "Organisation", question_text: "Write a narrative.",
   scheme_row: { criterion: "Organisation", bands: [{ band: "A", marks: 5, descriptor: "Clear structure" }, { band: "B", marks: 3, descriptor: "Some structure" }] },
   proposed: { criterion: "Organisation", band: "B", marks: 3, justification: "" },
 };
 const v1Item: QueueItem = {
-  ...base, id: 43, q_id: "q2", reason: "Low confidence", transcription: "x = 4", rationale: "", evidence: "x = 4",
+  ...base, id: 43, q_id: "q2", reason: "illegible transcription", reason_text: "Unclear handwriting", transcription: "x = 4", rationale: "", evidence: "x = 4",
   criterion_defs: [{ id: "c1", description: "Method", max_score: 2 }, { id: "c2", description: "Answer", max_score: 1 }], proposed_criterion_scores: [2, 0], proposed_total: 2,
 };
 
@@ -49,7 +49,8 @@ describe("Review — per-part items (v2)", () => {
     expect(screen.getByLabelText("Scheme answer")).toHaveTextContent("y = 5");
     expect(screen.getByLabelText("Scheme answer")).toHaveTextContent("Accept 5.0");
     expect(screen.getByText("y = 2x + 1 = 5")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("Reviewer and marker disagreed");
+    expect(screen.getByRole("alert")).toHaveTextContent("Marker and reviewer disagreed");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("marker/reviewer disagree");
     const save = screen.getByRole("button", { name: /Save & next/ });
     expect(save).toBeDisabled();
     await userEvent.keyboard("1");
@@ -74,6 +75,34 @@ describe("Review — per-part items (v2)", () => {
     expect(posted[0].body).toEqual({ allocations: [{ label: "M1", got: true }, { label: "A1", got: false }], reason: "" });
   });
 
+  it("a deliberate zero-mark resolve is possible: tick then untick leaves Save enabled and every allocation lost", async () => {
+    const posted = setup([partItem]);
+    await screen.findByText("Question 1(b)");
+    await userEvent.keyboard("1");
+    await userEvent.keyboard("1");
+    expect(screen.getByRole("checkbox", { name: "M1 · 1 mark" })).not.toBeChecked();
+    expect(screen.getByLabelText("Your mark")).toHaveTextContent("0 / 3");
+    const save = screen.getByRole("button", { name: /Save & next/ });
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].body).toEqual({ allocations: [{ label: "M1", got: false }, { label: "A1", got: false }], reason: "" });
+  });
+
+  it("digits typed into the reason box or a text field do not toggle allocations; from a focused checkbox they do", async () => {
+    setup([partItem]);
+    await screen.findByText("Question 1(b)");
+    const reason = screen.getByLabelText("Reason (kept with your correction)");
+    await userEvent.type(reason, "12");
+    expect(reason).toHaveValue("12");
+    expect(screen.getByRole("checkbox", { name: "M1 · 1 mark" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "A1 · 2 marks" })).not.toBeChecked();
+    const m1 = screen.getByRole("checkbox", { name: "M1 · 1 mark" });
+    m1.focus();
+    await userEvent.keyboard("2");
+    expect(screen.getByRole("checkbox", { name: "A1 · 2 marks" })).toBeChecked();
+  });
+
   it("rubric items pick a band and post it", async () => {
     const posted = setup([bandItem]);
     expect(await screen.findByText("Organisation")).toBeInTheDocument();
@@ -85,9 +114,10 @@ describe("Review — per-part items (v2)", () => {
     expect(posted[0]).toEqual({ path: "/api/queue/42/resolve", body: { band: "A", reason: "" } });
   });
 
-  it("v1 items still use the criteria table and post criterion_scores", async () => {
+  it("v1 items still use the criteria table, show the teacher-facing reason and post criterion_scores", async () => {
     const posted = setup([v1Item]);
     await screen.findByText("Question 2");
+    expect(screen.getByRole("alert")).toHaveTextContent("Unclear handwriting");
     await userEvent.keyboard("a");
     await userEvent.click(screen.getByRole("button", { name: /Save & next/ }));
     await vi.waitFor(() => expect(posted).toHaveLength(1));

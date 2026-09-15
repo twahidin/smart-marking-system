@@ -35,6 +35,7 @@ def test_queue_lists_joined_item(auth, app):
     assert it["id"] == qid and it["submission_label"] == "Tan" and it["transcription"] == "x = 2"
     assert it["proposed_criterion_scores"] == [1, 1] and it["reviewer_note"] == "method unclear"
     assert it["criterion_defs"][0]["id"] == "c1" and it["page_ids"] and it["reason"] == "reviewer escalated"
+    assert it["reason_text"] == "Marker and reviewer disagreed"
 
 
 def test_resolve_records_correction_and_flips_submission(auth, app):
@@ -111,6 +112,7 @@ def test_queue_v2_item_carries_the_scheme_row_and_the_proposed_part(auth, app):
     it = items[0]
     assert it["id"] == qids["2"] and it["submission_id"] == sid and it["marks_version"] == 2
     assert it["q_id"] == "2" and it["label"] == "2" and it["question_text"] == "Expand (x+1)^2" and it["reason"] == "not in scheme"
+    assert it["reason_text"] == "Answer not in the scheme — different method"
     assert it["scheme_row"]["answer"] == "x^2 + 2x + 1" and [m["label"] for m in it["scheme_row"]["marks"]] == ["M1", "A1"]
     assert it["proposed"]["q_id"] == "2" and it["proposed"]["total"] == 1 and it["proposed"]["in_scheme"] is False
     assert it["proposed"]["awarded"][0] == {"label": "M1", "marks": 1, "got": True, "why": ""}

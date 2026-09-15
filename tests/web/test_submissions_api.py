@@ -106,6 +106,7 @@ def test_detail_after_run_includes_marks_escalations_feedback(auth, app):
     assert d["status"] == "needs_you" and d["feedback"]["summary"] == "s"
     q2 = next(m for m in d["marks"] if m["q_id"] == "q2")
     assert q2["escalated"] and q2["reason"] == "low marker confidence" and q2["queue_id"] and q2["max"] == 5
+    assert q2["reason_text"] == "Low confidence"
     assert d["totals"] == {"total": 7, "total_upper": 10, "total_max": 10}
     lst = auth.get("/api/submissions").json()[0]
     assert lst["total"] == 7 and lst["total_upper"] == 10 and lst["needs_you_qids"] == ["q2"]
@@ -251,9 +252,11 @@ def test_detail_v2_parts_follow_the_scheme_and_totals_are_a_range_while_pending(
     assert p1a["extracted"] == "x = 3" and p1a["workings"] == "3x = 9, x = 9/3" and p1a["illegible"] is False
     assert [a["label"] for a in p1a["awarded"]] == ["M1", "A1"] and p1a["total"] == 2 and p1a["max"] == 2
     assert p1a["escalated"] is False and p1a["reason"] is None and p1a["queue_id"] is None and p1a["teacher"] is None
+    assert p1a["reason_text"] is None
     assert p1a["in_scheme"] is True and p1a["confidence"] == 0.9 and p1a["justification"].startswith("M1 for")
     assert p1b["total"] == 0 and p1b["max"] == 1
     assert p2["escalated"] is True and p2["reason"] == "not in scheme" and p2["queue_id"] == qids["2"]
+    assert p2["reason_text"] == "Answer not in the scheme — different method"
     assert p2["in_scheme"] is False and p2["max"] == 3
     # 1a 2/2 + 1b 0/1 settled; part 2 pending: marker's 1 in the lower bound, the row max (3) in the upper
     assert d["totals"] == {"total": 3, "total_upper": 5, "total_max": 6}
@@ -271,6 +274,7 @@ def test_detail_v2_rubric_parts_are_criteria_with_bands(auth, app):
     assert content["band"] == "A" and content["total"] == 5 and content["max"] == 5 and content["escalated"] is False
     assert content["extracted"]  # the whole response, since a rubric marks the response as one
     assert language["escalated"] and language["reason"] == "low confidence" and language["queue_id"] == qids["Language"]
+    assert language["reason_text"] == "Low confidence"
     assert language["band"] == "B" and language["total"] == 2 and language["max"] == 5
     assert d["totals"] == {"total": 7, "total_upper": 10, "total_max": 10}
 

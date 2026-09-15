@@ -87,7 +87,7 @@ export function SubmissionDetail() {
         )}
         {downloadError && <Notice kind="error"><strong>Download failed.</strong> {downloadError}</Notice>}
         {needsYou.length > 0 && (
-          <Notice><TriangleAlert size={16} aria-hidden /> {needsYou.length} {v2 ? "part" : "question"}{needsYou.length > 1 ? "s" : ""} need{needsYou.length > 1 ? "" : "s"} you: {needsYouLabels.join(", ")}. <Link to="/review">Open the review queue</Link></Notice>
+          <Notice>{needsYou.length} {v2 ? "part" : "question"}{needsYou.length > 1 ? "s" : ""} need{needsYou.length > 1 ? "" : "s"} you: {needsYouLabels.join(", ")}. <Link to="/review">Open the review queue</Link></Notice>
         )}
       </div>
       <div className="cols" style={{ borderTop: "2px solid var(--color-divider)" }}>
@@ -119,7 +119,7 @@ export function SubmissionDetail() {
                         <CriteriaReading defs={d.rubric.criterion_defs} scores={scores} />
                         {m.evidence && <div className="callout"><span className="label-caps">Evidence</span><div>“{m.evidence}”</div></div>}
                         {m.rationale && <p className="help">{m.rationale}</p>}
-                        <p className="help">Confidence {m.confidence === null ? "—" : Math.round(m.confidence * 100) + "%"}{m.reason && ` · ${m.reason}`}</p>
+                        <p className="help">Confidence {m.confidence === null ? "—" : Math.round(m.confidence * 100) + "%"}{m.escalated && <> · <span title={m.reason ?? undefined}>{m.reason_text ?? "Teacher to review"}</span></>}</p>
                         {m.queue_id && <Link to={`/review?item=${m.queue_id}`} className="btn btn-ghost btn-sm">Resolve in the review queue →</Link>}
                       </div>
                     )}
@@ -179,7 +179,7 @@ function AwardedCell({ part }: { part: Part }) {
     return (
       <div>
         <span className="pill pill-amber"><TriangleAlert size={12} strokeWidth={2.5} aria-hidden /> Needs you</span>
-        {part.reason && <div className="help" style={{ marginTop: 6 }}>{part.reason}</div>}
+        <div className="help" style={{ marginTop: 6 }} title={part.reason ?? undefined}>{part.reason_text ?? "Teacher to review"}</div>
         {part.queue_id && <div style={{ marginTop: 6 }}><Link to={`/review?item=${part.queue_id}`} className="btn btn-ghost btn-sm">Resolve in the review queue →</Link></div>}
       </div>
     );

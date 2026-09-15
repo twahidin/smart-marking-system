@@ -46,7 +46,7 @@ export interface SubmissionRow {
 export interface Page { id: number; page_index: number; width: number; height: number; deleted?: boolean }
 export interface Mark {
   q_id: string; criterion_scores: number[]; total: number; max: number; confidence: number | null;
-  evidence: string; rationale: string; escalated: boolean; reason: string | null; queue_id: number | null;
+  evidence: string; rationale: string; escalated: boolean; reason: string | null; reason_text?: string | null; queue_id: number | null;
   teacher_scores: number[] | null;
 }
 /** One awarded allocation of a v2 mark-scheme part (M1 / A1 …). */
@@ -61,7 +61,8 @@ export interface Part {
   extracted: string; workings: string; illegible: boolean;
   awarded?: AwardedAllocation[]; band?: string; descriptor_met?: string;
   total: number; max: number; justification: string; in_scheme: boolean; confidence: number | null;
-  escalated: boolean; reason: string | null; queue_id: number | null; teacher: TeacherMark | null;
+  /** `reason` is the pipeline's code (e.g. "not in scheme"); `reason_text` is the sentence the teacher reads. */
+  escalated: boolean; reason: string | null; reason_text: string | null; queue_id: number | null; teacher: TeacherMark | null;
 }
 export interface Feedback {
   summary: string; strengths: string[];
@@ -78,7 +79,7 @@ export interface SubmissionDetail {
   pages_deleted?: boolean; run_id?: string | null; marked_at?: string | null;
 }
 export interface QueueItem {
-  id: number; submission_id: number; submission_label: string; q_id: string; reason: string; created_at: string;
+  id: number; submission_id: number; submission_label: string; q_id: string; reason: string; reason_text?: string; created_at: string;
   transcription: string; workings: string; proposed_criterion_scores: number[]; proposed_total: number | null;
   evidence: string; rationale: string; reviewer_note: string; criterion_defs: Criterion[]; page_ids: number[];
   /** v2 items: the part's label and question, the scheme row it was marked against and the stored mark as the proposal. */
