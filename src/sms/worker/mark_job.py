@@ -15,10 +15,11 @@ from sms.schemas.marking import Rubric
 from sms.storage import PageStorage
 
 
-def _default_pipeline_factory(*, db: Database, settings, subject: str) -> MarkingPipeline:
+def _default_pipeline_factory(*, db: Database, settings, subject: str,
+                              bucket: Optional[TokenBucket] = None) -> MarkingPipeline:
     client = build_client(settings.provider, settings.api_key, base_url=settings.base_url)
     params = get_provider(settings.provider).api_params
-    bucket = TokenBucket(settings.rpm_limit)
+    bucket = bucket or TokenBucket(settings.rpm_limit)
     agents = {
         "extractor": build_extractor(client=client, model=settings.effective_extractor_model, model_api_parameters=params),
         "marker": build_marker(client=client, model=settings.model, subject=subject, db=db, model_api_parameters=params),
@@ -31,7 +32,8 @@ def _default_pipeline_factory(*, db: Database, settings, subject: str) -> Markin
 
 
 def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsStore, submission_id: int,
-                 pipeline_factory: Optional[Callable[..., Any]] = None) -> None:
+                 pipeline_factory: Optional[Callable[..., Any]] = None,
+                 bucket: Optional[TokenBucket] = None) -> None:
     rows = db.query("SELECT * FROM submissions WHERE id = :id", {"id": submission_id})
     if not rows:
         raise ValueError(f"submission {submission_id} not found")
@@ -44,7 +46,7 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
     images = [storage.read(p["storage_path"]) for p in pages]
     rubric = Rubric.model_validate_json(sub["rubric_json"])
     factory = pipeline_factory or _default_pipeline_factory
-    pipeline = factory(db=db, settings=settings, subject=sub["subject"])
+    pipeline = factory(db=db, settings=settings, subject=sub["subject"], bucket=bucket)
     result = pipeline.run(images=images, assignment_context=sub["context"] or "Student script",
                           rubric=rubric, submission_id=submission_id)
     status = "needs_you" if result.escalations else "done"

@@ -65,7 +65,7 @@ def test_run_mark_job_without_key_raises_non_retryable(env):
 def test_worker_success_path(env):
     db, store, storage, sid = env
     JobStore(db).enqueue("mark", sid)
-    w = Worker(db, storage, store, runner=lambda db_, st_, ss_, sid_: None)
+    w = Worker(db, storage, store, runner=lambda *a, **k: None)
     assert w.run_once() is True
     assert db.query("SELECT status FROM jobs")[0]["status"] == "done"
     assert w.run_once() is False
@@ -77,7 +77,7 @@ def test_worker_retryable_error_requeues_with_backoff(env):
     import httpx, openai
     err = openai.APIStatusError("rl", response=httpx.Response(429, request=httpx.Request("POST", "https://x")), body=None)
 
-    def runner(*a):
+    def runner(*a, **k):
         raise err
 
     w = Worker(db, storage, store, runner=runner)
@@ -90,7 +90,7 @@ def test_worker_non_retryable_fails(env):
     db, store, storage, sid = env
     JobStore(db).enqueue("mark", sid)
 
-    def runner(*a):
+    def runner(*a, **k):
         raise ValueError("bad rubric")
 
     Worker(db, storage, store, runner=runner).run_once()
@@ -104,7 +104,7 @@ def test_worker_gives_up_after_max_attempts(env):
     jid = js.enqueue("mark", sid)
     db.execute("UPDATE jobs SET attempts = 4 WHERE id = ?", (jid,))
 
-    def runner(*a):
+    def runner(*a, **k):
         raise TimeoutError()
 
     Worker(db, storage, store, runner=runner).run_once()
@@ -117,7 +117,7 @@ def test_worker_resets_running_on_start_and_heartbeats(env):
     js.enqueue("mark", sid)
     js.claim()
     stop = threading.Event()
-    w = Worker(db, storage, store, runner=lambda *a: None, poll_s=0.01)
+    w = Worker(db, storage, store, runner=lambda *a, **k: None, poll_s=0.01)
     t = w.start_thread(stop)
     import time
     for _ in range(200):
@@ -127,3 +127,63 @@ def test_worker_resets_running_on_start_and_heartbeats(env):
     stop.set(); t.join(timeout=2)
     assert db.query("SELECT status FROM jobs")[0]["status"] == "done"
     assert js.last_heartbeat()
+
+
+def test_worker_retries_reset_running_on_db_outage_then_recovers(env):
+    """reset_running() failing on the first attempt (e.g. a brief DB outage at startup)
+    must not kill the worker thread — it should keep retrying the reset each iteration
+    (inside the same try/except that logs 'worker loop error') and only claim jobs once
+    the reset finally succeeds."""
+    db, store, storage, sid = env
+    js = JobStore(db)
+    js.enqueue("mark", sid)
+    js.claim()  # simulate a job left "running" by a crashed previous worker
+
+    orig_reset_running = js.reset_running
+    calls = {"n": 0}
+
+    def flaky_reset_running():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("db unreachable")
+        return orig_reset_running()
+
+    js.reset_running = flaky_reset_running
+
+    stop = threading.Event()
+    w = Worker(db, storage, store, runner=lambda *a, **k: None, poll_s=0.01)
+    w.jobs = js
+    t = w.start_thread(stop)
+    import time
+    for _ in range(300):
+        if db.query("SELECT status FROM jobs")[0]["status"] == "done":
+            break
+        time.sleep(0.01)
+    stop.set(); t.join(timeout=2)
+    assert db.query("SELECT status FROM jobs")[0]["status"] == "done"
+    assert calls["n"] >= 2
+    assert js.last_heartbeat()
+
+
+def test_worker_reuses_rate_limit_bucket_across_jobs_until_rpm_changes(env):
+    db, store, storage, sid = env
+    js = JobStore(db)
+    js.enqueue("mark", sid)
+    js.enqueue("mark", sid)
+
+    seen_buckets = []
+
+    def runner(*a, **k):
+        seen_buckets.append(k["bucket"])
+
+    w = Worker(db, storage, store, runner=runner)
+    w.run_once()
+    w.run_once()
+    assert seen_buckets[0] is seen_buckets[1]
+    assert seen_buckets[0].rpm == 0
+
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=5))
+    js.enqueue("mark", sid)
+    w.run_once()
+    assert seen_buckets[2] is not seen_buckets[0]
+    assert seen_buckets[2].rpm == 5

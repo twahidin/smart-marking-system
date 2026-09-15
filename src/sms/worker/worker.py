@@ -1,10 +1,10 @@
 import logging
 import threading
-import time
-from typing import Callable
+from typing import Callable, Optional
 
 from sms.memory.db import Database
 from sms.providers.errors import error_message, is_retryable
+from sms.providers.ratelimit import TokenBucket
 from sms.providers.settings import SettingsStore
 from sms.storage import PageStorage
 from sms.worker.jobs import MAX_ATTEMPTS, JobStore
@@ -12,7 +12,7 @@ from sms.worker.mark_job import run_mark_job
 
 log = logging.getLogger("sms.worker")
 
-Runner = Callable[[Database, PageStorage, SettingsStore, int], None]
+Runner = Callable[..., None]
 
 
 class Worker:
@@ -27,6 +27,17 @@ class Worker:
         self.max_attempts = max_attempts
         self.base_backoff_s = base_backoff_s
         self.jobs = JobStore(db)
+        self._bucket: Optional[TokenBucket] = None
+
+    def _bucket_for(self, rpm: int) -> TokenBucket:
+        """One TokenBucket for the worker's lifetime; replaced only when rpm changes.
+
+        Recreating it per job would reset the sliding window each time, so back-to-back
+        jobs would never actually be capped at the aggregate rpm_limit.
+        """
+        if self._bucket is None or self._bucket.rpm != rpm:
+            self._bucket = TokenBucket(rpm)
+        return self._bucket
 
     def run_once(self) -> bool:
         job = self.jobs.claim()
@@ -35,7 +46,8 @@ class Worker:
         try:
             if job["kind"] != "mark":
                 raise ValueError(f"unknown job kind {job['kind']!r}")
-            self.runner(self.db, self.storage, self.settings_store, job["submission_id"])
+            bucket = self._bucket_for(self.settings_store.load().rpm_limit)
+            self.runner(self.db, self.storage, self.settings_store, job["submission_id"], bucket=bucket)
             self.jobs.finish(job["id"])
         except Exception as e:  # noqa: BLE001 - every failure is recorded on the job
             msg = error_message(e)
@@ -49,11 +61,14 @@ class Worker:
         return True
 
     def run_forever(self, stop: threading.Event) -> None:
-        reset = self.jobs.reset_running()
-        if reset:
-            log.info("re-queued %d interrupted job(s)", reset)
+        reset_done = False
         while not stop.is_set():
             try:
+                if not reset_done:
+                    reset = self.jobs.reset_running()
+                    if reset:
+                        log.info("re-queued %d interrupted job(s)", reset)
+                    reset_done = True
                 self.jobs.heartbeat()
                 worked = self.run_once()
             except Exception:  # noqa: BLE001
