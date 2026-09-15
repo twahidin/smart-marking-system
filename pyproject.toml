@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "Smart Marking System: agent-based marking, review and feedback on student scripts"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.13,<2",
     "atomic-agents>=2.10.0,<3.0.0",
     "instructor>=1.14.5,<2.0.0",
     "openai>=1.99.0",
+    "psycopg[binary]>=3.2,<4",
+    "sqlalchemy>=2.0,<3",
 ]
 
 [project.scripts]
@@ -21,3 +24,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sms"]
+include = ["src/sms/migrations/**"]

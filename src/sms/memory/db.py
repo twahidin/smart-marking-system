@@ -1,96 +1,95 @@
-import sqlite3
-from typing import Any, Dict, List, Tuple
+import os
+import re
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
+
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Connection, Engine
+
+Params = Union[None, Sequence[Any], Dict[str, Any]]
+
+_QMARK = re.compile(r"\?")
+
+
+def _bind(sql: str, params: Params):
+    """Accept `?` + tuple (legacy) or `:name` + dict. Returns (sql, dict)."""
+    if params is None:
+        return sql, {}
+    if isinstance(params, dict):
+        return sql, params
+    seq = list(params)
+    counter = iter(range(len(seq)))
+    converted = _QMARK.sub(lambda _m: f":p{next(counter)}", sql)
+    return converted, {f"p{i}": v for i, v in enumerate(seq)}
+
+
+class _Executor:
+    def __init__(self, conn: Connection):
+        self._conn = conn
+
+    def execute(self, sql: str, params: Params = None) -> int:
+        sql, bound = _bind(sql, params)
+        return self._conn.execute(text(sql), bound).rowcount
+
+    def query(self, sql: str, params: Params = None) -> List[Dict[str, Any]]:
+        sql, bound = _bind(sql, params)
+        result = self._conn.execute(text(sql), bound)
+        return [dict(row) for row in result.mappings().all()]
+
+    def insert(self, sql: str, params: Params = None) -> int:
+        sql, bound = _bind(sql, params)
+        return int(self._conn.execute(text(sql), bound).scalar_one())
 
 
 class Database:
-    """Thin sqlite3 wrapper with schema bootstrapping for sms tables."""
+    """SQLAlchemy Core wrapper. Same code path on SQLite (tests/local) and Postgres (Railway)."""
 
-    SCHEMA = """
-    CREATE TABLE IF NOT EXISTS marking_runs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT NOT NULL,
-        stage TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        rubric_json TEXT NOT NULL,
-        extracted_json TEXT,
-        marks_json TEXT,
-        reviewed_json TEXT,
-        feedback_json TEXT,
-        final_status TEXT NOT NULL DEFAULT 'running',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS teacher_corrections (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT NOT NULL,
-        q_id TEXT NOT NULL,
-        agent_mark INTEGER,
-        teacher_mark INTEGER,
-        reason TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS rubric_notes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        subject TEXT NOT NULL,
-        note TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'draft',
-        source_run_ids_json TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS exemplar_cases (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        subject TEXT NOT NULL,
-        topic TEXT NOT NULL,
-        q_id TEXT NOT NULL,
-        answer_text TEXT NOT NULL,
-        awarded INTEGER NOT NULL,
-        max_score INTEGER NOT NULL,
-        why_it_matters TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'draft',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS extraction_cache (
-        hash TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        schema_version INTEGER NOT NULL DEFAULT 1,
-        extracted_json TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (hash, subject, schema_version)
-    );
-    CREATE TABLE IF NOT EXISTS agent_metrics (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT,
-        stage TEXT NOT NULL,
-        agent_role TEXT NOT NULL,
-        latency_ms INTEGER NOT NULL,
-        tokens_in INTEGER NOT NULL,
-        tokens_out INTEGER NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS teacher_queue (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT NOT NULL,
-        q_id TEXT NOT NULL,
-        reason TEXT,
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    """
+    def __init__(self, url: Optional[str] = None, *, path: Optional[str] = None, migrate: bool = True):
+        if path is not None:
+            url = f"sqlite:///{path}"
+        url = url or os.environ.get("DATABASE_URL", "sqlite:///sms.db")
+        self.url = self._normalise_url(url)
+        self.is_sqlite = self.url.startswith("sqlite")
+        kwargs: Dict[str, Any] = {"future": True, "pool_pre_ping": not self.is_sqlite}
+        if self.is_sqlite:
+            kwargs["connect_args"] = {"check_same_thread": False}
+        self.engine: Engine = create_engine(self.url, **kwargs)
+        if self.is_sqlite:
+            @event.listens_for(self.engine, "connect")
+            def _sqlite_pragmas(dbapi_conn, _record):
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA foreign_keys=ON")
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA busy_timeout=5000")
+                cur.close()
+        if migrate:
+            from sms.memory.migrate import upgrade
+            upgrade(self.engine)
 
-    def __init__(self, path: str):
-        self.conn = sqlite3.connect(path)
-        self.conn.execute("PRAGMA foreign_keys=ON")
-        self._init_schema()
+    @staticmethod
+    def _normalise_url(url: str) -> str:
+        if url.startswith("postgres://"):
+            return "postgresql+psycopg://" + url[len("postgres://"):]
+        if url.startswith("postgresql://"):
+            return "postgresql+psycopg://" + url[len("postgresql://"):]
+        return url
 
-    def _init_schema(self) -> None:
-        self.conn.executescript(self.SCHEMA)
-        self.conn.commit()
+    def execute(self, sql: str, params: Params = None) -> int:
+        with self.engine.begin() as conn:
+            return _Executor(conn).execute(sql, params)
 
-    def execute(self, sql: str, params: Tuple = ()) -> sqlite3.Cursor:
-        cur = self.conn.execute(sql, params)
-        self.conn.commit()
-        return cur
+    def query(self, sql: str, params: Params = None) -> List[Dict[str, Any]]:
+        with self.engine.connect() as conn:
+            return _Executor(conn).query(sql, params)
 
-    def query(self, sql: str, params: Tuple = ()) -> List[Dict[str, Any]]:
-        cur = self.conn.execute(sql, params)
-        cols = [c[0] for c in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+    def insert(self, sql: str, params: Params = None) -> int:
+        with self.engine.begin() as conn:
+            return _Executor(conn).insert(sql, params)
+
+    @contextmanager
+    def transaction(self) -> Iterator[_Executor]:
+        with self.engine.begin() as conn:
+            yield _Executor(conn)
+
+    def dispose(self) -> None:
+        self.engine.dispose()

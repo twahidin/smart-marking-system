@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sms.memory.db import Database
@@ -10,13 +11,14 @@ def run_reflection(db: Database, agent: Any, subject: str, lookback_days: int = 
 
     Returns the number of proposed rubric notes (written as draft).
     """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d %H:%M:%S")
     rows = db.query(
         "SELECT tc.run_id, tc.q_id, tc.agent_mark, tc.teacher_mark, tc.reason, mr.subject, "
         "mr.rubric_json, mr.extracted_json "
         "FROM teacher_corrections tc JOIN marking_runs mr ON tc.run_id = mr.run_id "
-        "WHERE mr.subject = ? AND tc.created_at >= datetime('now', ?) "
+        "WHERE mr.subject = :subject AND tc.created_at >= :cutoff "
         "AND tc.agent_mark IS NOT NULL AND tc.agent_mark != tc.teacher_mark",
-        (subject, f"-{lookback_days} days"),
+        {"subject": subject, "cutoff": cutoff},
     )
     if not rows:
         return 0

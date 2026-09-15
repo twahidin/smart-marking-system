@@ -29,8 +29,13 @@ class ExtractionCache:
         return json.loads(row[0]["extracted_json"])
 
     def put(self, hash_: str, subject: str, extracted: Dict[str, Any]) -> None:
-        self.db.execute(
-            "INSERT OR REPLACE INTO extraction_cache (hash, subject, schema_version, extracted_json) "
-            "VALUES (?, ?, 1, ?)",
-            (hash_, subject, json.dumps(extracted)),
-        )
+        with self.db.transaction() as tx:
+            tx.execute(
+                "DELETE FROM extraction_cache WHERE hash = :h AND subject = :s AND schema_version = 1",
+                {"h": hash_, "s": subject},
+            )
+            tx.execute(
+                "INSERT INTO extraction_cache (hash, subject, schema_version, extracted_json) "
+                "VALUES (:h, :s, 1, :j)",
+                {"h": hash_, "s": subject, "j": json.dumps(extracted)},
+            )
