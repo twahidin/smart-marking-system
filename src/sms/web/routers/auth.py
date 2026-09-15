@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
@@ -17,7 +19,8 @@ def login(body: LoginBody, request: Request, response: Response):
     limiter = request.app.state.login_limiter
     if limiter.blocked(ip):
         raise ApiError(429, "too_many_attempts", "Too many attempts — wait a minute and try again")
-    if body.password != request.app.state.config.teacher_password:
+    teacher_password: str = request.app.state.config.teacher_password
+    if not secrets.compare_digest(body.password.encode(), teacher_password.encode()):
         limiter.record_failure(ip)
         raise ApiError(401, "bad_password", "That password is not right")
     secure = request.url.hostname not in ("localhost", "127.0.0.1", "testserver")

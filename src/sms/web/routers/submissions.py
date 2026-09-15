@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from sms.storage import MAX_UPLOAD_BYTES
@@ -36,7 +37,8 @@ async def create(request: Request, label: str = Form(...), subject: str = Form("
     content_length = request.headers.get("content-length")
     if content_length is not None and content_length.isdigit() and int(content_length) > MAX_UPLOAD_BYTES:
         raise ApiError(413, "too_large", "Upload is over 50 MB")
-    if not settings.load().has_key:
+    has_key = await run_in_threadpool(lambda: settings.load().has_key)
+    if not has_key:
         raise ApiError(400, "no_key", "Add an API key under Settings before marking")
     payload = []
     total = 0
@@ -44,8 +46,10 @@ async def create(request: Request, label: str = Form(...), subject: str = Form("
         data = await _read_capped(f, MAX_UPLOAD_BYTES - total)
         total += len(data)
         payload.append((f.filename or "upload", data))
-    return create_submission(db, storage, jobs, label=label, subject=subject, context=context,
-                             rubric_json=rubric, files=payload)
+    # PDF rasterising and image normalising are CPU-bound; keep them off the event loop so
+    # other requests (health checks included) are not stalled by a big upload.
+    return await run_in_threadpool(create_submission, db, storage, jobs, label=label, subject=subject,
+                                   context=context, rubric_json=rubric, files=payload)
 
 
 @router.get("")

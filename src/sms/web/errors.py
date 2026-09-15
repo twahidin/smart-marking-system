@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+log = logging.getLogger(__name__)
 
 
 class ApiError(Exception):
@@ -33,3 +37,9 @@ def install_error_handlers(app: FastAPI) -> None:
             content={"error": {"code": f"http_{exc.status_code}", "message": str(exc.detail)}},
             headers=getattr(exc, "headers", None),
         )
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception):
+        # Keep the error shape consistent for the SPA and never leak the traceback to the client.
+        log.exception("Unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(status_code=500, content={"error": {"code": "internal", "message": "Something went wrong"}})

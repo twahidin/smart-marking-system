@@ -40,11 +40,19 @@ def get_settings(store: SettingsStore = Depends(get_settings_store)):
     return store.load().public_dict()
 
 
+def _model_name(raw: str) -> str:
+    model = raw.strip()
+    if not model:
+        raise ApiError(400, "validation", "model: must not be blank")
+    return model
+
+
 @router.put("/settings")
 def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings_store)):
+    model = _model_name(body.model)
     try:
         saved = store.save(Settings(
-            provider=body.provider, model=body.model.strip(), api_key=(body.api_key or "").strip() or None,
+            provider=body.provider, model=model, api_key=(body.api_key or "").strip() or None,
             base_url=(body.base_url or "").strip() or None,
             extractor_model=(body.extractor_model or "").strip() or None,
             rpm_limit=body.rpm_limit, confidence_threshold=body.confidence_threshold,
@@ -56,11 +64,12 @@ def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings
 
 @router.post("/settings/test")
 def test_connection(body: TestBody, store: SettingsStore = Depends(get_settings_store)):
+    model = _model_name(body.model)
     key = (body.api_key or "").strip() or store.load().api_key
     if not key:
         raise ApiError(400, "no_key", "Enter an API key first")
     try:
-        result = probe(body.provider, body.model.strip(), key,
+        result = probe(body.provider, model, key,
                        extractor_model=(body.extractor_model or "").strip() or None,
                        base_url=(body.base_url or "").strip() or None)
     except KeyError as e:

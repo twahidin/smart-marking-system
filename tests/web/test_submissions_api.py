@@ -212,3 +212,22 @@ def test_read_capped_under_budget_returns_concatenated_bytes():
         assert f.calls == 4
 
     asyncio.run(run())
+
+
+def test_create_runs_upload_processing_off_the_event_loop(auth, monkeypatch):
+    """CPU-bound create_submission must run in a worker thread, not on the event loop."""
+    seen = {}
+    real = submissions_router.create_submission
+
+    def spy(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            seen["on_loop"] = True
+        except RuntimeError:
+            seen["on_loop"] = False
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(submissions_router, "create_submission", spy)
+    r = _create(_with_key(auth))
+    assert r.status_code == 202
+    assert seen["on_loop"] is False

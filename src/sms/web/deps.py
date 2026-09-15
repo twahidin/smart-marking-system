@@ -27,31 +27,53 @@ class SessionSigner:
 
 
 class LoginLimiter:
-    """5 failed attempts per IP per 60 s."""
+    """5 failed attempts per IP per 60 s, plus a global cap of 30 failures per 60 s across all IPs.
 
-    def __init__(self, limit: int = 5, window_s: float = 60.0):
+    The global cap means spoofing X-Forwarded-For to rotate through fresh addresses still runs
+    into a wall after `global_limit` failures.
+    """
+
+    def __init__(self, limit: int = 5, window_s: float = 60.0, global_limit: int = 30):
         self.limit = limit
         self.window_s = window_s
+        self.global_limit = global_limit
         self._hits: Dict[str, Deque[float]] = defaultdict(deque)
+        self._all: Deque[float] = deque()
+
+    @staticmethod
+    def _expire(q: Deque[float], now: float, window_s: float) -> None:
+        while q and now - q[0] > window_s:
+            q.popleft()
 
     def blocked(self, ip: str) -> bool:
-        q = self._hits[ip]
         now = time.monotonic()
-        while q and now - q[0] > self.window_s:
-            q.popleft()
+        self._expire(self._all, now, self.window_s)
+        if len(self._all) >= self.global_limit:
+            return True
+        q = self._hits[ip]
+        self._expire(q, now, self.window_s)
         result = len(q) >= self.limit
         if not q:
             self._hits.pop(ip, None)
         return result
 
     def record_failure(self, ip: str) -> None:
-        self._hits[ip].append(time.monotonic())
+        now = time.monotonic()
+        self._hits[ip].append(now)
+        self._all.append(now)
 
 
 def client_ip(request: Request) -> str:
+    """Best-effort client address for rate limiting.
+
+    With X-Forwarded-For, use the RIGHTMOST entry: that is the address the trusted edge proxy
+    (Railway) saw. Earlier entries are appended by upstream hops and can be attacker-supplied.
+    """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        last = forwarded.split(",")[-1].strip()
+        if last:
+            return last
     if request.client:
         return request.client.host
     return "unknown"

@@ -1,3 +1,5 @@
+import pytest
+
 from sms.providers.probe import Check, ProbeResult
 
 
@@ -28,6 +30,17 @@ def test_put_saves_and_blank_key_keeps(auth):
 def test_put_unknown_provider_400(auth):
     r = auth.put("/api/settings", json={"provider": "nope", "model": "x", "rpm_limit": 1, "confidence_threshold": 0})
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_provider"
+
+
+def test_whitespace_only_model_is_400_validation(auth, monkeypatch):
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "   ", "rpm_limit": 1, "confidence_threshold": 0})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "validation"
+    assert "model" in r.json()["error"]["message"]
+    assert auth.get("/api/settings").json()["model"] != ""
+
+    monkeypatch.setattr("sms.web.routers.settings.probe", lambda *a, **k: pytest.fail("probe must not run"))
+    r = auth.post("/api/settings/test", json={"provider": "openai", "model": " \t ", "api_key": "sk-x"})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "validation"
 
 
 def test_test_connection_uses_submitted_then_stored_key(auth, monkeypatch):
