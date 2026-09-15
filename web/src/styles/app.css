@@ -138,3 +138,30 @@ textarea.input { min-height: 72px; resize: vertical; }
 .qrow button { all: unset; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; }
 .qrow-body { padding: 8px 0 20px; }
 .callout { background: #fff; border-left: 2px solid var(--ink); padding: 10px 12px; margin: 8px 0; }
+
+/* assignment editor: sections, allocation chips, warning rows */
+.section { margin-top: 28px; padding-top: 20px; border-top: 2px solid var(--color-divider); }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.section-head h2 { font-size: 20px; margin: 0; }
+.editor-table { table-layout: fixed; }
+.editor-table .input { min-height: 40px; }
+.editor-table td.num .input { width: 72px; text-align: right; }
+.editor-table td.id .input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.editor-table tfoot td { font-weight: 600; border-bottom: 0; padding-top: 12px; }
+.editor-table td { vertical-align: top; }
+.editor-table .label { font-weight: 600; white-space: nowrap; padding-top: 10px; }
+.editor-table textarea.input { min-height: 40px; resize: vertical; }
+.table tr.warn td { background: oklch(0.97 0.03 85); }
+.warn-note { display: inline-flex; gap: 6px; align-items: center; color: var(--amber-text); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; border: 1px solid var(--color-divider); background: #fff; }
+.chip .input { min-height: 40px; border: 0; background: transparent; padding: 4px 8px; width: 64px; }
+.chip .input.mk { width: 52px; text-align: right; border-left: 1px solid var(--color-divider); }
+.chip .btn { min-height: 40px; min-width: 40px; padding: 0 8px; }
+.bands { width: 100%; border-collapse: collapse; font-size: 14px; }
+.bands td { padding: 4px 4px 4px 0; border-bottom: 0; }
+.bands td.num { width: 72px; }
+.bands td.band { width: 96px; }
+.pages-strip { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pages-strip img { width: 36px; height: 48px; object-fit: cover; border: 1px solid var(--color-divider); background: #fff; }
+.drop.compact { min-height: 160px; padding: 20px; }

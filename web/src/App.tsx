@@ -5,6 +5,7 @@ import type { QueueItem } from "./api/types";
 import { Button } from "./components/Button";
 import { Nav } from "./components/Nav";
 import { Notice } from "./components/Notice";
+import { AssignmentEditor } from "./pages/AssignmentEditor";
 import { Assignments } from "./pages/Assignments";
 import { Learning } from "./pages/Learning";
 import { NewSubmission } from "./pages/NewSubmission";
@@ -59,6 +60,7 @@ export function App() {
         <Route path="/submissions/new" element={<NewSubmission />} />
         <Route path="/submissions/:id" element={<SubmissionDetail />} />
         <Route path="/assignments" element={<Assignments />} />
+        <Route path="/assignments/:id" element={<AssignmentEditor />} />
         <Route path="/review" element={<Review />} />
         <Route path="/learning" element={<Learning />} />
         <Route path="/settings" element={<Settings />} />

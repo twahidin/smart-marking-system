@@ -9,7 +9,7 @@ const settings = { provider: "openai", model: "gpt-5-mini", base_url: null, extr
 const templates: AssignmentTemplate[] = [
   { id: 5, title: "Essay draft", subject: "language", context: "Sec 3 · Narrative", rubric: { criterion_defs: [{ id: "s", description: "Structure", max_score: 5 }, { id: "g", description: "Grammar", max_score: 3 }, { id: "v", description: "Vocabulary", max_score: 2 }] },
     criteria_count: 3, total_marks: 10, times_used: 1, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
-    scheme_kind: "criteria", questions: [{ q_id: "1", text: "Write a narrative about a journey.", max_marks: 10 }], scheme: [], paper_page_ids: [] },
+    scheme_kind: "criteria", questions: [{ q_id: "1", text: "Write a narrative about a journey.", max_marks: 10 }], scheme: [], paper_page_ids: [], scheme_page_ids: [], delete_pages_after_marking: null, effective_delete_pages: true },
 ];
 
 afterEach(() => vi.unstubAllGlobals());

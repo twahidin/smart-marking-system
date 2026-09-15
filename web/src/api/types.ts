@@ -9,6 +9,7 @@ export interface ProviderSpec {
 export interface Settings {
   provider: string; model: string; base_url: string | null; extractor_model: string | null;
   rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string; auto_reflect: boolean;
+  delete_pages_after_marking: boolean;
 }
 export interface Check { ok: boolean; latency_ms: number; error: string | null }
 export interface ProbeResult { text: Check; vision: Check }
@@ -18,13 +19,24 @@ export interface Rubric { criterion_defs: Criterion[] }
 
 export type SchemeKind = "criteria" | "mark_scheme" | "rubric";
 export interface Question { q_id: string; text: string; max_marks: number }
-export interface MarkSchemeEntry { q_id: string; answer: string; marks: { label: string; marks: number }[]; notes: string }
-export interface RubricBands { criterion: string; bands: { band: string; marks: number; descriptor: string }[] }
+export interface MarkPoint { label: string; marks: number }
+export interface MarkSchemeEntry { q_id: string; answer: string; marks: MarkPoint[]; notes: string }
+export interface Band { band: string; marks: number; descriptor: string }
+export interface RubricBands { criterion: string; bands: Band[] }
 export interface AssignmentTemplate {
   id: number; title: string; subject: Subject; context: string; rubric: Rubric;
   criteria_count: number; total_marks: number; times_used: number; created_at: string; updated_at: string;
-  scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[]; paper_page_ids: number[];
+  scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[];
+  paper_page_ids: number[]; scheme_page_ids: number[];
+  delete_pages_after_marking: boolean | null; effective_delete_pages: boolean;
 }
+export interface AssignmentBody {
+  title: string; subject: Subject; context: string; rubric: Rubric; scheme_kind: SchemeKind;
+  questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[]; delete_pages_after_marking: boolean | null;
+}
+export type ExtractJobStatus = "queued" | "running" | "done" | "failed" | null;
+export interface ExtractState { status: ExtractJobStatus; error: string | null; job_id: number | null }
+export interface ExtractStatus { paper: ExtractState; scheme: ExtractState }
 
 export interface SubmissionRow {
   id: number; label: string; subject: Subject; page_count: number; status: SubmissionStatus; created_at: string;

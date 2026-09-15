@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssignmentTemplate } from "../../api/types";
 import { Assignments } from "../Assignments";
@@ -8,10 +8,10 @@ import { Assignments } from "../Assignments";
 const templates: AssignmentTemplate[] = [
   { id: 1, title: "Worksheet 3", subject: "math", context: "Sec 4", rubric: { criterion_defs: [{ id: "c1", description: "method", max_score: 2 }] },
     criteria_count: 1, total_marks: 2, times_used: 4, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
-    scheme_kind: "mark_scheme", questions: [{ q_id: "q1", text: "Solve 2x + 3 = 7", max_marks: 2 }], scheme: [], paper_page_ids: [11, 12] },
+    scheme_kind: "mark_scheme", questions: [{ q_id: "q1", text: "Solve 2x + 3 = 7", max_marks: 2 }], scheme: [], paper_page_ids: [11, 12], scheme_page_ids: [], delete_pages_after_marking: null, effective_delete_pages: true },
   { id: 2, title: "Essay draft", subject: "language", context: "", rubric: { criterion_defs: [{ id: "c1", description: "structure", max_score: 5 }, { id: "c2", description: "grammar", max_score: 3 }] },
     criteria_count: 2, total_marks: 8, times_used: 0, created_at: "2026-09-14T03:04:05Z", updated_at: "2026-09-14T03:04:05Z",
-    scheme_kind: "criteria", questions: [], scheme: [], paper_page_ids: [] },
+    scheme_kind: "criteria", questions: [], scheme: [], paper_page_ids: [], scheme_page_ids: [], delete_pages_after_marking: null, effective_delete_pages: true },
 ];
 
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
@@ -72,6 +72,45 @@ describe("Assignments", () => {
     await waitFor(() => expect(screen.queryByText("Worksheet 3")).not.toBeInTheDocument());
     expect(screen.getByText("Essay draft")).toBeInTheDocument();
     expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/assignments/1")).toBe(true);
+  });
+});
+
+describe("Assignments — editor links", () => {
+  const app = () => (
+    <MemoryRouter initialEntries={["/assignments"]}>
+      <Routes>
+        <Route path="/assignments" element={<Assignments />} />
+        <Route path="/assignments/:id" element={<div data-testid="editor">editor</div>} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  it("+ New assignment opens the editor", async () => {
+    mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
+    render(app());
+    await screen.findByText("Worksheet 3");
+    await userEvent.click(screen.getByRole("button", { name: "+ New assignment" }));
+    expect(await screen.findByTestId("editor")).toBeInTheDocument();
+  });
+
+  it("clicking a row opens that assignment; the row's own buttons do not", async () => {
+    mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
+    render(app());
+    await screen.findByText("Worksheet 3");
+    await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByTestId("editor")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByText("Worksheet 3"));
+    expect(await screen.findByTestId("editor")).toBeInTheDocument();
+  });
+
+  it("flags a typed assignment that has no scheme rows yet", async () => {
+    mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
+    render(<MemoryRouter><Assignments /></MemoryRouter>);
+    const ws = (await screen.findByText("Worksheet 3")).closest("tr")!;
+    expect(ws).toHaveTextContent("Draft — no scheme yet");
+    expect(screen.getByText("Essay draft").closest("tr")!).not.toHaveTextContent("Draft");
   });
 });
 
