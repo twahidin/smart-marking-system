@@ -1,9 +1,12 @@
+import logging
 from dataclasses import dataclass, asdict
 from typing import Mapping, Optional
 
 from sms.memory.db import Database
 from sms.providers.crypto import KeyCipher
 from sms.providers.registry import DEFAULT_PROVIDER, get_provider
+
+logger = logging.getLogger("sms.settings")
 
 
 @dataclass
@@ -55,7 +58,16 @@ class SettingsStore:
         if not rows:
             return default_settings()
         r = rows[0]
-        key = self.cipher.decrypt(r["api_key_enc"]) if r["api_key_enc"] else None
+        key = None
+        if r["api_key_enc"]:
+            try:
+                key = self.cipher.decrypt(r["api_key_enc"])
+            except ValueError:
+                logger.warning(
+                    "Stored API key cannot be decrypted with this SECRET_KEY — "
+                    "enter it again under Settings"
+                )
+                key = None
         return Settings(
             provider=r["provider"], model=r["model"], api_key=key, base_url=r["base_url"],
             extractor_model=r["extractor_model"] or None, rpm_limit=int(r["rpm_limit"]),
@@ -65,8 +77,9 @@ class SettingsStore:
     def save(self, settings: Settings) -> Settings:
         get_provider(settings.provider)  # raises KeyError for unknown providers
         existing = self.db.query("SELECT api_key_enc FROM settings WHERE id = 1")
-        if settings.api_key:
-            key_enc = self.cipher.encrypt(settings.api_key)
+        stripped_key = (settings.api_key or "").strip()
+        if stripped_key:
+            key_enc = self.cipher.encrypt(stripped_key)
         else:
             key_enc = existing[0]["api_key_enc"] if existing else None
         params = {

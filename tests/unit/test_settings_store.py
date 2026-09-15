@@ -53,3 +53,20 @@ def test_public_dict_never_contains_key(store):
     store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-secret99", rpm_limit=60))
     d = store.load().public_dict()
     assert "api_key" not in d and d["has_key"] is True and d["key_hint"] == "et99"
+
+
+def test_save_with_whitespace_key_keeps_existing(store):
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-real-key", rpm_limit=60))
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="   ", rpm_limit=60))
+    assert store.load().api_key == "sk-real-key"
+
+
+def test_load_survives_undecryptable_key(tmp_path):
+    db_path = str(tmp_path / "s.db")
+    store_one = SettingsStore(Database(path=db_path), KeyCipher("one"))
+    store_one.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-original", rpm_limit=60))
+
+    store_two = SettingsStore(Database(path=db_path), KeyCipher("two"))
+    s = store_two.load()
+    assert s.api_key is None and not s.has_key
+    assert s.provider == "openai" and s.model == "gpt-5-mini" and s.rpm_limit == 60
