@@ -1,4 +1,8 @@
+import concurrent.futures
 import json
+
+from sms.web.errors import ApiError
+from sms.web.services.queue import resolve_queue_item
 
 RUBRIC = {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2},
                               {"id": "c2", "description": "answer", "max_score": 3}]}
@@ -57,6 +61,29 @@ def test_resolve_twice_404(auth, app):
     _, qid = _seed(app)
     auth.post(f"/api/queue/{qid}/resolve", json={"criterion_scores": [1, 1], "reason": ""})
     assert auth.post(f"/api/queue/{qid}/resolve", json={"criterion_scores": [1, 1], "reason": ""}).status_code == 404
+
+
+def test_resolve_is_race_safe_under_concurrent_requests(auth, app):
+    sid, qid = _seed(app)
+    db = app.state.db
+    r = auth.post(f"/api/queue/{qid}/resolve", json={"criterion_scores": [1, 1], "reason": "first"})
+    assert r.status_code == 200
+    db.execute("UPDATE teacher_queue SET status = 'pending' WHERE id = :id", {"id": qid})
+
+    def _resolve(_):
+        try:
+            return ("ok", resolve_queue_item(db, qid, [1, 1], ""))
+        except ApiError as e:
+            return ("error", e.status)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        results = list(ex.map(_resolve, range(2)))
+
+    outcomes = [kind for kind, _ in results]
+    assert outcomes.count("ok") == 1
+    assert outcomes.count("error") == 1
+    assert [payload for kind, payload in results if kind == "error"] == [404]
+    assert len(db.query("SELECT id FROM teacher_corrections")) == 2
 
 
 def test_learning_endpoints(auth, app):

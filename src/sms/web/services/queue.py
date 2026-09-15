@@ -15,6 +15,18 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
         "LEFT JOIN submissions s ON s.id = q.submission_id "
         "WHERE q.status = 'pending' ORDER BY q.id"
     )
+    sub_ids = sorted({r["submission_id"] for r in rows if r["submission_id"] is not None})
+    pages_by_sub: Dict[int, List[int]] = {sid: [] for sid in sub_ids}
+    if sub_ids:
+        placeholders = ", ".join(f":s{i}" for i in range(len(sub_ids)))
+        params = {f"s{i}": sid for i, sid in enumerate(sub_ids)}
+        for p in db.query(
+            f"SELECT id, submission_id FROM pages WHERE submission_id IN ({placeholders}) "
+            "ORDER BY submission_id, page_index",
+            params,
+        ):
+            pages_by_sub[p["submission_id"]].append(p["id"])
+
     out = []
     for r in rows:
         q = r["q_id"]
@@ -24,9 +36,7 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
         eq = next((x for x in extracted.get("questions", []) if x["q_id"] == q), {})
         mq = next((x for x in marks.get("marks", []) if x["q_id"] == q), {})
         rv = next((x for x in reviewed.get("verdicts", []) if x["q_id"] == q), {})
-        page_ids = [p["id"] for p in db.query(
-            "SELECT id FROM pages WHERE submission_id = :s ORDER BY page_index", {"s": r["submission_id"]})] \
-            if r["submission_id"] else []
+        page_ids = pages_by_sub.get(r["submission_id"], []) if r["submission_id"] else []
         out.append({
             "id": r["id"], "submission_id": r["submission_id"], "submission_label": r["submission_label"] or r["run_id"],
             "q_id": q, "reason": r["reason"], "created_at": iso_utc(r["created_at"]),
@@ -56,7 +66,12 @@ def resolve_queue_item(db: Database, item_id: int, criterion_scores: List[int], 
     marks = json.loads(r["marks_json"] or '{"marks": []}')
     agent_mark = next((m["total"] for m in marks.get("marks", []) if m["q_id"] == r["q_id"]), None)
     with db.transaction() as tx:
-        tx.execute("UPDATE teacher_queue SET status = 'resolved' WHERE id = :id", {"id": item_id})
+        changed = tx.execute(
+            "UPDATE teacher_queue SET status = 'resolved' WHERE id = :id AND status = 'pending'",
+            {"id": item_id},
+        )
+        if changed != 1:
+            raise ApiError(404, "not_found", "That question is not waiting for you")
         tx.execute(
             "INSERT INTO teacher_corrections (run_id, q_id, agent_mark, teacher_mark, reason, criterion_scores_json) "
             "VALUES (:run_id, :q_id, :agent, :teacher, :reason, :scores)",
