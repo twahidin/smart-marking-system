@@ -59,3 +59,34 @@ def test_test_connection_uses_submitted_then_stored_key(auth, monkeypatch):
                                     "rpm_limit": 60, "confidence_threshold": 0})
     auth.post("/api/settings/test", json={"provider": "openai", "model": "gpt-5-mini"})
     assert seen[-1] == "sk-stored"
+
+
+def test_list_models_uses_submitted_then_stored_key(auth, monkeypatch):
+    seen = []
+
+    def fake_list(provider, api_key, base_url=None):
+        seen.append((provider, api_key, base_url))
+        return ["z-ai/glm-5.3-flash", "z-ai/glm-5.3-free"]
+
+    monkeypatch.setattr("sms.web.routers.settings.list_models", fake_list)
+    r = auth.post("/api/settings/models", json={"provider": "tokenrouter"})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "no_key"
+    r = auth.post("/api/settings/models", json={"provider": "tokenrouter", "api_key": "tr-new"})
+    assert r.status_code == 200 and r.json() == {"models": ["z-ai/glm-5.3-flash", "z-ai/glm-5.3-free"]}
+    auth.put("/api/settings", json={"provider": "tokenrouter", "model": "z-ai/glm-5.3-flash", "api_key": "tr-stored",
+                                    "rpm_limit": 60, "confidence_threshold": 0})
+    auth.post("/api/settings/models", json={"provider": "tokenrouter"})
+    assert seen == [("tokenrouter", "tr-new", None), ("tokenrouter", "tr-stored", None)]
+
+
+def test_list_models_bad_provider_and_provider_error(auth, monkeypatch):
+    r = auth.post("/api/settings/models", json={"provider": "nope", "api_key": "k"})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_provider"
+
+    def boom(provider, api_key, base_url=None):
+        raise RuntimeError("Error code: 401 - {'error': {'message': 'Invalid API key'}}")
+
+    monkeypatch.setattr("sms.web.routers.settings.list_models", boom)
+    r = auth.post("/api/settings/models", json={"provider": "openai", "api_key": "k"})
+    assert r.status_code == 502 and r.json()["error"]["code"] == "provider_error"
+    assert r.json()["error"]["message"] == "HTTP 401: Invalid API key"

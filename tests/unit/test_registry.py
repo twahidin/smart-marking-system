@@ -6,12 +6,14 @@ from sms.providers.client import build_client
 from sms.providers.registry import DEFAULT_PROVIDER, PROVIDERS, get_provider, registry_as_dicts
 
 
-def test_default_provider_is_tokenrouter_free_glm():
+def test_default_provider_is_tokenrouter_glm_flash():
     p = get_provider(DEFAULT_PROVIDER)
     assert p.id == "tokenrouter"
-    assert p.default_model == "z-ai/glm-5.3-free"
-    assert p.default_rpm == 8
+    assert p.default_model == "z-ai/glm-5.3-flash"
+    assert p.default_rpm == 60
     assert p.base_url == "https://api.tokenrouter.com/v1"
+    free = next(m for m in p.models if m.id == "z-ai/glm-5.3-free")
+    assert "if your key allows" in free.label and free.vision
 
 
 def test_all_six_providers_present_with_vision_default():

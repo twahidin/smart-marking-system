@@ -12,8 +12,8 @@ def store(tmp_path):
 
 def test_load_without_row_returns_defaults(store):
     s = store.load()
-    assert s.provider == "tokenrouter" and s.model == "z-ai/glm-5.3-free"
-    assert s.rpm_limit == 8 and s.api_key is None and not s.has_key
+    assert s.provider == "tokenrouter" and s.model == "z-ai/glm-5.3-flash"
+    assert s.rpm_limit == 60 and s.api_key is None and not s.has_key
 
 
 def test_save_encrypts_and_load_decrypts(store):
@@ -46,7 +46,7 @@ def test_ensure_seeded_from_env_only_once(store):
 def test_ensure_seeded_defaults_when_env_empty(store):
     store.ensure_seeded({})
     s = store.load()
-    assert s.provider == "tokenrouter" and s.model == "z-ai/glm-5.3-free" and not s.has_key
+    assert s.provider == "tokenrouter" and s.model == "z-ai/glm-5.3-flash" and not s.has_key
 
 
 def test_public_dict_never_contains_key(store):

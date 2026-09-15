@@ -31,14 +31,15 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
     ProviderSpec(
         id="tokenrouter", label="TokenRouter", transport="openai_compatible",
         base_url="https://api.tokenrouter.com/v1", mode="JSON",
-        default_model="z-ai/glm-5.3-free", default_rpm=8,
+        default_model="z-ai/glm-5.3-flash", default_rpm=60,
         models=(
-            ModelSpec("z-ai/glm-5.3-free", "GLM 5.3 (free)", True),
             ModelSpec("z-ai/glm-5.3-flash", "GLM 5.3 Flash", True),
+            ModelSpec("z-ai/glm-5.3-free", "GLM 5.3 (free — if your key allows it)", True),
         ),
         key_url="https://www.tokenrouter.com/",
-        note="Free tier: 8 requests a minute — about 30 s per script. When you create the key, "
-             "lock Allowed Models to z-ai/glm-5.3-free so nothing routes to a paid model.",
+        note="Use “Load models from provider” to see exactly what your key can use. Some keys "
+             "include the free z-ai/glm-5.3-free model (8 requests a minute — set Requests per "
+             "minute to 8 if you pick it).",
     ),
     ProviderSpec(
         id="openrouter", label="OpenRouter", transport="openai_compatible",

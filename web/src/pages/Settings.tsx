@@ -11,7 +11,8 @@ export function Settings() {
   const [saved, setSaved] = useState<S | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
-  const [busy, setBusy] = useState<"test" | "save" | null>(null);
+  const [busy, setBusy] = useState<"test" | "save" | "models" | null>(null);
+  const [fetched, setFetched] = useState<string[]>([]);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
@@ -34,7 +35,17 @@ export function Settings() {
   const changeProvider = (id: string) => {
     const p = providers.find((x) => x.id === id)!;
     setForm({ ...form, provider: id, model: p.default_model, custom_model: "", base_url: "", rpm_limit: p.default_rpm });
-    setProbe(null);
+    setProbe(null); setFetched([]);
+  };
+
+  const loadModels = async () => {
+    setBusy("models"); setMsg(null);
+    try {
+      const r = await api.post<{ models: string[] }>("/api/settings/models", { provider: form.provider, api_key: form.api_key || undefined, base_url: form.base_url || undefined });
+      setFetched(r.models);
+      setMsg(r.models.length ? null : { kind: "error", text: "Your key returned no models." });
+    } catch (e) { setMsg({ kind: "error", text: e instanceof ApiError ? e.message : "Could not load models" }); }
+    finally { setBusy(null); }
   };
 
   const test = async () => {
@@ -71,8 +82,16 @@ export function Settings() {
             <label htmlFor="model">Model</label>
             <select id="model" className="input" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })}>
               {spec.models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.vision ? " · reads pages" : " · text only"}</option>)}
+              {fetched.filter((id) => !spec.models.some((m) => m.id === id)).length > 0 && (
+                <optgroup label="From your account">
+                  {fetched.filter((id) => !spec.models.some((m) => m.id === id)).map((id) => <option key={id} value={id}>{id}</option>)}
+                </optgroup>
+              )}
               <option value="__custom__">Custom model id…</option>
             </select>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={loadModels} disabled={busy !== null || (!form.api_key && !saved.has_key)} style={{ alignSelf: "flex-start" }}>
+              {busy === "models" ? "Loading…" : fetched.length ? `Reload models (${fetched.length} found)` : "Load models from provider"}
+            </button>
             {form.model === "__custom__" && <input className="input" placeholder="exact model id" aria-label="Custom model id" value={form.custom_model} onChange={(e) => setForm({ ...form, custom_model: e.target.value })} />}
           </div>
           <div className="field">

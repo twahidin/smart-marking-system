@@ -63,8 +63,9 @@ Minimal `rubric.json`:
 Smart Marking is also a web app: sign in with a shared teacher password, pick an LLM provider
 (TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot/Kimi, Qwen) and enter its API key under
 **Settings**, upload a script's pages (PDF, JPG, PNG or HEIC) under **Mark a script**, and resolve the
-questions the AI was unsure about under **Review**. The default provider is TokenRouter's free
-`z-ai/glm-5.3-free` (8 requests/min — about 30 s per script).
+questions the AI was unsure about under **Review**. The default provider is TokenRouter with
+`z-ai/glm-5.3-flash`; **Load models from provider** on the Settings page lists every model your key
+can actually use (some TokenRouter keys include the free `z-ai/glm-5.3-free`, limited to 8 requests/min).
 
 ### Run locally
 

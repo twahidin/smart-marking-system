@@ -30,3 +30,20 @@ def test_connection_and_timeout_retryable():
 def test_error_message_trims():
     assert len(error_message(RuntimeError("x" * 500))) <= 300
     assert error_message(_status_error(429)).startswith("HTTP 429")
+
+
+def test_error_message_unwraps_instructor_failed_attempts():
+    wrapped = RuntimeError(
+        "<failed_attempts>\n<generation number=\"1\">\n<exception>\nError code: 503 - {'error': "
+        "{'code': 'model_not_found', 'message': 'No available channel for model z-ai/glm-5.3-free "
+        "under group default (distributor) (request id: 2026abc)', 'type': 'api_error'}}\n"
+        "</exception>\n<completion>...</completion>\n</generation>\n</failed_attempts>"
+    )
+    msg = error_message(wrapped)
+    assert msg.startswith("HTTP 503: No available channel for model z-ai/glm-5.3-free")
+    assert "<" not in msg and "request id" not in msg
+
+
+def test_error_message_unwraps_plain_error_code_body():
+    exc = RuntimeError("Error code: 401 - {'error': {'message': 'Invalid API key', 'type': 'auth'}}")
+    assert error_message(exc) == "HTTP 401: Invalid API key"

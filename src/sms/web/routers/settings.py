@@ -3,6 +3,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from sms.providers.errors import error_message
+from sms.providers.models import list_models
 from sms.providers.probe import probe
 from sms.providers.registry import registry_as_dicts
 from sms.providers.settings import Settings, SettingsStore
@@ -20,6 +22,12 @@ class SettingsBody(BaseModel):
     extractor_model: Optional[str] = None
     rpm_limit: int = Field(ge=0, le=10000)
     confidence_threshold: float = Field(ge=0.0, le=1.0)
+
+
+class ModelsBody(BaseModel):
+    provider: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 class TestBody(BaseModel):
@@ -75,3 +83,17 @@ def test_connection(body: TestBody, store: SettingsStore = Depends(get_settings_
     except KeyError as e:
         raise ApiError(400, "bad_provider", str(e))
     return result.to_dict()
+
+
+@router.post("/settings/models")
+def models_for_provider(body: ModelsBody, store: SettingsStore = Depends(get_settings_store)):
+    key = (body.api_key or "").strip() or store.load().api_key
+    if not key:
+        raise ApiError(400, "no_key", "Enter an API key first")
+    try:
+        ids = list_models(body.provider, key, base_url=(body.base_url or "").strip() or None)
+    except KeyError as e:
+        raise ApiError(400, "bad_provider", str(e))
+    except Exception as e:  # noqa: BLE001 - the provider's own message is the useful part
+        raise ApiError(502, "provider_error", error_message(e))
+    return {"models": ids}
