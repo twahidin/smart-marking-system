@@ -15,7 +15,7 @@ from sms.storage import PageStorage
 from sms.web.config import AppConfig
 from sms.web.deps import LoginLimiter, SessionSigner
 from sms.web.errors import install_error_handlers
-from sms.web.routers import auth, health
+from sms.web.routers import auth, health, settings
 from sms.worker.jobs import JobStore
 from sms.worker.worker import Worker
 
@@ -69,6 +69,7 @@ def create_app(config: AppConfig) -> FastAPI:
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(settings.router)
     if config.static_dir:
         mount_spa(app, config.static_dir)
     return app
