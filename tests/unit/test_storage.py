@@ -1,6 +1,7 @@
 import io
+import threading
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 import pytest
 from PIL import Image
 
@@ -72,3 +73,34 @@ def test_page_limit(storage):
 def test_total_size_limit(storage):
     with pytest.raises(UploadError):
         process_uploads([("a.png", _png(10, 10))], storage, max_total_bytes=10)
+
+
+def test_put_jpeg_concurrent_identical_writes_are_safe(storage):
+    data = _png(20, 20)
+    results = []
+    errors = []
+
+    def worker():
+        try:
+            results.append(storage.put_jpeg(data))
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    assert len(results) == 20
+    digest, rel = results[0]
+    assert all(r == (digest, rel) for r in results)
+    assert list((storage.root / "pages").iterdir()) == [storage.abs(rel)]
+
+
+def test_decompression_bomb_names_the_file(storage, monkeypatch):
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    with pytest.raises(UploadError) as e:
+        process_uploads([("huge.png", _png(50, 50))], storage)
+    assert e.value.filename == "huge.png"

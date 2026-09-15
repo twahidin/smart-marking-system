@@ -1,5 +1,6 @@
 import hashlib
 import io
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
@@ -38,9 +39,17 @@ class PageStorage:
         rel = f"pages/{digest}.jpg"
         path = self.root / rel
         if not path.exists():
-            tmp = path.with_suffix(".tmp")
+            # Unique per-call tmp name: two concurrent writers of identical
+            # content must not race on the same tmp path.
+            tmp = path.with_name(f"{digest}.{uuid.uuid4().hex}.tmp")
             tmp.write_bytes(data)
-            tmp.replace(path)
+            try:
+                tmp.replace(path)
+            except (FileNotFoundError, FileExistsError):
+                # Another writer already produced the same content-addressed
+                # file; since the path is derived from the content hash, the
+                # existing file is equivalent to what we would have written.
+                tmp.unlink(missing_ok=True)
         return digest, rel
 
     def abs(self, relative_path: str) -> Path:
@@ -50,12 +59,20 @@ class PageStorage:
         return self.abs(relative_path).read_bytes()
 
 
+_heif_registered = False
+
+
 def _register_heif() -> None:
+    global _heif_registered
+    if _heif_registered:
+        return
     try:
         from pillow_heif import register_heif_opener
         register_heif_opener()
     except ImportError:  # pragma: no cover
         pass
+    finally:
+        _heif_registered = True
 
 
 def _normalise(img: Image.Image) -> Tuple[bytes, int, int]:
@@ -70,21 +87,28 @@ def _normalise(img: Image.Image) -> Tuple[bytes, int, int]:
     return buf.getvalue(), img.size[0], img.size[1]
 
 
-def _images_from_pdf(filename: str, data: bytes) -> List[Image.Image]:
+def _images_from_pdf(filename: str, data: bytes, remaining: int, max_pages: int) -> List[Image.Image]:
     import pymupdf as fitz
     try:
         doc = fitz.open(stream=data, filetype="pdf")
-        if doc.page_count == 0:
-            raise UploadError(filename, "PDF has no pages")
-        out = []
-        for page in doc:
-            pix = page.get_pixmap(dpi=150, colorspace=fitz.csRGB, alpha=False)
-            out.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
-        return out
-    except UploadError:
+    except MemoryError:
         raise
     except Exception as e:  # noqa: BLE001
         raise UploadError(filename, f"not a valid PDF ({e})") from e
+    if doc.page_count == 0:
+        raise UploadError(filename, "PDF has no pages")
+    if doc.page_count > remaining:
+        raise UploadError(filename, f"too many pages; the limit is {max_pages} per script")
+    out: List[Image.Image] = []
+    try:
+        for page in doc:
+            pix = page.get_pixmap(dpi=150, colorspace=fitz.csRGB, alpha=False)
+            out.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+    except MemoryError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise UploadError(filename, f"not a valid PDF ({e})") from e
+    return out
 
 
 def _image_from_bytes(filename: str, data: bytes) -> Image.Image:
@@ -93,7 +117,9 @@ def _image_from_bytes(filename: str, data: bytes) -> Image.Image:
         img = Image.open(io.BytesIO(data))
         img.load()
         return img
-    except (UnidentifiedImageError, OSError) as e:
+    except Image.DecompressionBombError as e:
+        raise UploadError(filename, "image is too large") from e
+    except (UnidentifiedImageError, OSError, ValueError) as e:
         raise UploadError(filename, "not a readable image (use JPG, PNG or HEIC)") from e
 
 
@@ -106,7 +132,10 @@ def process_uploads(files: List[Tuple[str, bytes]], storage: PageStorage, max_pa
     for filename, data in files:
         ext = Path(filename).suffix.lower()
         if ext in PDF_EXTS:
-            images = _images_from_pdf(filename, data)
+            remaining = max_pages - len(pages)
+            if remaining <= 0:
+                raise UploadError(filename, f"too many pages; the limit is {max_pages} per script")
+            images = _images_from_pdf(filename, data, remaining, max_pages)
         elif ext in IMAGE_EXTS:
             images = [_image_from_bytes(filename, data)]
         else:
