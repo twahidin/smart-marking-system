@@ -67,9 +67,13 @@ def reflect(body: ReflectBody, jobs=Depends(get_jobs)):
         subject = SubjectRouter().resolve(body.subject)
     except KeyError:
         raise ApiError(400, "bad_subject", "Subject must be math, language or science")
+    # The pre-check covers a running job whose payload has since gained a run_id; enqueue_unique
+    # makes the insert itself refuse an identical queued/running job, so two racing clicks cannot both win.
     if subject in jobs.pending_reflect_subjects():
         raise ApiError(409, "already_running", "Reflection is already queued for this subject")
-    job_id = jobs.enqueue("reflect", payload={"subject": subject, "lookback_days": body.lookback_days})
+    job_id = jobs.enqueue_unique("reflect", {"subject": subject, "lookback_days": body.lookback_days})
+    if job_id is None:
+        raise ApiError(409, "already_running", "Reflection is already queued for this subject")
     return JSONResponse(status_code=202, content={"job_id": job_id})
 
 

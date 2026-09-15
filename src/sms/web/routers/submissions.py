@@ -4,29 +4,12 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from sms.storage import MAX_UPLOAD_BYTES
 from sms.web.deps import get_db, get_jobs, get_settings_store, get_storage, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.submissions import create_submission, get_submission, list_submissions
+from sms.web.uploads import check_content_length, read_upload_files
 
 router = APIRouter(prefix="/api/submissions", tags=["submissions"], dependencies=[Depends(require_teacher)])
-
-_UPLOAD_CHUNK_BYTES = 1024 * 1024
-
-
-async def _read_capped(f: UploadFile, budget: int) -> bytes:
-    """Read an UploadFile in chunks, never materialising more than `budget` bytes."""
-    chunks: List[bytes] = []
-    total = 0
-    while True:
-        chunk = await f.read(_UPLOAD_CHUNK_BYTES)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > budget:
-            raise ApiError(413, "too_large", "Upload is over 50 MB")
-        chunks.append(chunk)
-    return b"".join(chunks)
 
 
 @router.post("", status_code=202)
@@ -35,18 +18,11 @@ async def create(request: Request, label: str = Form(...), subject: str = Form("
                  files: List[UploadFile] = File(...),
                  db=Depends(get_db), storage=Depends(get_storage), jobs=Depends(get_jobs),
                  settings=Depends(get_settings_store)):
-    content_length = request.headers.get("content-length")
-    if content_length is not None and content_length.isdigit() and int(content_length) > MAX_UPLOAD_BYTES:
-        raise ApiError(413, "too_large", "Upload is over 50 MB")
+    check_content_length(request)
     has_key = await run_in_threadpool(lambda: settings.load().has_key)
     if not has_key:
         raise ApiError(400, "no_key", "Add an API key under Settings before marking")
-    payload = []
-    total = 0
-    for f in files:
-        data = await _read_capped(f, MAX_UPLOAD_BYTES - total)
-        total += len(data)
-        payload.append((f.filename or "upload", data))
+    payload = await read_upload_files(request, files)
     # PDF rasterising and image normalising are CPU-bound; keep them off the event loop so
     # other requests (health checks included) are not stalled by a big upload.
     return await run_in_threadpool(create_submission, db, storage, jobs, label=label, subject=subject,

@@ -90,16 +90,8 @@ def _validate_scheme(scheme_kind: str, scheme: Any) -> List[dict]:
         raise ApiError(400, "bad_scheme", f"scheme ({scheme_kind}): {_first_msg(e)}")
 
 
-def _validate_paper_page_ids(ids: Any) -> List[int]:
-    if ids is None:
-        return []
-    if not isinstance(ids, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
-        raise ApiError(400, "bad_paper", "paper_page_ids must be a list of page ids")
-    return list(ids)
-
-
 def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_kind: str, questions: Any,
-              scheme: Any, paper_page_ids: Any) -> Dict[str, Any]:
+              scheme: Any) -> Dict[str, Any]:
     title = title.strip()
     if not title:
         raise ApiError(400, "bad_title", "Give the assignment a title")
@@ -110,15 +102,27 @@ def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_k
     rubric = parse_rubric(rubric_json)
     qs = _validate_questions(questions)
     sc = _validate_scheme(scheme_kind, scheme)
-    pages = _validate_paper_page_ids(paper_page_ids)
     return {
         "title": title, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
         "scheme_kind": scheme_kind, "questions": json.dumps(qs) if qs else None,
-        "scheme": json.dumps(sc) if sc else None, "paper": json.dumps(pages) if pages else None,
+        "scheme": json.dumps(sc) if sc else None,
     }
 
 
-def _row_to_dict(r: dict) -> Dict[str, Any]:
+def _paper_pages(db: Database, template_ids: List[int]) -> Dict[int, List[int]]:
+    """Page ids per template, from the pages table (the source of truth for a template's paper)."""
+    out: Dict[int, List[int]] = {tid: [] for tid in template_ids}
+    if not template_ids:
+        return out
+    placeholders = ", ".join(f":t{i}" for i in range(len(template_ids)))
+    params = {f"t{i}": tid for i, tid in enumerate(template_ids)}
+    for p in db.query(f"SELECT id, template_id FROM pages WHERE template_id IN ({placeholders}) "
+                      "ORDER BY template_id, page_index", params):
+        out[p["template_id"]].append(p["id"])
+    return out
+
+
+def _row_to_dict(r: dict, paper_page_ids: List[int]) -> Dict[str, Any]:
     rubric = Rubric.model_validate_json(r["rubric_json"])
     return {
         "id": r["id"], "title": r["title"], "subject": r["subject"], "context": r["context"],
@@ -128,49 +132,70 @@ def _row_to_dict(r: dict) -> Dict[str, Any]:
         "scheme_kind": r["scheme_kind"],
         "questions": json.loads(r["questions_json"]) if r["questions_json"] else [],
         "scheme": json.loads(r["scheme_json"]) if r["scheme_json"] else [],
-        "paper_page_ids": json.loads(r["paper_page_ids_json"]) if r["paper_page_ids_json"] else [],
+        "paper_page_ids": paper_page_ids,
         "times_used": int(r["times_used"]),
         "created_at": iso_utc(r["created_at"]), "updated_at": iso_utc(r["updated_at"]),
     }
 
 
 _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, "
-           "scheme_json, paper_page_ids_json) VALUES (:title, :subject, :context, :rubric, :scheme_kind, :questions, "
-           ":scheme, :paper) RETURNING id")
+           "scheme_json) VALUES (:title, :subject, :context, :rubric, :scheme_kind, :questions, :scheme) RETURNING id")
 
 
 def list_templates(db: Database) -> List[Dict[str, Any]]:
     rows = db.query("SELECT * FROM assignment_templates ORDER BY times_used DESC, updated_at DESC, id DESC")
-    return [_row_to_dict(r) for r in rows]
+    pages = _paper_pages(db, [r["id"] for r in rows])
+    return [_row_to_dict(r, pages[r["id"]]) for r in rows]
 
 
 def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
     rows = db.query("SELECT * FROM assignment_templates WHERE id = :id", {"id": template_id})
-    return _row_to_dict(rows[0]) if rows else None
+    return _row_to_dict(rows[0], _paper_pages(db, [template_id])[template_id]) if rows else None
 
 
 def create_template(db: Database, *, title: str, subject: str, context: str, rubric_json: str,
-                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
-                    paper_page_ids: Any = None) -> Dict[str, Any]:
-    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, paper_page_ids)
+                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None) -> Dict[str, Any]:
+    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme)
     tid = db.insert(_INSERT, fields)
     return get_template(db, tid)  # type: ignore[return-value]
 
 
 def update_template(db: Database, template_id: int, *, title: str, subject: str, context: str, rubric_json: str,
-                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
-                    paper_page_ids: Any = None) -> Dict[str, Any]:
+                    scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None) -> Dict[str, Any]:
+    """Update the template's fields. The paper (pages with this template_id) is owned by
+    attach_paper and is never touched here."""
     if get_template(db, template_id) is None:
         raise ApiError(404, "not_found", "No such assignment")
-    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, paper_page_ids)
+    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme)
     fields["id"] = template_id
     db.execute(
         "UPDATE assignment_templates SET title = :title, subject = :subject, context = :context, "
         "rubric_json = :rubric, scheme_kind = :scheme_kind, questions_json = :questions, scheme_json = :scheme, "
-        "paper_page_ids_json = :paper, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+        "updated_at = CURRENT_TIMESTAMP WHERE id = :id",
         fields,
     )
     return get_template(db, template_id)  # type: ignore[return-value]
+
+
+def duplicate_template(db: Database, template_id: int) -> Dict[str, Any]:
+    """Copy a template as "<title> (copy)", including its paper: page rows are re-created for
+    the new template pointing at the same content-addressed image files."""
+    src = db.query("SELECT * FROM assignment_templates WHERE id = :id", {"id": template_id})
+    if not src:
+        raise ApiError(404, "not_found", "No such assignment")
+    r = src[0]
+    with db.transaction() as tx:
+        new_id = tx.insert(_INSERT, {
+            "title": f"{r['title']} (copy)", "subject": r["subject"], "context": r["context"], "rubric": r["rubric_json"],
+            "scheme_kind": r["scheme_kind"], "questions": r["questions_json"], "scheme": r["scheme_json"],
+        })
+        tx.execute(
+            "INSERT INTO pages (template_id, page_index, sha256, storage_path, source_filename, width, height) "
+            "SELECT :new_id, page_index, sha256, storage_path, source_filename, width, height FROM pages "
+            "WHERE template_id = :src ORDER BY page_index",
+            {"new_id": new_id, "src": template_id},
+        )
+    return get_template(db, new_id)  # type: ignore[return-value]
 
 
 def delete_template(db: Database, template_id: int) -> None:
@@ -208,8 +233,7 @@ def attach_paper(db: Database, storage: PageStorage, template_id: int,
                  "w": p.width, "ht": p.height},
             )
             page_rows.append({"id": pid, "page_index": i, "width": p.width, "height": p.height})
-        tx.execute("UPDATE assignment_templates SET paper_page_ids_json = :ids, updated_at = CURRENT_TIMESTAMP "
-                   "WHERE id = :t", {"ids": json.dumps([r["id"] for r in page_rows]), "t": template_id})
+        tx.execute("UPDATE assignment_templates SET updated_at = CURRENT_TIMESTAMP WHERE id = :t", {"t": template_id})
     return page_rows
 
 
@@ -234,7 +258,7 @@ def import_templates(db: Database, payload: Any) -> int:
             raise ApiError(400, "bad_rubric", f"Assignment {i + 1}: rubric must be an object")
         validated.append(_validate(str(item["title"]), str(item["subject"]), str(item.get("context") or ""),
                                    json.dumps(item["rubric"]), str(item.get("scheme_kind") or "criteria"),
-                                   item.get("questions"), item.get("scheme"), None))
+                                   item.get("questions"), item.get("scheme")))
     existing = {(t["title"], t["subject"]) for t in list_templates(db)}
     created = 0
     with db.transaction() as tx:

@@ -208,13 +208,16 @@ def test_worker_dispatches_reflect_job_with_payload(env):
     assert db.query("SELECT submission_id, payload_json FROM jobs WHERE id = ?", (jid,))[0]["submission_id"] is None
     seen = []
 
-    def reflect_runner(db_, store_, subject, lookback_days, bucket=None):
-        seen.append((subject, lookback_days, bucket))
+    def reflect_runner(db_, store_, subject, lookback_days, bucket=None, run_id=None):
+        seen.append((subject, lookback_days, bucket, run_id))
         return 0
 
     w = Worker(db, storage, store, runner=lambda *a, **k: pytest.fail("mark runner must not run"), reflect_runner=reflect_runner)
     assert w.run_once() is True
-    assert seen == [("science", 3, w._bucket)]
+    # the worker opens the reflection_runs row up front and hands its id to the runner
+    run = db.query("SELECT id, subject, lookback_days FROM reflection_runs")[0]
+    assert run["subject"] == "science" and run["lookback_days"] == 3
+    assert seen == [("science", 3, w._bucket, run["id"])]
     assert db.query("SELECT status FROM jobs WHERE id = ?", (jid,))[0]["status"] == "done"
     # the submission row is untouched by a job without a submission_id
     assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
@@ -230,6 +233,30 @@ def test_worker_reflect_failure_is_recorded_without_touching_submissions(env):
     Worker(db, storage, store, reflect_runner=reflect_runner).run_once()
     assert db.query("SELECT status, error FROM jobs")[0] == {"status": "failed", "error": "boom"}
     assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
+
+
+def test_worker_reflect_retry_reuses_the_same_run_row(env):
+    db, store, storage, sid = env
+    JobStore(db).enqueue("reflect", payload={"subject": "math", "lookback_days": 7})
+    import httpx, openai
+    err = openai.APIStatusError("rl", response=httpx.Response(429, request=httpx.Request("POST", "https://x")), body=None)
+    seen_run_ids = []
+
+    def reflect_runner(db_, store_, subject, lookback_days, bucket=None, run_id=None):
+        seen_run_ids.append(run_id)
+        if len(seen_run_ids) == 1:
+            raise err
+        return 0
+
+    w = Worker(db, storage, store, reflect_runner=reflect_runner)
+    w.run_once()
+    job = db.query("SELECT status, payload_json FROM jobs")[0]
+    assert job["status"] == "queued" and json.loads(job["payload_json"])["run_id"] == seen_run_ids[0]
+    db.execute("UPDATE jobs SET not_before = NULL")
+    w.run_once()
+    assert seen_run_ids[0] == seen_run_ids[1]
+    assert db.query("SELECT COUNT(*) AS c FROM reflection_runs")[0]["c"] == 1
+    assert db.query("SELECT status FROM jobs")[0]["status"] == "done"
 
 
 def test_scheduler_enqueues_once_per_subject_with_recent_corrections(env):
@@ -258,6 +285,12 @@ def test_scheduler_enqueues_once_per_subject_with_recent_corrections(env):
     w._last_reflect_check = None
     w._maybe_schedule_reflection()
     assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 2
+    # a failed run in the last 24 h does not count as "ran": it is retried on the next pass
+    db.execute("UPDATE jobs SET status = 'done'")
+    db.execute("INSERT INTO reflection_runs (subject, lookback_days, finished_at, error) VALUES ('math', 7, CURRENT_TIMESTAMP, 'boom')")
+    w._last_reflect_check = None
+    w._maybe_schedule_reflection()
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 3
 
 
 def test_scheduler_is_throttled_and_respects_auto_reflect(env):

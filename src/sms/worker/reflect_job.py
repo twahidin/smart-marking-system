@@ -20,21 +20,33 @@ def _default_agent_factory(*, db: Database, settings, bucket: TokenBucket) -> An
     return RateLimitedAgent(agent, bucket)
 
 
+def open_reflection_run(db: Database, subject: str, lookback_days: int) -> int:
+    """Create the reflection_runs row for a job. The worker does this once per job so retries
+    update the same row instead of leaving one failed row per attempt."""
+    return db.insert("INSERT INTO reflection_runs (subject, lookback_days) VALUES (:s, :d) RETURNING id",
+                     {"s": SubjectRouter().resolve(subject), "d": int(lookback_days)})
+
+
 def run_reflect_job(db: Database, settings_store: SettingsStore, subject: str, lookback_days: int,
                     bucket: Optional[TokenBucket] = None,
-                    agent_factory: Optional[Callable[..., Any]] = None) -> int:
-    """Run reflection over recent teacher corrections for one subject and record the run in
-    `reflection_runs`. Returns the number of proposed rubric notes; errors are recorded on the
-    run row and re-raised so the worker's retry/fail handling applies."""
+                    agent_factory: Optional[Callable[..., Any]] = None,
+                    run_id: Optional[int] = None) -> int:
+    """Run reflection over recent teacher corrections for one subject and record the outcome on
+    a `reflection_runs` row (the one given, or a new one). Returns the number of proposed rubric
+    notes. Every failure — missing key, client construction, the model call — is written to the
+    row's `error` and re-raised so the worker's retry/fail handling applies."""
     subject = SubjectRouter().resolve(subject)
-    settings = settings_store.load()
-    if not settings.has_key:
-        raise RuntimeError("No API key configured — add one under Settings")
-    factory = agent_factory or _default_agent_factory
-    agent = factory(db=db, settings=settings, bucket=bucket or TokenBucket(settings.rpm_limit))
-    run_id = db.insert("INSERT INTO reflection_runs (subject, lookback_days) VALUES (:s, :d) RETURNING id",
-                       {"s": subject, "d": int(lookback_days)})
+    if run_id is None:
+        run_id = open_reflection_run(db, subject, lookback_days)
+    else:
+        # A retry of an earlier attempt: clear what that attempt left behind.
+        db.execute("UPDATE reflection_runs SET error = NULL, finished_at = NULL WHERE id = :id", {"id": run_id})
     try:
+        settings = settings_store.load()
+        if not settings.has_key:
+            raise RuntimeError("No API key configured — add one under Settings")
+        factory = agent_factory or _default_agent_factory
+        agent = factory(db=db, settings=settings, bucket=bucket or TokenBucket(settings.rpm_limit))
         proposed = run_reflection(db, agent, subject, int(lookback_days))
     except Exception as e:  # noqa: BLE001 - recorded on the run, then handed back to the worker
         db.execute("UPDATE reflection_runs SET finished_at = CURRENT_TIMESTAMP, error = :err WHERE id = :id",

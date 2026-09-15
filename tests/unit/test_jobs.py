@@ -80,3 +80,42 @@ def test_claim_orders_by_created(db):
     a = js.enqueue("mark", _submission(db))
     b = js.enqueue("mark", _submission(db))
     assert js.claim()["id"] == a and js.claim()["id"] == b
+
+
+def test_enqueue_unique_inserts_once_for_same_payload(db):
+    js = JobStore(db)
+    a = js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7})
+    assert isinstance(a, int)
+    # key order must not matter
+    assert js.enqueue_unique("reflect", {"lookback_days": 7, "subject": "math"}) is None
+    assert js.enqueue_unique("reflect", {"subject": "science", "lookback_days": 7}) is not None
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 2
+    # a finished job no longer blocks a new one
+    js.finish(a)
+    assert js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}) is not None
+
+
+def test_enqueue_unique_under_concurrency_creates_one_job(db):
+    import threading
+    js = JobStore(db)
+    results = []
+    start = threading.Barrier(8)
+
+    def go():
+        start.wait()
+        results.append(js.enqueue_unique("reflect", {"subject": "math", "lookback_days": 7}))
+
+    threads = [threading.Thread(target=go) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len([r for r in results if r is not None]) == 1
+    assert db.query("SELECT COUNT(*) AS c FROM jobs WHERE kind = 'reflect'")[0]["c"] == 1
+
+
+def test_set_payload_rewrites_payload_json(db):
+    js = JobStore(db)
+    jid = js.enqueue("reflect", payload={"subject": "math"})
+    js.set_payload(jid, {"subject": "math", "run_id": 4})
+    assert db.query("SELECT payload_json FROM jobs WHERE id = ?", (jid,))[0]["payload_json"] == '{"run_id": 4, "subject": "math"}'

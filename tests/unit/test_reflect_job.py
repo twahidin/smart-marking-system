@@ -79,12 +79,34 @@ def test_run_reflect_job_without_corrections_records_zero(env):
     assert db.query("SELECT proposed_notes, error FROM reflection_runs")[0] == {"proposed_notes": 0, "error": None}
 
 
-def test_run_reflect_job_without_key_raises(env):
+def test_run_reflect_job_without_key_records_error_on_the_run(env):
     db, store = env
     db.execute("UPDATE settings SET api_key_enc = NULL")
     with pytest.raises(RuntimeError, match="API key"):
         run_reflect_job(db, store, "math", 7, agent_factory=lambda **kw: FakeAgent())
-    assert db.query("SELECT COUNT(*) AS c FROM reflection_runs")[0]["c"] == 0
+    run = db.query("SELECT error, finished_at FROM reflection_runs")[0]
+    assert "API key" in run["error"] and run["finished_at"]
+
+
+def test_run_reflect_job_records_agent_factory_errors(env):
+    db, store = env
+
+    def factory(**kw):
+        raise RuntimeError("provider down")
+
+    with pytest.raises(RuntimeError, match="provider down"):
+        run_reflect_job(db, store, "math", 7, agent_factory=factory)
+    assert db.query("SELECT error FROM reflection_runs")[0]["error"] == "provider down"
+
+
+def test_run_reflect_job_reuses_a_given_run_row_across_attempts(env):
+    db, store = env
+    with pytest.raises(ValueError):
+        run_reflect_job(db, store, "math", 7, agent_factory=lambda **kw: FakeAgent(error=ValueError("first try")))
+    run_id = db.query("SELECT id FROM reflection_runs")[0]["id"]
+    assert run_reflect_job(db, store, "math", 7, run_id=run_id, agent_factory=lambda **kw: FakeAgent()) == 1
+    rows = db.query("SELECT id, error, proposed_notes, finished_at FROM reflection_runs")
+    assert len(rows) == 1 and rows[0]["error"] is None and rows[0]["proposed_notes"] == 1 and rows[0]["finished_at"]
 
 
 def test_run_reflect_job_rejects_unknown_subject(env):

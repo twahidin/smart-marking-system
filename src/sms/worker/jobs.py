@@ -16,6 +16,11 @@ def _in(seconds: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _payload_json(payload: Optional[dict]) -> Optional[str]:
+    # Canonical form: enqueue_unique compares payload_json for equality, so key order must be stable.
+    return json.dumps(payload, sort_keys=True) if payload is not None else None
+
+
 class JobStore:
     def __init__(self, db: Database):
         self.db = db
@@ -23,12 +28,28 @@ class JobStore:
     def enqueue(self, kind: str, submission_id: Optional[int] = None, payload: Optional[dict] = None) -> int:
         job_id = self.db.insert(
             "INSERT INTO jobs (kind, submission_id, status, payload_json) VALUES (:k, :s, 'queued', :p) RETURNING id",
-            {"k": kind, "s": submission_id, "p": json.dumps(payload) if payload is not None else None},
+            {"k": kind, "s": submission_id, "p": _payload_json(payload)},
         )
         if submission_id is not None:
             self.db.execute("UPDATE submissions SET status = 'queued', updated_at = CURRENT_TIMESTAMP WHERE id = :s",
                             {"s": submission_id})
         return job_id
+
+    def enqueue_unique(self, kind: str, payload: dict) -> Optional[int]:
+        """Enqueue a job without a submission unless an identical one (same kind and payload) is
+        already queued or running. One statement, so two racing callers cannot both insert.
+        Returns the new job id, or None when a duplicate exists."""
+        with self.db.transaction() as tx:
+            rows = tx.query(
+                "INSERT INTO jobs (kind, status, payload_json) SELECT :k, 'queued', :p "
+                "WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE kind = :k AND status IN ('queued', 'running') "
+                "AND payload_json = :p) RETURNING id",
+                {"k": kind, "p": _payload_json(payload)},
+            )
+        return int(rows[0]["id"]) if rows else None
+
+    def set_payload(self, job_id: int, payload: dict) -> None:
+        self.db.execute("UPDATE jobs SET payload_json = :p WHERE id = :id", {"p": _payload_json(payload), "id": job_id})
 
     def claim(self) -> Optional[dict]:
         now = _now()

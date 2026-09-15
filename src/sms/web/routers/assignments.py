@@ -6,14 +6,12 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from sms.storage import MAX_UPLOAD_BYTES
 from sms.web.deps import get_db, get_storage, require_teacher
-from sms.web.errors import ApiError
-from sms.web.routers.submissions import _read_capped
 from sms.web.services.assignments import (
-    attach_paper, create_template, delete_template, export_templates, import_templates, list_templates,
-    update_template,
+    attach_paper, create_template, delete_template, duplicate_template, export_templates, import_templates,
+    list_templates, update_template,
 )
+from sms.web.uploads import read_upload_files
 
 router = APIRouter(prefix="/api/assignments", tags=["assignments"], dependencies=[Depends(require_teacher)])
 
@@ -26,13 +24,11 @@ class TemplateBody(BaseModel):
     scheme_kind: str = "criteria"
     questions: Optional[Any] = None
     scheme: Optional[Any] = None
-    paper_page_ids: Optional[Any] = None
 
 
 def _kwargs(body: TemplateBody) -> dict:
     return dict(title=body.title, subject=body.subject, context=body.context, rubric_json=json.dumps(body.rubric),
-                scheme_kind=body.scheme_kind, questions=body.questions, scheme=body.scheme,
-                paper_page_ids=body.paper_page_ids)
+                scheme_kind=body.scheme_kind, questions=body.questions, scheme=body.scheme)
 
 
 @router.get("")
@@ -68,18 +64,15 @@ def delete(template_id: int, db=Depends(get_db)):
     return Response(status_code=204)
 
 
+@router.post("/{template_id}/duplicate", status_code=201)
+def duplicate(template_id: int, db=Depends(get_db)):
+    return duplicate_template(db, template_id)
+
+
 @router.post("/{template_id}/paper")
 async def upload_paper(template_id: int, request: Request, files: List[UploadFile] = File(...),
                        db=Depends(get_db), storage=Depends(get_storage)):
     """Attach the question paper's pages to a template (replacing any previous paper)."""
-    content_length = request.headers.get("content-length")
-    if content_length is not None and content_length.isdigit() and int(content_length) > MAX_UPLOAD_BYTES:
-        raise ApiError(413, "too_large", "Upload is over 50 MB")
-    payload = []
-    total = 0
-    for f in files:
-        data = await _read_capped(f, MAX_UPLOAD_BYTES - total)
-        total += len(data)
-        payload.append((f.filename or "upload", data))
+    payload = await read_upload_files(request, files)
     pages = await run_in_threadpool(attach_paper, db, storage, template_id, payload)
     return {"pages": pages}

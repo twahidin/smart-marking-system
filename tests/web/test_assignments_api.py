@@ -160,7 +160,6 @@ def test_scheme_validation_codes(auth):
     assert _create(auth, scheme_kind="mark_scheme", scheme=BANDS).json()["error"]["code"] == "bad_scheme"
     assert _create(auth, scheme_kind="rubric", scheme=MARK_SCHEME).json()["error"]["code"] == "bad_scheme"
     assert _create(auth, scheme_kind="criteria", scheme=MARK_SCHEME).json()["error"]["code"] == "bad_scheme"
-    assert _create(auth, paper_page_ids=["a"]).json()["error"]["code"] == "bad_paper"
 
 
 def test_paper_upload_stores_template_pages_and_replaces_previous(auth, app, client):
@@ -211,3 +210,34 @@ def test_export_import_carry_scheme_fields_but_not_pages(auth):
     bad = {"version": 1, "assignments": [{"title": "New", "subject": "math", "context": "", "rubric": RUBRIC, "scheme_kind": "nope"}]}
     r = auth.post("/api/assignments/import", json=bad)
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_scheme_kind"
+
+
+def test_rename_keeps_paper_pages(auth):
+    t = _create(auth, title="Paper 1").json()
+    pages = auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p1.png", _png(), "image/png")),
+                                                                  ("files", ("p2.png", _png(), "image/png"))]).json()["pages"]
+    ids = [p["id"] for p in pages]
+    r = auth.put(f"/api/assignments/{t['id']}", json={"title": "Paper 1 renamed", "subject": "math", "context": "", "rubric": RUBRIC})
+    assert r.status_code == 200 and r.json()["paper_page_ids"] == ids
+    got = next(x for x in auth.get("/api/assignments").json() if x["id"] == t["id"])
+    assert got["title"] == "Paper 1 renamed" and got["paper_page_ids"] == ids
+    # paper_page_ids is derived from the pages table, not accepted from the client
+    r = auth.put(f"/api/assignments/{t['id']}", json={"title": "x", "subject": "math", "context": "", "rubric": RUBRIC, "paper_page_ids": []})
+    assert r.status_code == 200 and r.json()["paper_page_ids"] == ids
+
+
+def test_duplicate_copies_scheme_and_paper_pages(auth, app):
+    t = _create(auth, title="Paper 1", scheme_kind="mark_scheme", questions=QUESTIONS, scheme=MARK_SCHEME).json()
+    src_pages = auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p1.png", _png(), "image/png"))]).json()["pages"]
+    r = auth.post(f"/api/assignments/{t['id']}/duplicate")
+    assert r.status_code == 201, r.text
+    copy = r.json()
+    assert copy["id"] != t["id"] and copy["title"] == "Paper 1 (copy)" and copy["scheme"] == t["scheme"] and copy["questions"] == t["questions"]
+    assert len(copy["paper_page_ids"]) == 1 and copy["paper_page_ids"] != [p["id"] for p in src_pages]
+    rows = app.state.db.query("SELECT template_id, storage_path, sha256, page_index FROM pages ORDER BY id")
+    assert len(rows) == 2 and rows[0]["storage_path"] == rows[1]["storage_path"] and rows[1]["template_id"] == copy["id"]
+    assert auth.get(f"/api/pages/{copy['paper_page_ids'][0]}").status_code == 200
+    # deleting the copy leaves the original's page intact
+    auth.delete(f"/api/assignments/{copy['id']}")
+    assert auth.get("/api/assignments").json()[0]["paper_page_ids"] == [p["id"] for p in src_pages]
+    assert auth.post("/api/assignments/9999/duplicate").status_code == 404

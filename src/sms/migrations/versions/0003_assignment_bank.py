@@ -25,7 +25,6 @@ def upgrade() -> None:
         sa.Column("scheme_kind", sa.Text, nullable=False, server_default="criteria"),
         sa.Column("questions_json", sa.Text),
         sa.Column("scheme_json", sa.Text),
-        sa.Column("paper_page_ids_json", sa.Text),
         sa.Column("times_used", sa.Integer, nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
@@ -58,6 +57,8 @@ def downgrade() -> None:
         b.drop_column("auto_reflect")
     with op.batch_alter_table("jobs") as b:
         b.drop_column("payload_json")
+    # Template pages have no submission; drop them before submission_id becomes NOT NULL again.
+    op.execute("DELETE FROM pages WHERE submission_id IS NULL")
     with op.batch_alter_table("pages") as b:
         b.drop_column("template_id")
         b.alter_column("submission_id", existing_type=sa.Integer, nullable=False)

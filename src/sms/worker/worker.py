@@ -13,7 +13,7 @@ from sms.providers.settings import SettingsStore
 from sms.storage import PageStorage
 from sms.worker.jobs import MAX_ATTEMPTS, JobStore
 from sms.worker.mark_job import run_mark_job
-from sms.worker.reflect_job import run_reflect_job
+from sms.worker.reflect_job import open_reflection_run, run_reflect_job
 
 log = logging.getLogger("sms.worker")
 
@@ -61,8 +61,14 @@ class Worker:
                 self.runner(self.db, self.storage, self.settings_store, job["submission_id"], bucket=bucket)
             elif job["kind"] == "reflect":
                 payload = json.loads(job["payload_json"] or "{}")
-                self.reflect_runner(self.db, self.settings_store, payload["subject"],
-                                    int(payload.get("lookback_days", REFLECT_LOOKBACK_DAYS)), bucket=bucket)
+                lookback = int(payload.get("lookback_days", REFLECT_LOOKBACK_DAYS))
+                if payload.get("run_id") is None:
+                    # One reflection_runs row per job: created on the first attempt and remembered
+                    # in the payload so a retried attempt updates it instead of adding another.
+                    payload["run_id"] = open_reflection_run(self.db, payload["subject"], lookback)
+                    self.jobs.set_payload(job["id"], payload)
+                self.reflect_runner(self.db, self.settings_store, payload["subject"], lookback, bucket=bucket,
+                                    run_id=payload["run_id"])
             else:
                 raise ValueError(f"unknown job kind {job['kind']!r}")
             self.jobs.finish(job["id"])
@@ -116,12 +122,13 @@ class Worker:
                 "WHERE mr.subject = :s AND tc.created_at >= :cutoff", {"s": subject, "cutoff": cutoff})[0]["c"]
             if not corrected:
                 continue
-            ran = self.db.query("SELECT COUNT(*) AS c FROM reflection_runs WHERE subject = :s AND started_at >= :cutoff",
-                                {"s": subject, "cutoff": cutoff})[0]["c"]
+            # A failed run does not count: it is tried again on the next pass.
+            ran = self.db.query("SELECT COUNT(*) AS c FROM reflection_runs WHERE subject = :s AND started_at >= :cutoff "
+                                "AND error IS NULL", {"s": subject, "cutoff": cutoff})[0]["c"]
             if ran:
                 continue
-            self.jobs.enqueue("reflect", payload={"subject": subject, "lookback_days": REFLECT_LOOKBACK_DAYS})
-            log.info("scheduled nightly reflection for %s", subject)
+            if self.jobs.enqueue_unique("reflect", {"subject": subject, "lookback_days": REFLECT_LOOKBACK_DAYS}) is not None:
+                log.info("scheduled nightly reflection for %s", subject)
 
     def start_thread(self, stop: threading.Event) -> threading.Thread:
         t = threading.Thread(target=self.run_forever, args=(stop,), name="sms-worker", daemon=True)
