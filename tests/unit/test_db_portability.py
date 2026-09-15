@@ -51,3 +51,19 @@ def test_created_at_default_is_populated(db):
     db.execute("INSERT INTO rubric_notes (subject, note, status) VALUES ('math', 'a', 'draft')")
     row = db.query("SELECT created_at FROM rubric_notes")[0]
     assert row["created_at"]
+
+
+def test_qmark_inside_string_literal_is_not_a_placeholder(db):
+    db.execute("INSERT INTO rubric_notes (subject, note, status) VALUES ('math', 'why?', 'draft')")
+    rows = db.query(
+        "SELECT note FROM rubric_notes WHERE subject = ? AND note != 'unused?'",
+        ("math",),
+    )
+    assert [r["note"] for r in rows] == ["why?"]
+
+
+def test_qmark_param_count_mismatch_raises_value_error(db):
+    with pytest.raises(ValueError) as exc_info:
+        db.query("SELECT note FROM rubric_notes WHERE subject = ? AND note = ?", ("math",))
+    message = str(exc_info.value)
+    assert "2" in message and "1" in message

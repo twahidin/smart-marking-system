@@ -1,5 +1,4 @@
 import os
-import re
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
 
@@ -8,7 +7,45 @@ from sqlalchemy.engine import Connection, Engine
 
 Params = Union[None, Sequence[Any], Dict[str, Any]]
 
-_QMARK = re.compile(r"\?")
+
+def _convert_qmarks(sql: str) -> tuple[str, int]:
+    """Replace `?` placeholders outside single-quoted string literals with `:pN`.
+
+    Tracks quote state while scanning so a literal `?` inside a SQL string
+    (e.g. `WHERE note != 'why?'`) is left untouched. `''` inside a literal is
+    the standard SQL-escaped single quote and does not end the literal.
+    Returns the converted SQL and the number of placeholders replaced.
+    """
+    out: List[str] = []
+    in_string = False
+    count = 0
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if in_string:
+            if ch == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    out.append("''")
+                    i += 2
+                    continue
+                in_string = False
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "'":
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "?":
+            out.append(f":p{count}")
+            count += 1
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out), count
 
 
 def _bind(sql: str, params: Params):
@@ -18,8 +55,11 @@ def _bind(sql: str, params: Params):
     if isinstance(params, dict):
         return sql, params
     seq = list(params)
-    counter = iter(range(len(seq)))
-    converted = _QMARK.sub(lambda _m: f":p{next(counter)}", sql)
+    converted, count = _convert_qmarks(sql)
+    if count != len(seq):
+        raise ValueError(
+            f"parameter count mismatch: sql has {count} '?' placeholder(s) but {len(seq)} param(s) were given"
+        )
     return converted, {f"p{i}": v for i, v in enumerate(seq)}
 
 
