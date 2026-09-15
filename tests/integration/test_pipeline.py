@@ -186,3 +186,23 @@ def test_pipeline_escalates_illegible_transcription(tmp_path, rubric):
     assert result.escalations == ["q1"]
     queued = db.query("SELECT * FROM teacher_queue WHERE status = 'pending'")
     assert queued and queued[0]["reason"] == "illegible transcription"
+
+
+def test_pipeline_persists_final_marks_and_submission_id(tmp_path, rubric):
+    db = Database(path=str(tmp_path / "s.db"))
+    sub_id = db.insert(
+        "INSERT INTO submissions (label, subject, context, rubric_json, status) "
+        "VALUES ('t', 'math', 'c', '{}', 'marking') RETURNING id"
+    )
+    pipeline = MarkingPipeline(
+        db=db,
+        extractor=StubAgent(EXTRACTED_STUB, None, None),
+        marker=StubAgent(MARKED_STUB, None, None),
+        reviewer=StubAgent(REVIEWED_STUB, None, None),
+        feedback=StubAgent(FEEDBACK_STUB, None, None),
+        subject="math",
+    )
+    result = pipeline.run(images=[b"img"], assignment_context="ctx", rubric=rubric, submission_id=sub_id)
+    row = db.query("SELECT submission_id, final_marks_json FROM marking_runs WHERE run_id = ?", (result.run_id,))[0]
+    assert row["submission_id"] == sub_id
+    assert '"q1"' in row["final_marks_json"]

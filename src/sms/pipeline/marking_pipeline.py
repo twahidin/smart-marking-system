@@ -52,7 +52,8 @@ class MarkingPipeline:
         self.cache = ExtractionCache(db)
         self.confidence_threshold = confidence_threshold
 
-    def run(self, images: List[bytes], assignment_context: str, rubric: Rubric) -> MarkingResult:
+    def run(self, images: List[bytes], assignment_context: str, rubric: Rubric,
+            submission_id: Optional[int] = None) -> MarkingResult:
         run_id = uuid.uuid4().hex[:12]
         image_hashes = [self.cache.hash_image(b) for b in images]
         composite_hash = self.cache.hash_image("|".join(image_hashes).encode())
@@ -71,7 +72,8 @@ class MarkingPipeline:
                 final_result_set=not escalations,
             )
         )
-        self._persist(run_id, rubric, extracted, marked, reviewed, feedback_report, escalation_reasons)
+        self._persist(run_id, rubric, extracted, marked, reviewed, feedback_report, escalation_reasons,
+                      final_marks, submission_id)
         return MarkingResult(run_id=run_id, extracted=extracted, final_marks=final_marks,
                              escalations=escalations, feedback=feedback_report)
 
@@ -139,25 +141,30 @@ class MarkingPipeline:
         return MarkedScript(marks=final), escalation_reasons
 
     def _persist(self, run_id: str, rubric: Rubric, extracted: ExtractedScript, marked: MarkedScript,
-                 reviewed: ReviewedScript, feedback: FeedbackReport, escalation_reasons: dict) -> None:
+                 reviewed: ReviewedScript, feedback: FeedbackReport, escalation_reasons: dict,
+                 final_marks: MarkedScript, submission_id: Optional[int]) -> None:
         escalations = list(escalation_reasons.keys())
         self.db.execute(
             "INSERT INTO marking_runs (run_id, stage, subject, rubric_json, extracted_json, marks_json, "
-            "reviewed_json, feedback_json, final_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                run_id,
-                "complete",
-                self.subject,
-                rubric.model_dump_json(),
-                extracted.model_dump_json(),
-                marked.model_dump_json(),
-                reviewed.model_dump_json(),
-                feedback.model_dump_json(),
-                "escalated" if escalations else "complete",
-            ),
+            "reviewed_json, feedback_json, final_marks_json, submission_id, final_status) "
+            "VALUES (:run_id, 'complete', :subject, :rubric, :extracted, :marks, :reviewed, :feedback, "
+            ":final_marks, :submission_id, :status)",
+            {
+                "run_id": run_id,
+                "subject": self.subject,
+                "rubric": rubric.model_dump_json(),
+                "extracted": extracted.model_dump_json(),
+                "marks": marked.model_dump_json(),
+                "reviewed": reviewed.model_dump_json(),
+                "feedback": feedback.model_dump_json(),
+                "final_marks": final_marks.model_dump_json(),
+                "submission_id": submission_id,
+                "status": "escalated" if escalations else "complete",
+            },
         )
         for q_id, reason in escalation_reasons.items():
             self.db.execute(
-                "INSERT INTO teacher_queue (run_id, q_id, reason, status) VALUES (?, ?, ?, 'pending')",
-                (run_id, q_id, reason),
+                "INSERT INTO teacher_queue (run_id, q_id, reason, status, submission_id) "
+                "VALUES (:run_id, :q_id, :reason, 'pending', :submission_id)",
+                {"run_id": run_id, "q_id": q_id, "reason": reason, "submission_id": submission_id},
             )

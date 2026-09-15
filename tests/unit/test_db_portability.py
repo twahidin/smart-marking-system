@@ -67,3 +67,12 @@ def test_qmark_param_count_mismatch_raises_value_error(db):
         db.query("SELECT note FROM rubric_notes WHERE subject = ? AND note = ?", ("math",))
     message = str(exc_info.value)
     assert "2" in message and "1" in message
+
+
+def test_web_tables_exist(db):
+    names = {r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"settings", "submissions", "pages", "jobs", "worker_heartbeat"} <= names
+    cols = {r["name"] for r in db.query("PRAGMA table_info(marking_runs)")}
+    assert {"submission_id", "final_marks_json"} <= cols
+    assert "submission_id" in {r["name"] for r in db.query("PRAGMA table_info(teacher_queue)")}
+    assert "criterion_scores_json" in {r["name"] for r in db.query("PRAGMA table_info(teacher_corrections)")}
