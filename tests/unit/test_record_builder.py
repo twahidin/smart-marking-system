@@ -20,7 +20,7 @@ def _detail_v2(parts, totals, **over):
         "marks_version": 2, "parts": parts, "scheme_kind": "mark_scheme", "assignment_id": 3,
         "assignment_title": "Sec 4 Quadratics", "totals": totals, "feedback": None,
         "job": {"status": "done", "attempts": 1, "error": None, "started_at": "2026-09-15T03:05:00Z",
-                "finished_at": "2026-09-15T03:06:07Z"}, "run_id": "r2",
+                "finished_at": "2026-09-15T03:09:09Z"}, "run_id": "r2", "marked_at": "2026-09-15T03:06:07Z",
     }
     d.update(over)
     return d
@@ -63,13 +63,18 @@ def test_reason_mapping_illegible_and_truncation():
     assert rows["1(a)"].student_answer == "(illegible)" and rows["1(a)"].justification == REASON_TEXT["illegible"] == "Unclear handwriting"
     assert rows["1(b)"].justification == "Marker and reviewer disagreed" == rows["1(c)"].justification
     assert rows["1(d)"].justification == "Low confidence"
+    from sms.records.builder import reason_text
+    assert reason_text("illegible transcription") == "Unclear handwriting" == reason_text("Illegible")
+    assert reason_text("low marker confidence") == "Low confidence"
+    assert reason_text("something new") == "Teacher to review" == reason_text(None)
     assert rows["2"].student_answer.endswith("…") and len(rows["2"].student_answer) == 601
     assert rows["3"].student_answer == "ans\nWorkings: step 1\nstep 2"
     assert rec.to_review_count == 4 and rec.marked_at == "2026-09-15T03:06:07Z"
 
 
 def test_title_falls_back_to_the_template_then_the_context_then_the_script():
-    d = _detail_v2([], {"total": 0, "total_upper": 0, "total_max": 0}, assignment_title=None, context="Worksheet 3", job=None)
+    d = _detail_v2([], {"total": 0, "total_upper": 0, "total_max": 0}, assignment_title=None, context="Worksheet 3", job=None,
+                   marked_at=None)
     assert build_record(d, {"title": "From template"}).title == "From template"
     assert build_record(d, None).title == "Worksheet 3"
     d["context"] = ""
@@ -113,6 +118,7 @@ def test_v1_rows_summarise_criteria():
              "escalated": False, "reason": None, "queue_id": None, "teacher_scores": [2, 2]},
         ],
         "totals": {"total": 7, "total_upper": 10, "total_max": 15}, "feedback": None, "job": None, "run_id": "r1",
+        "marked_at": "2026-09-15T04:00:00Z",
     }
     rec = build_record(d, None)
     assert rec.kind == "criteria" and rec.title == "Worksheet 3"
@@ -122,3 +128,4 @@ def test_v1_rows_summarise_criteria():
     assert q2.awarded == "Teacher to review" and q2.justification == "Low confidence"
     assert q3.awarded == "4 / 5 (teacher)" and q3.justification == "r\nc1 2/2 · c2 2/3"
     assert (rec.total_awarded, rec.total_upper, rec.total_max, rec.to_review_count) == (7, 10, 15, 1)
+    assert rec.marked_at == "2026-09-15T04:00:00Z"

@@ -136,7 +136,7 @@ def test_resolve_v2_with_allocations_records_the_v2_correction_and_flips_the_sub
     assert d["totals"] == {"total": 5, "total_upper": 5, "total_max": 6} and d["status"] == "done"
     # allocations left out are recorded as lost: only the labels sent count
     sid2, qids2 = seed_v2(app, label="Lim", run_id="r3")
-    r = auth.post(f"/api/queue/{qids2['2']}/resolve", json={"allocations": [{"label": "A1", "got": True}], "reason": ""})
+    r = auth.post(f"/api/queue/{qids2['2']}/resolve", json={"allocations": [{"label": " A1 ", "got": True}], "reason": ""})
     assert r.status_code == 200
     d = auth.get(f"/api/submissions/{sid2}").json()
     assert d["parts"][2]["teacher"]["allocations"] == [{"label": "M1", "got": False, "marks": 1}, {"label": "A1", "got": True, "marks": 2}]

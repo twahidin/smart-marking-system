@@ -24,7 +24,12 @@ def test_record_docx_downloads_the_marking_record(auth, app):
     sid, _ = seed_v2(app, label="Tan Wei Ling", assignment_id=tid)
     r = auth.get(f"/api/submissions/{sid}/record.docx")
     assert r.status_code == 200 and r.headers["content-type"].startswith(DOCX)
-    assert r.headers["content-disposition"] == 'attachment; filename="tan-wei-ling-marking-record.docx"'
+    assert r.headers["content-disposition"] == ('attachment; filename="tan-wei-ling-marking-record.docx"; '
+                                                "filename*=UTF-8''Tan%20Wei%20Ling-marking-record.docx")
+    text0 = "\n".join(p.text for p in Document(io.BytesIO(r.content)).paragraphs)
+    run_created = app.state.db.query("SELECT created_at FROM marking_runs WHERE submission_id = :s", {"s": sid})[0]["created_at"]
+    from sms.timeutil import iso_utc
+    assert iso_utc(run_created)[:10] in text0
     doc = Document(io.BytesIO(r.content))
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "Sec 4 Quadratics" in text and "Tan Wei Ling" in text and "gpt-5-mini" in text
@@ -32,6 +37,12 @@ def test_record_docx_downloads_the_marking_record(auth, app):
     assert [table.rows[i].cells[0].text for i in (1, 2, 3)] == ["1(a)", "1(b)", "2"]
     assert table.rows[3].cells[4].text == "Teacher to review"
     assert table.rows[1].cells[4].text == "2 / 2" and table.rows[1].cells[1].text == "x = 3  [M1 A1]"
+    # a label with no ASCII letters falls back to script-<id> for the ASCII filename; filename* keeps the original
+    sid_u, _ = seed_v2(app, label="陈伟", run_id="ru")
+    r = auth.get(f"/api/submissions/{sid_u}/record.docx")
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == (f'attachment; filename="script-{sid_u}-marking-record.docx"; '
+                                                "filename*=UTF-8''%E9%99%88%E4%BC%9F-marking-record.docx")
 
 
 def test_record_404_and_409_not_marked(auth, app):

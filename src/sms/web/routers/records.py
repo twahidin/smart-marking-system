@@ -1,13 +1,14 @@
 """Marking record downloads: one .docx per script, or a .zip of many plus markbook.xlsx. Generated
 on request from the stored marks and streamed, never stored."""
 from typing import List
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from sms.records.builder import Record, build_record
-from sms.records.bundle import bundle_zip, record_filename
+from sms.records.bundle import SUFFIX, bundle_zip, record_filename
 from sms.records.docx import render_docx
 from sms.web.deps import get_db, get_jobs, get_settings_store, require_teacher
 from sms.web.errors import ApiError
@@ -46,8 +47,14 @@ async def record_docx(submission_id: int, db=Depends(get_db), jobs=Depends(get_j
         record = _record(db, jobs, _model_line(settings), submission_id)
         return record, render_docx(record)
     record, data = await run_in_threadpool(build)
-    return Response(content=data, media_type=DOCX,
-                    headers={"Content-Disposition": f'attachment; filename="{record_filename(record.student)}"'})
+    return Response(content=data, media_type=DOCX, headers={"Content-Disposition": _disposition(record)})
+
+
+def _disposition(record: Record) -> str:
+    """ASCII `filename` for every client plus RFC 5987 `filename*` carrying the original label."""
+    ascii_name = record_filename(record.student, record.submission_id)
+    original = quote((record.student.strip() or ascii_name[:-len(SUFFIX)]).replace('"', "") + SUFFIX, safe="")
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{original}'
 
 
 @router.post("/records.zip")

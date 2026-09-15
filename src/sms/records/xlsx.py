@@ -25,8 +25,17 @@ def _part_labels(records: List[Record]) -> List[str]:
     return labels
 
 
+def _append_text_row(ws, values: list) -> None:
+    """Append a row with every str stored as text, never as a formula: a transcription like "= 3.5" or
+    a hostile "=cmd|..." must round-trip verbatim (no quote prefix), so the type is forced instead."""
+    ws.append(values)
+    for cell in ws[ws.max_row]:
+        if isinstance(cell.value, str):
+            cell.data_type = "s"
+
+
 def _header(ws, headers: List[str]) -> None:
-    ws.append(headers)
+    _append_text_row(ws, headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.fill = HEADER_FILL
@@ -48,7 +57,7 @@ def render_xlsx(records: Iterable[Record]) -> bytes:
             cells.append(None if row is None else (REVIEW if row.to_review else row.awarded_marks))
         total = r.total_awarded if r.total_upper == r.total_awarded else r.total_text
         cells += [total, r.total_max]
-        mb.append(cells)
+        _append_text_row(mb, cells)
         for cell in mb[mb.max_row]:
             if cell.value == REVIEW:
                 cell.fill = REVIEW_FILL
@@ -59,8 +68,8 @@ def render_xlsx(records: Iterable[Record]) -> bytes:
     _header(rs, ROW_HEADERS)
     for r in records:
         for row in r.rows:
-            rs.append([r.student, row.label, row.scheme_answer, row.student_answer, row.justification, row.awarded,
-                       row.teacher or None])
+            _append_text_row(rs, [r.student, row.label, row.scheme_answer, row.student_answer, row.justification, row.awarded,
+                                  row.teacher or None])
             if row.to_review:
                 rs.cell(row=rs.max_row, column=6).fill = REVIEW_FILL
     for i, width in enumerate([22, 14, 40, 40, 40, 16, 14], start=1):

@@ -109,6 +109,7 @@ def _v2_correction(run: dict, scheme_info: dict, key: str, allocations: Optional
         points = row.get("marks") if row else [{"label": a["label"], "marks": a.get("marks", 0)} for a in (mark or {}).get("awarded") or []]
         valid = {p["label"]: int(p.get("marks", 0)) for p in points or []}
         seen = set()
+        allocations = [{**a, "label": str(a["label"]).strip()} for a in allocations]
         for a in allocations:
             label = a["label"]
             if label not in valid:

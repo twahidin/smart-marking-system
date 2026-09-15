@@ -1,5 +1,6 @@
 """Pure builder: the submission detail (as the API serialises it) + its assignment -> a Record.
 Nothing here touches the database or renders a file."""
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -16,10 +17,20 @@ REASON_TEXT: Dict[str, str] = {
     "reviewer escalated": "Marker and reviewer disagreed",
     "marker/reviewer disagree": "Marker and reviewer disagreed",
     "low confidence": "Low confidence",
-    # v1 wording
+    # v1 wording (marking_pipeline)
     "low marker confidence": "Low confidence",
-    "needs human transcription": "Unclear handwriting",
+    "illegible transcription": "Unclear handwriting",
 }
+
+# Characters neither Word XML nor openpyxl accept; \n and \t are kept.
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def sanitise(text: Any) -> str:
+    """LLM text as a str with control characters removed (verbatim otherwise)."""
+    if text is None:
+        return ""
+    return _CONTROL.sub("", str(text))
 
 
 @dataclass
@@ -58,13 +69,14 @@ class Record:
 
 
 def reason_text(reason: Optional[str]) -> str:
+    """The teacher-facing reason for an escalated part; unknown reasons read "Teacher to review"."""
     if not reason:
         return TEACHER_TO_REVIEW
-    return REASON_TEXT.get(reason.strip().lower(), reason)
+    return REASON_TEXT.get(reason.strip().lower(), TEACHER_TO_REVIEW)
 
 
 def truncate(text: str, limit: int = ANSWER_LIMIT) -> str:
-    text = (text or "").strip()
+    text = sanitise(text).strip()
     return text if len(text) <= limit else text[:limit] + ELLIPSIS
 
 
@@ -118,12 +130,18 @@ def _row_v2(kind: str, part: dict) -> RecordRow:
     else:
         justification = (part.get("justification") or "").strip()
     awarded, marks, to_review = _awarded(total, mx, escalated, teacher_total)
-    return RecordRow(
+    return _clean(RecordRow(
         key=part.get("q_id") or "", label=part.get("label") or q_label(part.get("q_id") or ""),
         scheme_answer=_scheme_text_v2(kind, part),
         student_answer=student_answer(part.get("extracted", ""), part.get("workings", ""), bool(part.get("illegible"))),
         justification=justification, awarded=awarded, teacher="", to_review=to_review, awarded_marks=marks, max_marks=mx,
-    )
+    ))
+
+
+def _clean(row: RecordRow) -> RecordRow:
+    for name in ("key", "label", "scheme_answer", "student_answer", "justification", "awarded", "teacher"):
+        setattr(row, name, sanitise(getattr(row, name)))
+    return row
 
 
 def _row_v1(mark: dict, criteria: List[dict]) -> RecordRow:
@@ -140,23 +158,23 @@ def _row_v1(mark: dict, criteria: List[dict]) -> RecordRow:
     else:
         justification = f"{rationale}\n{summary}".strip() if summary else rationale
     awarded, marks, to_review = _awarded(int(mark.get("total") or 0), mx, escalated, teacher_total)
-    return RecordRow(
+    return _clean(RecordRow(
         key=mark.get("q_id") or "", label=q_label(mark.get("q_id") or ""),
         scheme_answer=" · ".join(f"{c.get('id', '')} {c.get('description', '')} ({int(c.get('max_score', 0))})".strip() for c in criteria),
         student_answer=student_answer(mark.get("evidence", ""), "", False),
         justification=justification, awarded=awarded, teacher="", to_review=to_review, awarded_marks=marks, max_marks=mx,
-    )
+    ))
 
 
 def build_record(submission_detail: dict, template: Optional[dict] = None, *, model: str = "") -> Record:
     """Build the record from the detail dict `get_submission` returns and the assignment dict
     `get_template` returns (None when the script has no assignment). `model` is the provider/model
-    line for the header."""
+    line for the header. Every text field is sanitised (control characters removed)."""
     d = submission_detail
-    title = (d.get("assignment_title") or (template or {}).get("title") or (d.get("context") or "").strip()
-             or f"Script {d.get('id')}")
-    job = d.get("job") or {}
-    marked_at = job.get("finished_at") or d.get("created_at") or ""
+    title = sanitise(d.get("assignment_title") or (template or {}).get("title") or (d.get("context") or "").strip()
+                     or f"Script {d.get('id')}")
+    # marked_at = the marking run's created_at (the detail's `marked_at`), not the latest job of any kind
+    marked_at = d.get("marked_at") or d.get("created_at") or ""
     kind = d.get("scheme_kind") or "criteria"
     rubric_page = None
     if d.get("marks_version") == 2:
@@ -172,7 +190,7 @@ def build_record(submission_detail: dict, template: Optional[dict] = None, *, mo
         rows = [_row_v1(m, criteria) for m in d.get("marks") or []]
     totals = d.get("totals") or {}
     return Record(
-        title=title, student=d.get("label") or "", marked_at=marked_at, model=model or "", rows=rows,
+        title=title, student=sanitise(d.get("label")), marked_at=sanitise(marked_at), model=sanitise(model), rows=rows,
         total_awarded=int(totals.get("total") or 0), total_upper=int(totals.get("total_upper") or 0),
         total_max=int(totals.get("total_max") or 0), to_review_count=sum(1 for r in rows if r.to_review),
         rubric_page=rubric_page, submission_id=int(d.get("id") or 0), kind=kind,
