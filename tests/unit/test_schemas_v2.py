@@ -36,11 +36,21 @@ def test_part_mark_defaults_and_bounds():
         PartMark(q_id="1a", awarded=[], total=-1, justification="", confidence=0.5)
 
 
-def test_marked_script_v2_total_must_equal_sum_of_got_allocations():
+def test_part_mark_total_must_equal_sum_of_got_allocations():
     ok = MarkedScriptV2(kind="mark_scheme", parts=[_part(1, got=(True, False))])
     assert ok.parts[0].total == 1
     with pytest.raises(ValidationError, match="1a"):
-        MarkedScriptV2(kind="mark_scheme", parts=[_part(2, got=(True, False))])
+        _part(2, got=(True, False))
+    # the validator lives on PartMark, so a reviewer's adjusted part is checked too
+    with pytest.raises(ValidationError, match="1a"):
+        ReviewVerdictV2(q_id="1a", verdict="ADJUST", adjusted={
+            "q_id": "1a", "awarded": [{"label": "M1", "marks": 1, "got": True, "why": ""}], "total": 2,
+            "justification": "", "confidence": 0.5})
+
+
+def test_allocation_mark_marks_is_required():
+    with pytest.raises(ValidationError):
+        AllocationMark(label="M1", got=True, why="")
 
 
 def test_marked_script_v2_skips_total_check_when_no_allocations_listed():

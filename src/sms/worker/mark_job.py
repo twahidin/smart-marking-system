@@ -86,7 +86,8 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
     factory = pipeline_factory or _default_pipeline_factory
     template = _v2_template(db, sub.get("assignment_id"))
     if template is not None:
-        pipeline = factory(db=db, settings=settings, subject=sub["subject"], bucket=bucket, kind=template["scheme_kind"])
+        # the assignment's subject drives prompts/providers and the run row; the pipeline reads the same key
+        pipeline = factory(db=db, settings=settings, subject=template["subject"], bucket=bucket, kind=template["scheme_kind"])
         result = pipeline.run(images=images, template=template, submission_id=submission_id)
     else:
         rubric = Rubric.model_validate_json(sub["rubric_json"])

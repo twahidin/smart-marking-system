@@ -17,7 +17,7 @@ SCHEME_KINDS = ("mark_scheme", "rubric")
 
 class AllocationMark(BaseModel):
     label: str = Field(description="Allocation label exactly as in the scheme row, e.g. 'M1', 'A1', 'B1'")
-    marks: int = Field(default=1, ge=0, description="Marks this allocation is worth, copied from the scheme row")
+    marks: int = Field(ge=0, description="Marks this allocation is worth, copied from the scheme row")
     got: bool = Field(description="True if the student earned this allocation")
     why: str = Field(default="", description="One line on why it was earned or lost, quoting the work")
 
@@ -32,6 +32,14 @@ class PartMark(BaseModel):
                                                       "(a different method, partly legible) so a teacher must decide")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Marking confidence 0-1")
 
+    @model_validator(mode="after")
+    def _total_matches_allocations(self) -> "PartMark":
+        # On PartMark (not the script) so a reviewer's `adjusted` part is checked too. Skipped when no
+        # allocation is listed: an in_scheme=False part may carry only a proposed total.
+        if self.awarded and self.total != sum(a.marks for a in self.awarded if a.got):
+            raise ValueError(f"part {self.q_id}: total must equal the sum of the allocations marked got")
+        return self
+
 
 class RubricMark(BaseModel):
     criterion: str = Field(min_length=1, description="Criterion name exactly as in the rubric")
@@ -42,10 +50,6 @@ class RubricMark(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Marking confidence 0-1")
 
 
-def _total_mismatches(parts: List[PartMark]) -> List[str]:
-    return [p.q_id for p in parts if p.awarded and p.total != sum(a.marks for a in p.awarded if a.got)]
-
-
 class MarkedScriptV2(BaseIOSchema):
     """Marker output (v2): one PartMark per question part for a mark scheme, or one RubricMark per
     criterion for a rubric."""
@@ -53,13 +57,6 @@ class MarkedScriptV2(BaseIOSchema):
     kind: SchemeKind = Field(description="'mark_scheme' (fill parts) or 'rubric' (fill rubric)")
     parts: List[PartMark] = Field(default_factory=list, description="Per-part marks; empty for a rubric")
     rubric: List[RubricMark] = Field(default_factory=list, description="Per-criterion marks; empty for a mark scheme")
-
-    @model_validator(mode="after")
-    def _totals_match_allocations(self) -> "MarkedScriptV2":
-        bad = _total_mismatches(self.parts)
-        if bad:
-            raise ValueError(f"total must equal the sum of the allocations marked got for part(s): {', '.join(bad)}")
-        return self
 
 
 class MarkingInputV2(BaseIOSchema):

@@ -348,16 +348,16 @@ class FakePipelineV2:
                                final=MarkedScriptV2(kind="mark_scheme"), escalations=self.escalations)
 
 
-def _template(db, kind="mark_scheme"):
+def _template(db, kind="mark_scheme", subject="math"):
     return db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, scheme_json) "
-                     "VALUES ('T', 'math', 'ECF applies', '{\"criterion_defs\": []}', :k, :q, :s) RETURNING id",
-                     {"k": kind, "q": json.dumps([{"q_id": "1a", "text": "Solve", "max_marks": 2}]),
+                     "VALUES ('T', :subj, 'ECF applies', '{\"criterion_defs\": []}', :k, :q, :s) RETURNING id",
+                     {"subj": subject, "k": kind, "q": json.dumps([{"q_id": "1a", "text": "Solve", "max_marks": 2}]),
                       "s": json.dumps([{"q_id": "1a", "answer": "x=3", "marks": [{"label": "B2", "marks": 2}], "notes": ""}])})
 
 
 def test_run_mark_job_uses_v2_pipeline_for_mark_scheme_assignment(env):
     db, store, storage, sid = env
-    tid = _template(db, "mark_scheme")
+    tid = _template(db, "mark_scheme", subject="science")
     db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
     fp = FakePipelineV2(escalations={})
     seen = {}
@@ -367,10 +367,11 @@ def test_run_mark_job_uses_v2_pipeline_for_mark_scheme_assignment(env):
         return fp
 
     run_mark_job(db, storage, store, sid, pipeline_factory=factory)
-    assert seen["kind"] == "mark_scheme" and seen["subject"] == "math" and seen["db"] is db
+    # the assignment's subject drives the v2 path (the submission row says 'math')
+    assert seen["kind"] == "mark_scheme" and seen["subject"] == "science" and seen["db"] is db
     images, template, sub_id = fp.calls[0]
     assert images == [b"\xff\xd8\xffjpegbytes"] and sub_id == sid
-    assert template["scheme_kind"] == "mark_scheme" and template["subject"] == "math" and template["context"] == "ECF applies"
+    assert template["scheme_kind"] == "mark_scheme" and template["subject"] == "science" and template["context"] == "ECF applies"
     assert template["questions"][0]["q_id"] == "1a" and template["scheme"][0]["marks"][0]["label"] == "B2"
     row = db.query("SELECT status, run_id FROM submissions WHERE id = ?", (sid,))[0]
     assert row["status"] == "done" and row["run_id"] == "r2"

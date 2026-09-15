@@ -37,12 +37,15 @@ MARK_SCHEME = {
         "For each part, re-mark the student's answer against the scheme row and the teacher's notes independently.",
         "Compare your allocations with the marks shown for that part.",
         "Issue APPROVE if you award the same allocations.",
-        "Issue ADJUST with a full corrected PartMark if you are confident the marks are wrong.",
+        "Issue ADJUST with a full corrected PartMark if you are confident the marks are wrong. An ADJUST whose total "
+        "differs from the marker's goes to the teacher with both marks shown; use ADJUST for a same-total "
+        "re-attribution (e.g. A1 rather than M1) and it is applied quietly.",
         "Issue ESCALATE if the scheme does not cover the answer, the work is hard to read or the scheme is ambiguous.",
     ],
     "reviewer_output_instructions": [
         "One verdict per marked part, same q_id.",
-        "ADJUST must include `adjusted` with every allocation and a total equal to the marks marked got.",
+        "ADJUST must include `adjusted` with every allocation of the scheme row, marks copied from the row, a total "
+        "equal to the marks marked got, and in_scheme carried over from the marker's part (false stays false).",
         "ESCALATE for ambiguity; do not guess.",
     ],
 }
@@ -76,6 +79,8 @@ RUBRIC = {
         "Compare it with the band shown.",
         "Issue APPROVE if you would award the same band, ADJUST with a full corrected RubricMark if you are confident "
         "it is wrong, or ESCALATE if the response sits between bands or the rubric is ambiguous.",
+        "An ADJUST to a band with different marks goes to the teacher with both bands shown; it is only applied "
+        "quietly when the marks are the same.",
     ],
     "reviewer_output_instructions": [
         "One verdict per marked criterion, with q_id set to the criterion name.",

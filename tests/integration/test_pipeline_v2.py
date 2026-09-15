@@ -251,3 +251,127 @@ def test_v2_feedback_input_adapter(tmp_path):
 def test_v2_rejects_unknown_kind(tmp_path):
     with pytest.raises(ValueError):
         make(tmp_path, kind="criteria")
+
+
+# --- reconciliation against the scheme (review fixes) -------------------------------------------
+
+def test_v2_in_scheme_false_is_not_undone_by_a_same_total_adjust(tmp_path):
+    db, agents, pipeline = make(
+        tmp_path,
+        mark=marked([part("1a", (True, False), 1, in_scheme=False, confidence=0.9), part("1b", (True,), 1, confidence=0.9)]),
+        review=reviewed(ReviewVerdictV2(q_id="1a", verdict=ReviewVerdict.ADJUST, adjusted=part("1a", (False, True), 1))))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {"1a": "not in scheme"} and queue(db) == {"1a": "not in scheme"}
+    assert result.final.parts[0].in_scheme is False
+
+
+def test_v2_missing_part_is_synthesised_and_escalated(tmp_path):
+    db, agents, pipeline = make(tmp_path, mark=marked([part("1a", (True, True), 2, confidence=0.9)]),
+                                review=ReviewedScriptV2(verdicts=[ReviewVerdictV2(q_id="1a", verdict="APPROVE")]))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert [p.q_id for p in result.final.parts] == ["1a", "1b"]
+    missing = result.final.parts[1]
+    assert [(a.label, a.marks, a.got) for a in missing.awarded] == [("B1", 1, False)]
+    assert missing.total == 0 and missing.confidence == 0.0 and missing.in_scheme is True
+    assert "no mark" in missing.justification
+    assert result.escalations == {"1b": "low confidence"} and queue(db) == {"1b": "low confidence"}
+
+
+def test_v2_extra_part_escalates_not_in_scheme_and_duplicates_keep_first(tmp_path):
+    extra = PartMark(q_id="2c", awarded=[AllocationMark(label="M1", marks=1, got=True)], total=1, confidence=0.9)
+    dup = part("1a", (False, False), 0, confidence=0.9)
+    db, agents, pipeline = make(tmp_path, mark=marked([part("1a", (True, True), 2, confidence=0.9), dup,
+                                                       part("1b", (True,), 1, confidence=0.9), extra]))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert [p.q_id for p in result.final.parts] == ["1a", "1b", "2c"]
+    assert result.final.parts[0].total == 2 and result.final.parts[2].total == 1
+    assert result.escalations == {"2c": "not in scheme"} and queue(db) == {"2c": "not in scheme"}
+
+
+def test_v2_allocation_marks_are_taken_from_the_scheme_row(tmp_path):
+    miscopied = PartMark(q_id="1a", awarded=[AllocationMark(label="M1", marks=5, got=True), AllocationMark(label="A1", marks=1, got=True)],
+                         total=6, confidence=0.9)
+    db, agents, pipeline = make(tmp_path, mark=marked([miscopied, part("1b", (True,), 1, confidence=0.9)]))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    p = result.final.parts[0]
+    assert [a.marks for a in p.awarded] == [1, 1] and p.total == 2 and result.escalations == {}
+    assert json.loads(db.query("SELECT final_marks_json FROM marking_runs")[0]["final_marks_json"])["parts"][0]["total"] == 2
+
+
+def test_v2_unknown_allocation_label_escalates_not_in_scheme(tmp_path):
+    invented = PartMark(q_id="1a", awarded=[AllocationMark(label="M1", marks=1, got=True), AllocationMark(label="C1", marks=1, got=True)],
+                        total=2, confidence=0.9)
+    db, agents, pipeline = make(tmp_path, mark=marked([invented, part("1b", (True,), 1, confidence=0.9)]))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {"1a": "not in scheme"} and result.final.parts[0].total == 2
+
+
+def test_v2_adjusted_part_is_normalised_and_an_unmappable_one_is_a_disagreement(tmp_path):
+    # adjusted with mis-copied marks but the same allocations awarded -> normalised, silent correction
+    adj = PartMark(q_id="1a", awarded=[AllocationMark(label="M1", marks=3, got=False), AllocationMark(label="A1", marks=1, got=True)],
+                   total=1, confidence=0.9)
+    db, agents, pipeline = make(tmp_path, mark=marked([part("1a", (True, False), 1, confidence=0.9), part("1b", (True,), 1, confidence=0.9)]),
+                                review=reviewed(ReviewVerdictV2(q_id="1a", verdict="ADJUST", adjusted=adj)))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {} and [a.marks for a in result.final.parts[0].awarded] == [1, 1]
+    assert [a.got for a in result.final.parts[0].awarded] == [False, True]
+    # adjusted with an invented label cannot be reconciled -> disagreement, marker's part kept
+    bad = PartMark(q_id="1a", awarded=[AllocationMark(label="Z9", marks=1, got=True)], total=1, confidence=0.9)
+    (tmp_path / "b").mkdir()
+    db2, _, p2 = make(tmp_path / "b", mark=marked([part("1a", (True, False), 1, confidence=0.9), part("1b", (True,), 1, confidence=0.9)]),
+                      review=reviewed(ReviewVerdictV2(q_id="1a", verdict="ADJUST", adjusted=bad)))
+    r2 = p2.run(images=[b"img"], template=TEMPLATE)
+    assert r2.escalations == {"1a": "marker/reviewer disagree"} and r2.final.parts[0].awarded[0].label == "M1"
+
+
+def test_v2_silent_adjust_uses_the_lower_confidence_for_the_threshold(tmp_path):
+    adj = part("1a", (False, True), 1, confidence=0.4)
+    db, agents, pipeline = make(tmp_path, threshold=0.6,
+                                mark=marked([part("1a", (True, False), 1, confidence=0.9), part("1b", (True,), 1, confidence=0.9)]),
+                                review=reviewed(ReviewVerdictV2(q_id="1a", verdict="ADJUST", adjusted=adj)))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {"1a": "low confidence"}
+
+
+def _rubric_run(tmp_path, marks, review=None, threshold=0.0):
+    ex = ExtractedScript(questions=[ExtractedQuestion(q_id="1", transcribed_answer="essay", confidence=0.9)])
+    review = review or ReviewedScriptV2(verdicts=[ReviewVerdictV2(q_id=r.criterion, verdict="APPROVE") for r in marks.rubric])
+    db, agents, pipeline = make(tmp_path, kind="rubric", extract=ex, mark=marks, review=review, threshold=threshold)
+    return db, pipeline.run(images=[b"img"], template=RUBRIC_TEMPLATE)
+
+
+def test_v2_rubric_missing_extra_and_duplicate_criteria(tmp_path):
+    marks = MarkedScriptV2(kind="rubric", rubric=[
+        RubricMark(criterion="Language", band="A", marks=5, confidence=0.9, justification="first"),
+        RubricMark(criterion="Language", band="A", marks=5, confidence=0.9, justification="dup"),
+        RubricMark(criterion="Style", band="A", marks=5, confidence=0.9),
+    ])
+    db, result = _rubric_run(tmp_path, marks)
+    assert [r.criterion for r in result.final.rubric] == ["Content", "Language", "Style"]
+    missing = result.final.rubric[0]
+    assert missing.marks == 0 and missing.confidence == 0.0 and "no mark" in missing.justification
+    assert result.final.rubric[1].justification == "first"
+    assert result.escalations == {"Content": "low confidence", "Style": "not in scheme"}
+    assert queue(db) == {"Content": "low confidence", "Style": "not in scheme"}
+
+
+def test_v2_rubric_band_marks_come_from_the_rubric_and_unknown_bands_escalate(tmp_path):
+    marks = MarkedScriptV2(kind="rubric", rubric=[
+        RubricMark(criterion="Content", band="B", marks=99, confidence=0.9),
+        RubricMark(criterion="Language", band="Z", marks=5, confidence=0.9),
+    ])
+    db, result = _rubric_run(tmp_path, marks)
+    assert result.final.rubric[0].marks == 3
+    assert result.escalations == {"Language": "not in scheme"}
+    # a reviewer's adjusted band is normalised too; an unknown adjusted band is a disagreement
+    review = ReviewedScriptV2(verdicts=[
+        ReviewVerdictV2(q_id="Content", verdict="ADJUST", adjusted=RubricMark(criterion="Content", band="B", marks=0, confidence=0.9)),
+        ReviewVerdictV2(q_id="Language", verdict="ADJUST", adjusted=RubricMark(criterion="Language", band="Q", marks=5, confidence=0.9)),
+    ])
+    ok = MarkedScriptV2(kind="rubric", rubric=[RubricMark(criterion="Content", band="A", marks=3, confidence=0.9),
+                                               RubricMark(criterion="Language", band="A", marks=5, confidence=0.9)])
+    (tmp_path / "b").mkdir()
+    db2, r2 = _rubric_run(tmp_path / "b", ok, review)
+    # Content: marker band A (5) vs reviewer band B (3) -> totals differ -> disagreement; Language: unmappable -> disagreement
+    assert r2.escalations == {"Content": "marker/reviewer disagree", "Language": "marker/reviewer disagree"}
+    assert r2.final.rubric[0].marks == 5

@@ -23,7 +23,7 @@ from sms.schemas.marking_v2 import (
     ReviewedScriptV2,
     RubricMark,
 )
-from sms.schemas.scheme import Question
+from sms.schemas.scheme import MarkSchemeEntry, Question, RubricCriterionBands
 
 # The only strings written to teacher_queue.reason by this pipeline.
 ILLEGIBLE = "illegible"
@@ -46,6 +46,47 @@ class MarkingResultV2:
 
 def _key(m: Mark) -> str:
     return m.q_id if isinstance(m, PartMark) else m.criterion
+
+
+def _row_key(row: Any) -> str:
+    return row.q_id if isinstance(row, MarkSchemeEntry) else row.criterion
+
+
+def _marks_of(m: Mark) -> int:
+    return m.total if isinstance(m, PartMark) else m.marks
+
+
+def normalise_against_scheme(mark: Mark, row: Any) -> Tuple[Mark, bool]:
+    """Reconcile an LLM mark with the scheme it claims to follow. Returns (mark, in_scheme).
+    PartMark + MarkSchemeEntry: every awarded label must exist in the row (else not in scheme); each
+    allocation's marks are taken from the row by label and the total recomputed from the allocations
+    marked got. A part the marker flagged in_scheme=False stays out of the scheme.
+    RubricMark + RubricCriterionBands: the band must exist in the criterion (else not in scheme) and its
+    marks are taken from the rubric."""
+    if isinstance(mark, PartMark) and isinstance(row, MarkSchemeEntry):
+        if not mark.in_scheme:
+            return mark, False
+        row_marks = {mp.label: mp.marks for mp in row.marks}
+        if any(a.label not in row_marks for a in mark.awarded):
+            return mark, False
+        awarded = [a.model_copy(update={"marks": row_marks[a.label]}) for a in mark.awarded]
+        total = sum(a.marks for a in awarded if a.got) if awarded else mark.total
+        return mark.model_copy(update={"awarded": awarded, "total": total}), True
+    if isinstance(mark, RubricMark) and isinstance(row, RubricCriterionBands):
+        bands = {b.band: b.marks for b in row.bands}
+        if mark.band not in bands:
+            return mark, False
+        return mark.model_copy(update={"marks": bands[mark.band]}), True
+    return mark, False
+
+
+def _missing_mark(row: Any) -> Mark:
+    """The mark recorded for a scheme part / criterion the marker returned nothing for."""
+    if isinstance(row, MarkSchemeEntry):
+        return PartMark(q_id=row.q_id, awarded=[AllocationMark(label=mp.label, marks=mp.marks, got=False) for mp in row.marks],
+                        total=0, justification="Marker returned no mark for this part", in_scheme=True, confidence=0.0)
+    return RubricMark(criterion=row.criterion, band="", marks=0, justification="Marker returned no mark for this criterion",
+                      confidence=0.0)
 
 
 def _blind(m: Mark) -> Mark:
@@ -117,7 +158,7 @@ class MarkingPipelineV2:
                                                 scheme=scheme, notes=notes))
         reviewed = self.reviewer.run(ReviewInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                    scheme=scheme, notes=notes, marks=self._blind_script(marked)))
-        final, escalations = self._merge(marked, reviewed, extracted)
+        final, escalations = self._merge(marked, reviewed, extracted, scheme)
         feedback_report = self.feedback.run(feedback_input_for_v2(final, reviewed, escalations))
         self._persist(run_id, subject, template, questions, scheme, notes, extracted, marked, reviewed,
                       feedback_report, final, escalations, submission_id)
@@ -145,42 +186,77 @@ class MarkingPipelineV2:
         return MarkedScriptV2(kind=marked.kind, parts=[_blind(p) for p in marked.parts],
                               rubric=[_blind(r) for r in marked.rubric])
 
-    def _merge(self, marked: MarkedScriptV2, reviewed: ReviewedScriptV2,
-               extracted: ExtractedScript) -> Tuple[MarkedScriptV2, Dict[str, str]]:
+    def _merge(self, marked: MarkedScriptV2, reviewed: ReviewedScriptV2, extracted: ExtractedScript,
+               scheme: list) -> Tuple[MarkedScriptV2, Dict[str, str]]:
+        """Walk the scheme (rows for a mark scheme, criteria for a rubric), not the marker's output: every
+        scheme part gets a final mark, a part the marker skipped is synthesised and escalated, a part the
+        marker invented is kept but escalated as not in the scheme."""
         verdicts = {v.q_id: v for v in reviewed.verdicts}
         illegible = {q.q_id for q in extracted.questions if q.needs_human_transcription}
         if self.kind == "mark_scheme":
-            marks: List[Mark] = list(marked.parts)
+            marker_marks: List[Mark] = list(marked.parts)
+            rows: List[Any] = [MarkSchemeEntry.model_validate(r) for r in scheme]
         else:
-            marks = list(marked.rubric)
+            marker_marks = list(marked.rubric)
+            rows = [RubricCriterionBands.model_validate(c) for c in scheme]
             # a rubric marks one response: if any of it is unreadable every criterion goes to the teacher
-            illegible = {r.criterion for r in marked.rubric} if illegible else set()
+            illegible = {c.criterion for c in rows} if illegible else set()
+        by_key: Dict[str, Mark] = {}
+        for m in marker_marks:  # duplicate q_ids / criteria: the first one counts
+            by_key.setdefault(_key(m), m)
+        rows_by_key: Dict[str, Any] = {}
+        for r in rows:
+            rows_by_key.setdefault(_row_key(r), r)
+
         final: List[Mark] = []
         escalations: Dict[str, str] = {}
-        for m in marks:
-            merged, reason = self._merge_one(m, verdicts.get(_key(m)), _key(m) in illegible)
+        for key, row in rows_by_key.items():
+            m = by_key.get(key)
+            if m is None:
+                # The marker returned nothing for this part: 0 marks with no confidence at all. Escalated as
+                # "low confidence" because that is the queue reason that means "the marker could not mark
+                # this" — the five reason strings are fixed for the record and the review queue.
+                final.append(_missing_mark(row))
+                escalations[key] = LOW_CONFIDENCE
+                continue
+            merged, reason = self._merge_one(m, row, verdicts.get(key), key in illegible)
             final.append(merged)
             if reason:
-                escalations[_key(m)] = reason
+                escalations[key] = reason
+        for key, m in by_key.items():
+            if key not in rows_by_key:  # invented part / criterion: kept as the marker's proposal, teacher decides
+                final.append(m)
+                escalations[key] = NOT_IN_SCHEME
         if self.kind == "mark_scheme":
             return MarkedScriptV2(kind="mark_scheme", parts=final), escalations  # type: ignore[arg-type]
         return MarkedScriptV2(kind="rubric", rubric=final), escalations  # type: ignore[arg-type]
 
-    def _merge_one(self, m: Mark, verdict, illegible: bool) -> Tuple[Mark, Optional[str]]:
+    def _merge_one(self, m: Mark, row: Any, verdict, illegible: bool) -> Tuple[Mark, Optional[str]]:
+        # Reason priority: illegible -> not in scheme -> reviewer escalated -> disagree -> low confidence.
+        # The marker's in_scheme / allocation check comes before any verdict so a reviewer's ADJUST
+        # (whose adjusted part defaults to in_scheme=True) can never un-escalate an uncovered answer.
         if illegible:
             return m, ILLEGIBLE
+        normalised, in_scheme = normalise_against_scheme(m, row)
+        if not in_scheme:
+            return m, NOT_IN_SCHEME
+        m = normalised
+        # A missing reviewer verdict counts as APPROVE: the marker's (normalised) mark stands.
         if verdict is not None and verdict.verdict == ReviewVerdict.ESCALATE:
             return m, REVIEWER_ESCALATED
         if verdict is not None and verdict.verdict == ReviewVerdict.ADJUST:
             adjusted = verdict.adjusted
-            same_shape = isinstance(adjusted, type(m))
-            same_total = same_shape and (adjusted.total == m.total if isinstance(m, PartMark) else adjusted.marks == m.marks)
-            if not same_total:
-                return m, DISAGREE  # marks differ (or no corrected mark given): the teacher decides
-            # same marks, different allocation / band wording: take the reviewer's correction quietly
-            m = adjusted.model_copy(update={"q_id": m.q_id} if isinstance(m, PartMark) else {"criterion": m.criterion})
-        if isinstance(m, PartMark) and not m.in_scheme:
-            return m, NOT_IN_SCHEME
+            if not isinstance(adjusted, type(m)):
+                return m, DISAGREE  # no usable corrected mark: the teacher sees both views
+            adjusted, adj_in_scheme = normalise_against_scheme(adjusted, row)
+            if not adj_in_scheme or _marks_of(adjusted) != _marks_of(m):
+                return m, DISAGREE  # marks differ (or the correction is unmappable): the teacher decides
+            # same marks, different allocation / band wording: take the reviewer's correction quietly,
+            # keeping the marker's in_scheme and the lower of the two confidences
+            m = adjusted.model_copy(update={
+                "confidence": min(m.confidence, adjusted.confidence),
+                **({"in_scheme": m.in_scheme} if isinstance(m, PartMark) else {}),
+            })
         if self.confidence_threshold and m.confidence < self.confidence_threshold:
             return m, LOW_CONFIDENCE
         return m, None
