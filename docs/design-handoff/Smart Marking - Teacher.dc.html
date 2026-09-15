@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/modernist-74c12b6c-c14e-4137-a9d0-95bc689f713c/styles.css">
+<script src="_ds/modernist-74c12b6c-c14e-4137-a9d0-95bc689f713c/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:#dcdad9;font-family:var(--font-body);color:var(--color-text)}
+a{color:var(--color-accent)}a:hover{color:var(--color-accent-700)}
+.paper{background:#fff repeating-linear-gradient(transparent 0 23px,#d9d6d6 23px 24px)}
+.ab{background:var(--color-bg);flex:none}
+.lbl{font:600 11px/1 var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:#5c5958;margin:0 0 10px;display:flex;gap:10px;align-items:baseline}
+.lbl b{background:#201e1d;color:#fff;padding:4px 7px;font-weight:600}
+.cell{display:flex;flex-direction:column;gap:9px;flex:none}
+.amber{background:oklch(0.96 0.05 85);color:oklch(0.40 0.09 70);border:1px solid oklch(0.80 0.12 80)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 10px;line-height:1.4;white-space:nowrap}
+.pill i{width:8px;height:8px;display:inline-block;flex:none}
+.ink{background:#201e1d;color:#fff}
+.tabs{display:flex;gap:28px;border-bottom:2px solid var(--color-divider);font-size:15px}
+.tabs span{padding:12px 0 10px;margin-bottom:-2px;border-bottom:2px solid transparent}
+.tabs span[aria-current]{border-bottom-color:var(--color-accent);font-weight:600}
+.key{display:inline-block;font:600 11px/1 var(--font-body);border:1px solid var(--color-divider);padding:3px 6px;min-width:22px;text-align:center;color:#444}
+.num{font-variant-numeric:tabular-nums}
+</style>
+</helmet>
+
+<section style="padding:48px 56px 24px;max-width:1440px">
+  <h1 style="font-size:34px;margin:0 0 8px">Smart Marking — Teacher flow</h1>
+  <p style="font-size:16px;max-width:760px;margin:0 0 24px">Round 1 of 3 (teacher → student → components). Desktop artboards at 1440, review queue and page sorter at 1024. Key states only. Pan and zoom to inspect.</p>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px;max-width:1240px;font-size:14px;line-height:1.5">
+    <div><h6 style="margin-bottom:8px">Assumptions</h6>
+      <p>Classlists are ~40 students; tables show the first rows and a count.</p>
+      <p>Register numbers are integers 1–45; class codes are 4 chars from the unambiguous alphabet.</p>
+      <p>"Needs you" is the only thing a teacher must act on; everything else is informational.</p>
+      <p>Settings tab is deliberately thin (rename, archive, regenerate code) and shown as a row, not an artboard.</p></div>
+    <div><h6 style="margin-bottom:8px">Colour roles</h6>
+      <p><span class="pill" style="background:var(--color-accent);color:#fff">Red</span> primary action, the single accent. One per screen.</p>
+      <p><span class="pill amber">Amber</span> "Needs you" only. Derived in OKLCH to sit on the Modernist ramp scale; paired with a label and icon, never colour alone.</p>
+      <p><span class="pill ink">Ink</span> Released / Ready — finished states are solid ink, so red stays for actions.</p>
+      <p><span class="pill" style="background:var(--color-neutral-200)">Grey</span> Draft, Marking, Submitted — in-progress, nothing to do.</p></div>
+    <div><h6 style="margin-bottom:8px">Design reasoning</h6>
+      <p>Modernist grid: 2 px rules separate every major band; content is flush left, no rounded corners.</p>
+      <p>The review queue is where time goes, so it is a two-column reading layout: evidence on the left, decision on the right, one hand on the keyboard.</p>
+      <p>The page sorter treats a scanned booklet as a strip of pages; a student row is a drop target and an ordered strip at once.</p>
+      <p>Copy uses school vocabulary: hand in, register number, classlist, release.</p></div>
+  </div>
+</section>
+
+<!-- ─────────── T1 Sign in ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t1"><b>T1</b> Sign in · 1440</p>
+<div class="ab" id="t1" style="width:1440px;height:820px;display:grid;grid-template-columns:560px 1fr">
+  <div style="padding:56px 64px;display:flex;flex-direction:column;border-right:2px solid var(--color-divider)">
+    <div style="font:800 20px var(--font-heading)">Smart Marking</div>
+    <div style="flex:1"></div>
+    <h1 style="font-size:36px;margin-bottom:8px">Sign in</h1>
+    <p style="font-size:15px;color:#5c5958;margin-bottom:28px">Teachers only. Students use the class link their teacher shares.</p>
+    <button class="btn btn-secondary btn-block" style="min-height:48px;font-size:15px;gap:12px;margin:0 0 20px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v10M7 12h10"></path></svg>Continue with school Google account</button>
+    <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:#7d7979;margin-bottom:20px"><span style="flex:1;height:1px;background:var(--color-divider)"></span>or<span style="flex:1;height:1px;background:var(--color-divider)"></span></div>
+    <div class="field" style="margin-bottom:14px"><label style="font-size:13px">Email</label><input class="input" style="min-height:44px;font-size:15px" value="s.rahman@moe.edu.sg"></div>
+    <div class="field" style="margin-bottom:22px"><label style="font-size:13px">Password</label><input class="input" type="password" style="min-height:44px;font-size:15px" value="••••••••••"></div>
+    <button class="btn btn-primary btn-block" style="min-height:48px;font-size:15px;margin:0">Sign in</button>
+    <a href="#" style="font-size:13px;margin-top:14px">Forgot password</a>
+    <div style="flex:1"></div>
+    <p style="font-size:12px;color:#7d7979;margin:0">Ministry of Education Singapore · Bukit View Secondary School</p>
+  </div>
+  <div style="padding:56px 64px;display:flex;flex-direction:column;justify-content:flex-end;gap:24px">
+    <div class="grayscale" style="height:420px;background:#c9c5c4;display:grid;place-items:start;padding:20px;color:#5c5958;font-size:13px">Photo placeholder — a marked script on a desk, printed in black and white</div>
+    <p style="font-size:22px;font-weight:600;line-height:1.3;max-width:520px;margin:0">Handwritten scripts marked against your rubric. You check the doubtful ones, then release.</p>
+  </div>
+</div></div>
+</section>
+
+<!-- ─────────── T2 Classes ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t2"><b>T2</b> Classes · 1440</p>
+<div class="ab" id="t2" style="width:1440px;min-height:820px">
+  <nav class="nav" style="padding:14px 48px"><span class="nav-brand">Smart Marking</span><a href="#" aria-current="page">Classes</a><a href="#">Help</a><span style="font-size:14px;display:flex;align-items:center;gap:8px"><span style="width:28px;height:28px;background:#201e1d;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600">SR</span>Mr Rahman</span></nav>
+  <div style="padding:40px 48px 0;display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:24px">
+    <div><h1 style="font-size:36px;margin:0 0 4px">Classes</h1><p style="margin:0;color:#5c5958;font-size:15px">2026 · Term 3</p></div>
+    <button class="btn btn-primary" style="min-height:44px;padding:0 20px;font-size:15px;gap:10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"></path></svg>New class</button>
+  </div>
+  <div style="padding:0 48px">
+  <table class="table" style="font-size:15px">
+    <thead><tr><th style="width:38%">Class</th><th>Code</th><th>Students</th><th>Open assignments</th><th>Needs you</th><th></th></tr></thead>
+    <tbody>
+      <tr style="cursor:pointer"><td style="padding:16px 8px"><div style="font-weight:600">4E2 Mathematics</div><div style="font-size:13px;color:#5c5958">Sec 4 Express · Mon Wed Fri</div></td><td style="font-family:ui-monospace,monospace;font-size:16px;letter-spacing:.08em">CE4R</td><td class="num">40</td><td>2 · <span style="color:#5c5958">Quadratic equations — Worksheet 3, Trigonometry quiz</span></td><td><span class="pill amber"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>4 questions</span></td><td style="text-align:right;color:#7d7979">→</td></tr>
+      <tr style="cursor:pointer"><td style="padding:16px 8px"><div style="font-weight:600">4E1 Mathematics</div><div style="font-size:13px;color:#5c5958">Sec 4 Express · Tue Thu</div></td><td style="font-family:ui-monospace,monospace;font-size:16px;letter-spacing:.08em">M7PK</td><td class="num">38</td><td>1 · <span style="color:#5c5958">Trigonometry quiz</span></td><td style="color:#7d7979">—</td><td style="text-align:right;color:#7d7979">→</td></tr>
+      <tr style="cursor:pointer"><td style="padding:16px 8px"><div style="font-weight:600">3NA2 Mathematics</div><div style="font-size:13px;color:#5c5958">Sec 3 Normal (Academic)</div></td><td style="font-family:ui-monospace,monospace;font-size:16px;letter-spacing:.08em">XU8H</td><td class="num">32</td><td style="color:#7d7979">None open</td><td style="color:#7d7979">—</td><td style="text-align:right;color:#7d7979">→</td></tr>
+      <tr style="cursor:pointer;color:#7d7979"><td style="padding:16px 8px"><div style="font-weight:600">4E2 Mathematics (2025)</div><div style="font-size:13px">Archived</div></td><td style="font-family:ui-monospace,monospace;font-size:16px;letter-spacing:.08em">—</td><td class="num">41</td><td>—</td><td>—</td><td style="text-align:right">→</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div></div>
+</section>
+
+<!-- ─────────── T3 Class · Students empty + CSV preview ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t3"><b>T3</b> Class page · Students tab · empty state with CSV preview dialog · 1440</p>
+<div class="ab" id="t3" style="width:1440px;min-height:880px;position:relative;overflow:hidden">
+  <nav class="nav" style="padding:14px 48px"><span class="nav-brand">Smart Marking</span><a href="#">Classes</a><a href="#">Help</a><span style="font-size:14px;display:flex;align-items:center;gap:8px"><span style="width:28px;height:28px;background:#201e1d;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600">SR</span>Mr Rahman</span></nav>
+  <div style="padding:32px 48px 0">
+    <a href="#" style="font-size:13px;text-decoration:none">← Classes</a>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin:12px 0 20px">
+      <h1 style="font-size:36px;margin:0">4E2 Mathematics</h1>
+      <div style="display:flex;align-items:center;gap:20px;border:1px solid var(--color-divider);padding:10px 10px 10px 18px">
+        <div><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958">Class code</div><div style="font:800 26px var(--font-heading);letter-spacing:.1em">CE4R</div></div>
+        <div style="width:1px;height:40px;background:var(--color-divider)"></div>
+        <div><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958">Class link</div><div style="font-size:14px;font-family:ui-monospace,monospace">smartmarking.sg/c/CE4R</div></div>
+        <button class="btn btn-primary" style="min-height:44px;padding:0 16px;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>Copy link</button>
+      </div>
+    </div>
+    <div class="tabs"><span aria-current="page">Students</span><span>Assignments</span><span>Settings</span></div>
+  </div>
+  <div style="padding:48px 48px;display:grid;grid-template-columns:1fr 1fr;gap:64px">
+    <div>
+      <h2 style="font-size:26px;margin-bottom:12px">No students yet</h2>
+      <p style="font-size:16px;max-width:520px">Upload your classlist as a CSV with two columns: <code style="background:var(--color-neutral-200);padding:2px 6px">name</code> and <code style="background:var(--color-neutral-200);padding:2px 6px">reg_no</code>. Register numbers become the students' IDs — CE4R-1, CE4R-2 and so on.</p>
+      <pre style="background:#fff;border:1px solid var(--color-divider);padding:14px 16px;font-size:13px;line-height:1.6;margin:16px 0 24px;max-width:320px">name,reg_no
+Tan Wei Ling,1
+Muhammad Danish,2
+Priya Nair,3</pre>
+      <a href="#" style="font-size:14px">Download a blank template</a>
+    </div>
+    <div style="border:2px dashed var(--color-divider);min-height:320px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:40px;gap:12px">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"></path></svg>
+      <div style="font-size:18px;font-weight:600">Drop your classlist here</div>
+      <div style="font-size:14px;color:#5c5958">CSV or Excel, up to 1 MB</div>
+      <button class="btn btn-secondary" style="min-height:44px;padding:0 18px;margin-top:8px">Choose a file</button>
+    </div>
+  </div>
+
+  <div class="dialog-backdrop" style="position:absolute;align-items:start;padding-top:120px">
+    <div class="dialog" style="width:760px;padding:28px;gap:16px;background:var(--color-bg)">
+      <div class="dialog-title" style="font-size:24px">Check your classlist</div>
+      <div style="font-size:14px;color:#5c5958">4E2_classlist.csv · 40 rows found</div>
+      <div class="amber" style="padding:12px 14px;font-size:14px;display:flex;gap:10px;align-items:flex-start"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex:none;margin-top:2px"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg><div>Your header row reads <b>Name, Reg No</b>. We matched it to <b>name, reg_no</b> — check the columns below look right. 2 rows need fixing before you can confirm.</div></div>
+      <div style="max-height:330px;overflow:auto;border-bottom:1px solid var(--color-divider)">
+      <table class="table" style="font-size:14px">
+        <thead><tr><th style="width:56px">#</th><th>Name</th><th>Reg no</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td>Tan Wei Ling</td><td class="num">1</td><td></td></tr>
+          <tr><td class="num">2</td><td>Muhammad Danish Bin Rosli</td><td class="num">2</td><td></td></tr>
+          <tr><td class="num">3</td><td>Priya Nair</td><td class="num">3</td><td></td></tr>
+          <tr><td class="num">4</td><td>Lim Jun Hao</td><td class="num">4</td><td></td></tr>
+          <tr style="background:oklch(0.97 0.03 85)"><td class="num">5</td><td>Chloe Ng Xin Yi</td><td class="num" style="font-weight:600">4</td><td style="font-size:13px;color:oklch(0.40 0.09 70)">Duplicate of row 4 — two students can't share #4</td></tr>
+          <tr><td class="num">6</td><td>Arjun Menon</td><td class="num">6</td><td></td></tr>
+          <tr style="background:oklch(0.97 0.03 85)"><td class="num">7</td><td>Siti Nurhaliza</td><td style="color:#7d7979">—</td><td style="font-size:13px;color:oklch(0.40 0.09 70)">Missing register number</td></tr>
+          <tr><td class="num">8</td><td>Ryan Koh Wei Jie</td><td class="num">8</td><td></td></tr>
+          <tr><td colspan="4" style="color:#7d7979;font-size:13px">… 32 more rows, all fine</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="dialog-actions" style="justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:#5c5958">Fix the file and drop it again, or edit the two rows here.</span>
+        <div style="display:flex;gap:10px"><button class="btn btn-secondary" style="min-height:44px;padding:0 18px">Cancel</button><button class="btn btn-secondary" style="min-height:44px;padding:0 18px">Edit rows</button><button class="btn btn-primary" style="min-height:44px;padding:0 18px" disabled="{{ true }}">Add 40 students</button></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ─────────── T4 Class · Students uploaded ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t4"><b>T4</b> Class page · Students tab · classlist loaded · 1440</p>
+<div class="ab" id="t4" style="width:1440px;min-height:880px">
+  <nav class="nav" style="padding:14px 48px"><span class="nav-brand">Smart Marking</span><a href="#">Classes</a><a href="#">Help</a><span style="font-size:14px;display:flex;align-items:center;gap:8px"><span style="width:28px;height:28px;background:#201e1d;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600">SR</span>Mr Rahman</span></nav>
+  <div style="padding:32px 48px 0">
+    <a href="#" style="font-size:13px;text-decoration:none">← Classes</a>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin:12px 0 20px">
+      <h1 style="font-size:36px;margin:0">4E2 Mathematics</h1>
+      <div style="display:flex;align-items:center;gap:20px;border:1px solid var(--color-divider);padding:10px 10px 10px 18px">
+        <div><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958">Class code</div><div style="font:800 26px var(--font-heading);letter-spacing:.1em">CE4R</div></div>
+        <div style="width:1px;height:40px;background:var(--color-divider)"></div>
+        <div><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958">Class link</div><div style="font-size:14px;font-family:ui-monospace,monospace">smartmarking.sg/c/CE4R</div></div>
+        <button class="btn btn-secondary" style="min-height:44px;padding:0 16px;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"></path></svg>Copied — paste this into Google Classroom</button>
+      </div>
+    </div>
+    <div class="tabs"><span aria-current="page">Students</span><span>Assignments</span><span>Settings</span></div>
+  </div>
+  <div style="padding:24px 48px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:15px"><b>40 students</b> <span style="color:#5c5958">· 37 have opened the class link</span></div>
+      <div style="display:flex;gap:10px"><input class="input" placeholder="Find a student" style="width:260px;min-height:40px"><button class="btn btn-secondary" style="min-height:40px">Replace classlist</button><button class="btn btn-secondary" style="min-height:40px">Add student</button></div>
+    </div>
+    <table class="table" style="font-size:15px">
+      <thead><tr><th style="width:60px">#</th><th>Name</th><th>Student ID</th><th>Submissions</th><th>Last seen</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td style="font-weight:600">Tan Wei Ling</td><td style="font-family:ui-monospace,monospace">CE4R-1</td><td class="num">2 of 2</td><td style="color:#5c5958">Today, 7:48 am</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">2</td><td style="font-weight:600">Muhammad Danish Bin Rosli</td><td style="font-family:ui-monospace,monospace">CE4R-2</td><td class="num">2 of 2</td><td style="color:#5c5958">Yesterday, 9:02 pm</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">3</td><td style="font-weight:600">Priya Nair</td><td style="font-family:ui-monospace,monospace">CE4R-3</td><td class="num">2 of 2</td><td style="color:#5c5958">Yesterday, 4:15 pm</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">4</td><td style="font-weight:600">Lim Jun Hao</td><td style="font-family:ui-monospace,monospace">CE4R-4</td><td class="num">1 of 2 <span style="color:#5c5958;font-size:13px">· Worksheet 3 not handed in</span></td><td style="color:#5c5958">Mon, 3:12 pm</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">5</td><td style="font-weight:600">Chloe Ng Xin Yi</td><td style="font-family:ui-monospace,monospace">CE4R-5</td><td class="num">2 of 2</td><td style="color:#5c5958">Today, 6:30 am</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">6</td><td style="font-weight:600">Arjun Menon</td><td style="font-family:ui-monospace,monospace">CE4R-6</td><td class="num">2 of 2</td><td style="color:#5c5958">Yesterday, 10:41 pm</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">7</td><td style="font-weight:600">Siti Nurhaliza</td><td style="font-family:ui-monospace,monospace">CE4R-7</td><td class="num">0 of 2</td><td style="color:#7d7979">Never opened the link</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">8</td><td style="font-weight:600">Ryan Koh Wei Jie</td><td style="font-family:ui-monospace,monospace">CE4R-8</td><td class="num">2 of 2</td><td style="color:#5c5958">Yesterday, 8:19 pm</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td colspan="6" style="color:#7d7979;font-size:13px;padding:14px 8px">… 32 more students</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div></div>
+</section>
+
+<!-- ─────────── T5 Assignments tab + new assignment ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t5"><b>T5</b> Class page · Assignments tab with New assignment panel · 1440</p>
+<div class="ab" id="t5" style="width:1440px;min-height:900px;display:grid;grid-template-columns:1fr 520px">
+  <div>
+  <nav class="nav" style="padding:14px 48px"><span class="nav-brand">Smart Marking</span><a href="#">Classes</a><a href="#">Help</a><span style="font-size:14px;display:flex;align-items:center;gap:8px"><span style="width:28px;height:28px;background:#201e1d;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600">SR</span>Mr Rahman</span></nav>
+  <div style="padding:32px 48px 0">
+    <a href="#" style="font-size:13px;text-decoration:none">← Classes</a>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin:12px 0 20px">
+      <h1 style="font-size:36px;margin:0">4E2 Mathematics</h1>
+      <button class="btn btn-primary" style="min-height:44px;padding:0 18px;gap:10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"></path></svg>New assignment</button>
+    </div>
+    <div class="tabs"><span>Students</span><span aria-current="page">Assignments</span><span>Settings</span></div>
+  </div>
+  <div style="padding:24px 48px">
+    <table class="table" style="font-size:15px">
+      <thead><tr><th>Assignment</th><th>Due</th><th>Status</th><th>Handed in</th><th>Needs you</th></tr></thead>
+      <tbody>
+        <tr><td style="padding:16px 8px"><div style="font-weight:600">Quadratic equations — Worksheet 3</div><div style="font-size:13px;color:#5c5958">Maths · 5 questions · 25 marks</div></td><td>Wed 10 Sep</td><td><span class="pill" style="background:var(--color-neutral-200)"><i style="background:#201e1d"></i>Marking</span></td><td class="num">37 / 40</td><td><span class="pill amber">4 questions</span></td></tr>
+        <tr><td style="padding:16px 8px"><div style="font-weight:600">Trigonometry quiz</div><div style="font-size:13px;color:#5c5958">Maths · 8 questions · 20 marks</div></td><td>Fri 19 Sep</td><td><span class="pill tag-outline" style="border:1px solid var(--color-accent);color:var(--color-accent-700)"><i style="background:var(--color-accent)"></i>Open</span></td><td class="num">12 / 40</td><td style="color:#7d7979">—</td></tr>
+        <tr><td style="padding:16px 8px"><div style="font-weight:600">Indices and standard form — Worksheet 2</div><div style="font-size:13px;color:#5c5958">Maths · 6 questions · 30 marks</div></td><td>Wed 27 Aug</td><td><span class="pill ink"><i style="background:#fff"></i>Released</span></td><td class="num">40 / 40</td><td style="color:#7d7979">—</td></tr>
+        <tr><td style="padding:16px 8px"><div style="font-weight:600">Simultaneous equations — Worksheet 1</div><div style="font-size:13px;color:#5c5958">Maths · 4 questions · 20 marks</div></td><td>Mon 18 Aug</td><td><span class="pill ink"><i style="background:#fff"></i>Released</span></td><td class="num">40 / 40</td><td style="color:#7d7979">—</td></tr>
+        <tr style="color:#5c5958"><td style="padding:16px 8px"><div style="font-weight:600">Coordinate geometry — Worksheet 4</div><div style="font-size:13px">Maths · rubric not set</div></td><td>—</td><td><span class="pill" style="border:1px solid var(--color-divider)"><i style="border:1px solid #7d7979;box-sizing:border-box"></i>Draft</span></td><td>—</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  </div>
+  <aside style="border-left:2px solid var(--color-divider);padding:32px 40px;display:flex;flex-direction:column;gap:20px;background:#fff">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:24px;margin:0">New assignment</h2><button class="btn btn-icon btn-secondary" aria-label="Close" style="width:40px;height:40px">✕</button></div>
+    <div class="field"><label style="font-size:13px">Title</label><input class="input" style="min-height:44px;font-size:15px" value="Quadratic equations — Worksheet 3"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="field"><label style="font-size:13px">Subject</label><div class="seg" style="width:100%"><label class="seg-opt" style="flex:1;justify-content:flex-start;padding:10px 12px"><input type="radio" name="subj" checked>Maths</label><label class="seg-opt" style="flex:1;padding:10px 12px"><input type="radio" name="subj">English</label><label class="seg-opt" style="flex:1;padding:10px 12px"><input type="radio" name="subj">Science</label></div></div>
+      <div class="field"><label style="font-size:13px">Due</label><input class="input" style="min-height:44px;font-size:15px" value="Wed 10 Sep 2026"></div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><label style="font-size:13px;color:#5c5958">Rubric</label><a href="#" style="font-size:13px">Upload JSON instead</a></div>
+      <table class="table" style="font-size:14px">
+        <thead><tr><th style="width:40px">Q</th><th>Criterion</th><th>Description</th><th style="width:64px;text-align:right">Max</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Factorise</td><td style="color:#5c5958">Correct factors, both roots stated</td><td class="num" style="text-align:right">4</td></tr>
+          <tr><td>2</td><td>Complete the square</td><td style="color:#5c5958">Form (x+p)²+q, roots to 2 dp</td><td class="num" style="text-align:right">5</td></tr>
+          <tr><td>3</td><td>Formula</td><td style="color:#5c5958">Substitution, discriminant, both roots</td><td class="num" style="text-align:right">5</td></tr>
+          <tr><td>4</td><td>Word problem</td><td style="color:#5c5958">Form equation, solve, reject invalid root</td><td class="num" style="text-align:right">6</td></tr>
+          <tr><td>5</td><td>Sketch</td><td style="color:#5c5958">Intercepts, turning point, shape</td><td class="num" style="text-align:right">5</td></tr>
+          <tr><td colspan="3" style="border:0;padding-top:12px"><a href="#" style="font-size:14px;text-decoration:none">+ Add criterion</a></td><td class="num" style="border:0;text-align:right;font-weight:600;padding-top:12px">25</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <label style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);font-size:15px;cursor:pointer">
+      <span><div style="font-weight:600">Students can submit their own pages</div><div style="font-size:13px;color:#5c5958">Off means you upload the scanned booklets yourself.</div></span>
+      <span style="width:48px;height:28px;background:var(--color-accent);position:relative;flex:none"><span style="position:absolute;top:3px;right:3px;width:22px;height:22px;background:#fff"></span></span>
+    </label>
+    <div style="display:flex;gap:10px;margin-top:auto"><button class="btn btn-secondary" style="min-height:48px;padding:0 20px">Save as draft</button><button class="btn btn-primary" style="min-height:48px;padding:0 20px;flex:1;justify-content:flex-start">Open for hand-in</button></div>
+  </aside>
+</div></div>
+</section>
+
+<!-- ─────────── T6 Assignment page ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t6"><b>T6</b> Assignment page · progress strip filtered to “Needs you” · 1440</p>
+<div class="ab" id="t6" style="width:1440px;min-height:900px">
+  <nav class="nav" style="padding:14px 48px"><span class="nav-brand">Smart Marking</span><a href="#">Classes</a><a href="#">Help</a><span style="font-size:14px;display:flex;align-items:center;gap:8px"><span style="width:28px;height:28px;background:#201e1d;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600">SR</span>Mr Rahman</span></nav>
+  <div style="padding:32px 48px 0">
+    <a href="#" style="font-size:13px;text-decoration:none">← 4E2 Mathematics</a>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin:12px 0 28px;gap:24px">
+      <div><h1 style="font-size:34px;margin:0 0 6px">Quadratic equations — Worksheet 3</h1><div style="font-size:15px;color:#5c5958;display:flex;gap:14px;align-items:center">Due Wed 10 Sep · 5 questions · 25 marks <span class="pill" style="background:var(--color-neutral-200)"><i style="background:#201e1d"></i>Marking</span></div></div>
+      <div style="display:flex;gap:10px;flex:none">
+        <button class="btn btn-secondary" style="min-height:44px;padding:0 16px;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"></path></svg>Bulk upload scans</button>
+        <button class="btn btn-secondary" style="min-height:44px;padding:0 16px;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>Download marks CSV</button>
+        <button class="btn btn-primary" style="min-height:44px;padding:0 18px" disabled="{{ true }}" title="4 questions still need you">Release feedback</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);border-top:2px solid var(--color-divider);border-bottom:2px solid var(--color-divider)">
+      <div style="padding:18px 20px 16px;border-right:1px solid var(--color-divider);cursor:pointer"><div style="font:800 36px var(--font-heading);line-height:1">3</div><div style="font-size:14px;margin-top:6px;color:#5c5958">Not handed in</div></div>
+      <div style="padding:18px 20px 16px;border-right:1px solid var(--color-divider);cursor:pointer"><div style="font:800 36px var(--font-heading);line-height:1">2</div><div style="font-size:14px;margin-top:6px;color:#5c5958">Handed in</div></div>
+      <div style="padding:18px 20px 16px;border-right:1px solid var(--color-divider);cursor:pointer"><div style="font:800 36px var(--font-heading);line-height:1">6</div><div style="font-size:14px;margin-top:6px;color:#5c5958">Marking</div></div>
+      <div style="padding:18px 20px 16px;border-right:1px solid var(--color-divider);cursor:pointer;background:oklch(0.96 0.05 85);box-shadow:inset 0 -4px 0 oklch(0.72 0.15 75)"><div style="font:800 36px var(--font-heading);line-height:1;display:flex;align-items:center;gap:10px">4 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="oklch(0.40 0.09 70)" stroke-width="2.5"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg></div><div style="font-size:14px;margin-top:6px;font-weight:600">Needs you · 4 questions</div></div>
+      <div style="padding:18px 20px 16px;cursor:pointer"><div style="font:800 36px var(--font-heading);line-height:1">25</div><div style="font-size:14px;margin-top:6px;color:#5c5958">Ready to release</div></div>
+    </div>
+  </div>
+  <div style="padding:20px 48px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:15px">Showing <b>4 students</b> with questions that need you <a href="#" style="font-size:14px;margin-left:10px;white-space:nowrap">Show all 40</a></div>
+      <button class="btn btn-primary" style="min-height:44px;padding:0 18px;gap:10px">Open review queue <span class="key" style="color:#fff;border-color:rgba(255,255,255,.5)">4</span></button>
+    </div>
+    <table class="table" style="font-size:15px">
+      <thead><tr><th style="width:60px">#</th><th>Name</th><th>Pages</th><th>Handed in</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="num">2</td><td style="font-weight:600">Muhammad Danish Bin Rosli</td><td class="num">4</td><td style="color:#5c5958">Tue 9 Sep, 9:02 pm</td><td><span class="pill amber">Needs you · Q3</span></td><td class="num" style="text-align:right">15<span style="color:#7d7979">–17</span> / 25</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">11</td><td style="font-weight:600">Grace Tan Hui Min</td><td class="num">3</td><td style="color:#5c5958">Wed 10 Sep, 7:10 am</td><td><span class="pill amber">Needs you · Q4</span></td><td class="num" style="text-align:right">19<span style="color:#7d7979">–21</span> / 25</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">23</td><td style="font-weight:600">Nurul Aisyah</td><td class="num">4</td><td style="color:#5c5958">Tue 9 Sep, 11:40 pm</td><td><span class="pill amber">Needs you · Q2, Q5</span></td><td class="num" style="text-align:right">8<span style="color:#7d7979">–13</span> / 25</td><td style="text-align:right;color:#7d7979">→</td></tr>
+        <tr><td class="num">31</td><td style="font-weight:600">Wong Kai Xiang</td><td class="num">5</td><td style="color:#5c5958">Uploaded by you, Wed 8:15 am</td><td><span class="pill amber">Needs you · Q3</span></td><td class="num" style="text-align:right">21<span style="color:#7d7979">–23</span> / 25</td><td style="text-align:right;color:#7d7979">→</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:28px;padding-top:16px;border-top:1px solid var(--color-divider);display:grid;grid-template-columns:repeat(4,1fr);gap:16px;font-size:14px;color:#5c5958">
+      <div>Students see <b style="color:var(--color-text)">“Marked — your teacher is checking”</b> until you release.</div>
+      <div>Marks CSV columns: reg_no, name, Q1…Q5, total, status.</div>
+      <div>Release is one action for the whole class; it needs every “Needs you” cleared.</div>
+      <div>Rows in the “Ready” filter show a final total; ranges (15–17) mean a question is still open.</div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ─────────── T7 Review queue 1024 ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t7"><b>T7</b> Review queue · one question per card · iPad 1024</p>
+<div class="ab" id="t7" style="width:1024px;min-height:900px;display:flex;flex-direction:column">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 32px;border-bottom:2px solid var(--color-divider)">
+    <div style="display:flex;align-items:center;gap:16px"><a href="#" style="font-size:13px;text-decoration:none">← Worksheet 3</a><span style="font-size:15px;font-weight:600">Needs you</span><span class="num" style="font-size:15px;color:#5c5958">1 of 4</span></div>
+    <div style="display:flex;gap:6px;align-items:center;font-size:12px;color:#5c5958"><span class="key">←</span><span class="key">→</span> move <span class="key" style="margin-left:8px">A</span> accept <span class="key" style="margin-left:8px">1–5</span> set mark <span class="key" style="margin-left:8px">↵</span> save & next</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;flex:1">
+    <div style="padding:24px 28px 24px 32px;border-right:2px solid var(--color-divider);display:flex;flex-direction:column;gap:16px">
+      <div><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958">Student</div><div style="font-size:18px;font-weight:600">Muhammad Danish Bin Rosli <span style="color:#5c5958;font-weight:400">· #2 · 4E2</span></div></div>
+      <div><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958;margin-bottom:6px">Page 3 · Q3 (crop)</div>
+        <div class="paper grayscale" style="height:300px;border:1px solid var(--color-divider);padding:20px 24px;font:italic 15px/24px 'Comic Sans MS',cursive;color:#3a3737;overflow:hidden">Q3) 2x² − 5x − 3 = 0<br>x = (5 ± √(25 + 24)) / 4<br>x = (5 ± √49) / 4<br>x = (5 ± 7)/4<br>x = 3 or x = −½<br><span style="text-decoration:line-through">x = −2/4</span> x = −1/2<br><span style="color:#9b9797">(faint) check: 2(9) − 15 − 3 = 0 ✓</span></div>
+        <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-secondary" style="min-height:40px">Zoom</button><button class="btn btn-secondary" style="min-height:40px">Whole page</button><button class="btn btn-secondary" style="min-height:40px">Rotate</button></div></div>
+      <div><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958;margin-bottom:6px">What we read</div>
+        <div style="font-size:15px;line-height:1.6;background:#fff;border:1px solid var(--color-divider);padding:12px 14px">2x² − 5x − 3 = 0 → x = (5 ± √(25+24))/4 = (5 ± 7)/4 → x = 3 or x = −½. Crossed-out line reads “x = −2/4”. Faint check line: 2(9) − 15 − 3 = 0.</div></div>
+      <div class="amber" style="padding:12px 14px;font-size:14px;line-height:1.5"><b>Why this is here</b> — the second root was crossed out then rewritten; the marker could not tell which is the final answer. Reviewer agreed the rewrite is the final answer but wants you to confirm.</div>
+    </div>
+    <div style="padding:24px 32px 24px 28px;display:flex;flex-direction:column;gap:18px">
+      <div><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958">Question 3 · Formula</div><div style="font-size:15px;color:#5c5958">Solve 2x² − 5x − 3 = 0 using the quadratic formula. Give both roots.</div></div>
+      <table class="table" style="font-size:14px">
+        <thead><tr><th>Criterion</th><th style="text-align:right">Proposed</th><th style="width:88px;text-align:right">Your mark</th></tr></thead>
+        <tbody>
+          <tr><td><div style="font-weight:600">Correct substitution</div><div style="font-size:13px;color:#5c5958">“x = (5 ± √(25 + 24)) / 4”</div></td><td class="num" style="text-align:right">1 / 1</td><td style="text-align:right"><input class="input num" value="1" style="width:56px;min-height:40px;text-align:right;font-size:15px"></td></tr>
+          <tr><td><div style="font-weight:600">Discriminant evaluated</div><div style="font-size:13px;color:#5c5958">“√49 = 7”</div></td><td class="num" style="text-align:right">1 / 1</td><td style="text-align:right"><input class="input num" value="1" style="width:56px;min-height:40px;text-align:right;font-size:15px"></td></tr>
+          <tr><td><div style="font-weight:600">First root</div><div style="font-size:13px;color:#5c5958">“x = 3”</div></td><td class="num" style="text-align:right">1 / 1</td><td style="text-align:right"><input class="input num" value="1" style="width:56px;min-height:40px;text-align:right;font-size:15px"></td></tr>
+          <tr style="background:oklch(0.97 0.03 85)"><td><div style="font-weight:600">Second root</div><div style="font-size:13px;color:oklch(0.40 0.09 70)">Unsure — “x = −½” after a crossed-out “−2/4” (same value)</div></td><td class="num" style="text-align:right">0<span style="color:#7d7979">–1</span> / 1</td><td style="text-align:right"><input class="input num" value="" placeholder="?" style="width:56px;min-height:40px;text-align:right;font-size:15px;border-color:var(--color-accent)"></td></tr>
+          <tr><td><div style="font-weight:600">Presentation</div><div style="font-size:13px;color:#5c5958">Working shown in order, answer stated</div></td><td class="num" style="text-align:right">1 / 1</td><td style="text-align:right"><input class="input num" value="1" style="width:56px;min-height:40px;text-align:right;font-size:15px"></td></tr>
+          <tr><td style="border:0;font-weight:600;padding-top:12px">Question total</td><td class="num" style="border:0;text-align:right;padding-top:12px">4<span style="color:#7d7979">–5</span> / 5</td><td class="num" style="border:0;text-align:right;font-weight:600;font-size:18px;padding-top:12px">4 / 5</td></tr>
+        </tbody>
+      </table>
+      <div class="field"><label style="font-size:13px">Reason (goes into the student's feedback)</label><textarea class="input" style="min-height:72px;font-size:15px">Both roots correct — the crossed-out line is the same value, so full marks for the second root.</textarea></div>
+      <div style="margin-top:auto;display:flex;gap:10px;align-items:center;padding-top:16px;border-top:2px solid var(--color-divider)">
+        <button class="btn btn-secondary" style="min-height:48px;padding:0 16px">← Previous</button>
+        <button class="btn btn-secondary" style="min-height:48px;padding:0 16px;gap:10px">Accept proposed <span class="key">A</span></button>
+        <button class="btn btn-primary" style="min-height:48px;padding:0 18px;flex:1;justify-content:space-between">Save & next <span class="key" style="color:#fff;border-color:rgba(255,255,255,.5)">↵</span></button>
+      </div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ─────────── T8 Bulk upload sorter 1024 ─────────── -->
+<section style="padding:24px 56px">
+<div class="cell"><p class="lbl" id="lbl-t8"><b>T8</b> Bulk upload · page sorter · iPad 1024</p>
+<div class="ab" id="t8" style="width:1024px;min-height:900px;display:flex;flex-direction:column">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 32px;border-bottom:2px solid var(--color-divider)">
+    <div style="display:flex;align-items:center;gap:16px"><a href="#" style="font-size:13px;text-decoration:none">← Worksheet 3</a><span style="font-size:15px;font-weight:600">Sort scanned pages</span><span style="font-size:14px;color:#5c5958">booklets_4E2.pdf · 158 pages · 12 unsorted</span></div>
+    <div style="display:flex;gap:10px"><button class="btn btn-secondary" style="min-height:44px">Add more scans</button><button class="btn btn-primary" style="min-height:44px;padding:0 18px" disabled="{{ true }}">Start marking 146 pages</button></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 440px;flex:1">
+    <div style="padding:20px 24px 24px 32px;border-right:2px solid var(--color-divider)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px"><div style="font-size:15px"><b>Unsorted pages</b> <span style="color:#5c5958">· drag onto a student, or type their # on the page</span></div><span style="font-size:13px;color:#5c5958">We matched 146 pages by the register number written on page 1.</span></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.147</span></div><input class="input num" placeholder="#" style="min-height:40px;font-size:15px"></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:2px solid var(--color-accent);position:relative;transform:rotate(-1.5deg)"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.148</span><span style="position:absolute;bottom:6px;left:6px;right:6px;font-size:11px;color:#5c5958">dragging…</span></div><input class="input num" placeholder="#" style="min-height:40px;font-size:15px"></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.149</span></div><input class="input num" placeholder="#" style="min-height:40px;font-size:15px"></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative;filter:grayscale(1) brightness(.55)"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.150</span></div><div class="amber" style="font-size:12px;padding:4px 8px">Too dark to read — rescan</div></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.151</span></div><input class="input num" value="31" style="min-height:40px;font-size:15px;border-color:var(--color-accent)"></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.152</span></div><input class="input num" placeholder="#" style="min-height:40px;font-size:15px"></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.153</span></div><input class="input num" placeholder="#" style="min-height:40px;font-size:15px"></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="paper grayscale" style="aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative;background:#fff"><span style="position:absolute;top:6px;left:6px;font-size:11px;background:#201e1d;color:#fff;padding:2px 6px">p.154</span><span style="position:absolute;bottom:6px;left:6px;font-size:11px;color:#5c5958">Blank page</span></div><button class="btn btn-secondary" style="min-height:40px">Discard</button></div>
+      </div>
+      <div style="margin-top:12px;font-size:13px;color:#7d7979">… 4 more unsorted pages</div>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="padding:20px 32px 12px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--color-divider)"><b style="font-size:15px">Students</b><input class="input" placeholder="Jump to #" style="width:120px;min-height:40px"></div>
+      <div style="overflow:auto">
+        <div style="padding:14px 32px 14px 24px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:8px"><div style="display:flex;justify-content:space-between;font-size:15px"><span><b class="num">#1</b> Tan Wei Ling</span><span class="num" style="color:#5c5958">4 pages</span></div><div style="display:flex;gap:6px"><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div></div></div>
+        <div style="padding:14px 32px 14px 24px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:8px;background:var(--color-accent-100);box-shadow:inset 3px 0 0 var(--color-accent)"><div style="display:flex;justify-content:space-between;font-size:15px"><span><b class="num">#2</b> Muhammad Danish Bin Rosli</span><span class="num" style="color:var(--color-accent-700);font-weight:600">Drop here → page 4</span></div><div style="display:flex;gap:6px"><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div style="width:36px;height:48px;border:2px dashed var(--color-accent)"></div></div></div>
+        <div style="padding:14px 32px 14px 24px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:8px"><div style="display:flex;justify-content:space-between;font-size:15px"><span><b class="num">#3</b> Priya Nair</span><span class="num" style="color:#5c5958">4 pages</span></div><div style="display:flex;gap:6px"><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div></div></div>
+        <div style="padding:14px 32px 14px 24px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:8px"><div style="display:flex;justify-content:space-between;font-size:15px"><span><b class="num">#4</b> Lim Jun Hao</span><span class="amber pill">Order looks wrong</span></div><div style="display:flex;gap:6px;align-items:center"><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider);position:relative"><span style="position:absolute;bottom:0;right:0;font-size:9px;background:#201e1d;color:#fff;padding:0 3px">1</span></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid oklch(0.72 0.15 75);position:relative"><span style="position:absolute;bottom:0;right:0;font-size:9px;background:oklch(0.40 0.09 70);color:#fff;padding:0 3px">3</span></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid oklch(0.72 0.15 75);position:relative"><span style="position:absolute;bottom:0;right:0;font-size:9px;background:oklch(0.40 0.09 70);color:#fff;padding:0 3px">2</span></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider);position:relative"><span style="position:absolute;bottom:0;right:0;font-size:9px;background:#201e1d;color:#fff;padding:0 3px">4</span></div><button class="btn btn-ghost" style="min-height:40px;font-size:13px;margin-left:auto">Fix order</button></div></div>
+        <div style="padding:14px 32px 14px 24px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:8px"><div style="display:flex;justify-content:space-between;font-size:15px"><span><b class="num">#5</b> Chloe Ng Xin Yi</span><span class="num" style="color:#5c5958">4 pages</span></div><div style="display:flex;gap:6px"><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div><div class="paper grayscale" style="width:36px;height:48px;border:1px solid var(--color-divider)"></div></div></div>
+        <div style="padding:14px 32px 14px 24px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:8px;color:#5c5958"><div style="display:flex;justify-content:space-between;font-size:15px"><span><b class="num" style="color:var(--color-text)">#7</b> Siti Nurhaliza</span><span>No pages yet</span></div><div style="display:flex;gap:6px"><div style="width:36px;height:48px;border:1px dashed var(--color-divider)"></div></div></div>
+        <div style="padding:14px 32px;font-size:13px;color:#7d7979">… 34 more students</div>
+      </div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ─────────── T9 Student detail ─────────── -->
+<section style="padding:24px 56px 80px">
+<div class="cell"><p class="lbl" id="lbl-t9"><b>T9</b> Student detail (teacher view) · 1440</p>
+<div class="ab" id="t9" style="width:1440px;min-height:900px">
+  <nav class="nav" style="padding:14px 48px"><span class="nav-brand">Smart Marking</span><a href="#">Classes</a><a href="#">Help</a><span style="font-size:14px;display:flex;align-items:center;gap:8px"><span style="width:28px;height:28px;background:#201e1d;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600">SR</span>Mr Rahman</span></nav>
+  <div style="padding:32px 48px 0">
+    <a href="#" style="font-size:13px;text-decoration:none">← Worksheet 3</a>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin:12px 0 24px">
+      <div><h1 style="font-size:34px;margin:0 0 6px">Tan Wei Ling <span style="color:#5c5958;font-weight:400">· #1 · 4E2</span></h1><div style="font-size:15px;color:#5c5958">Quadratic equations — Worksheet 3 · handed in Tue 9 Sep, 3:12 pm · 4 pages</div></div>
+      <div style="display:flex;align-items:center;gap:20px"><div style="text-align:right"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958">Total</div><div class="num" style="font:800 40px var(--font-heading);line-height:1">18 <span style="font-size:22px;color:#5c5958">/ 25</span></div></div><span class="pill ink" style="font-size:13px">Ready to release</span></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;border-top:2px solid var(--color-divider)">
+    <div style="padding:24px 32px 32px 48px;border-right:2px solid var(--color-divider)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b style="font-size:15px">Pages</b><div style="display:flex;gap:6px"><span class="key" style="background:#201e1d;color:#fff;border-color:#201e1d">1</span><span class="key">2</span><span class="key">3</span><span class="key">4</span></div></div>
+      <div class="paper grayscale" style="height:620px;border:1px solid var(--color-divider);padding:24px 28px;font:italic 15px/24px 'Comic Sans MS',cursive;color:#3a3737;overflow:hidden">Tan Wei Ling &nbsp; 4E2 &nbsp; #1<br>Worksheet 3<br><br>Q1) x² + 5x + 6 = 0<br>(x + 2)(x + 3) = 0<br>x = −2 or x = −3<br><br>Q2) x² − 6x + 2 = 0<br>(x − 3)² − 9 + 2 = 0<br>(x − 3)² = 7<br>x = 3 ± √7<br>x = 5.65 or 0.35<span style="color:#9b9797"> (2 dp)</span></div>
+    </div>
+    <div style="padding:24px 48px 32px 32px;display:flex;flex-direction:column;gap:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:15px">Marks by question</b><button class="btn btn-ghost" style="min-height:40px">Adjust a mark</button></div>
+      <table class="table" style="font-size:15px">
+        <tbody>
+          <tr><td style="width:44px;font-weight:600">Q1</td><td style="color:#5c5958">Factorise</td><td class="num" style="text-align:right;font-weight:600">4 / 4</td><td style="width:32px;text-align:right;color:#7d7979">p.1</td></tr>
+          <tr><td style="font-weight:600">Q2</td><td style="color:#5c5958">Complete the square</td><td class="num" style="text-align:right;font-weight:600">5 / 5</td><td style="text-align:right;color:#7d7979">p.1</td></tr>
+          <tr><td style="font-weight:600">Q3</td><td style="color:#5c5958">Formula</td><td class="num" style="text-align:right;font-weight:600">3 / 5</td><td style="text-align:right;color:#7d7979">p.2</td></tr>
+          <tr><td style="font-weight:600">Q4</td><td style="color:#5c5958">Word problem</td><td class="num" style="text-align:right;font-weight:600">3 / 6</td><td style="text-align:right;color:#7d7979">p.3</td></tr>
+          <tr><td style="font-weight:600">Q5</td><td style="color:#5c5958">Sketch</td><td class="num" style="text-align:right;font-weight:600">3 / 5</td><td style="text-align:right;color:#7d7979">p.4</td></tr>
+        </tbody>
+      </table>
+      <div style="border-top:2px solid var(--color-divider);padding-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b style="font-size:15px">Feedback report</b><button class="btn btn-secondary" style="min-height:40px;gap:8px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>Edit feedback</button></div>
+        <div style="font-size:15px;line-height:1.6;display:flex;flex-direction:column;gap:12px">
+          <p style="margin:0">Wei Ling, you factorise and complete the square confidently and your working is easy to follow. Marks were lost when the formula was applied with a sign slip, and in the word problem the negative root was kept.</p>
+          <div><h6 style="margin-bottom:4px">What you did well</h6><ul style="margin:0;padding-left:18px"><li>Q1 both factors correct with roots stated clearly.</li><li>Q2 completed the square and gave roots to 2 dp as asked.</li><li>Working is laid out line by line, easy to award marks.</li></ul></div>
+          <div><h6 style="margin-bottom:4px">Question by question</h6>
+            <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--color-divider)"><b class="num" style="width:96px;flex:none">Q3 · 3/5</b><span>Substituted b = 5 instead of −5, so both roots have the wrong sign. <i>Try next:</i> write down a, b, c before substituting.</span></div>
+            <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--color-divider)"><b class="num" style="width:96px;flex:none">Q4 · 3/6</b><span>Equation formed correctly and solved. A length cannot be −4 m; the invalid root must be rejected. <i>Try next:</i> check each answer against the question's context.</span></div>
+            <div style="display:flex;gap:12px;padding:8px 0"><b class="num" style="width:96px;flex:none">Q5 · 3/5</b><span>Intercepts correct; the turning point was not labelled. <i>Try next:</i> find the turning point from the completed-square form.</span></div>
+          </div>
+          <div style="color:#5c5958;font-size:13px">Work on next and Next steps sections follow — shown in full on the student's phone screen (round 2).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+</section>
+</x-dc>
+</body>
+</html>

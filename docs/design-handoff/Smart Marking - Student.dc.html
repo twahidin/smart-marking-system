@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/modernist-74c12b6c-c14e-4137-a9d0-95bc689f713c/styles.css">
+<script src="_ds/modernist-74c12b6c-c14e-4137-a9d0-95bc689f713c/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:#dcdad9;font-family:var(--font-body);color:var(--color-text)}
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent)}
+.paper{background:#fff repeating-linear-gradient(transparent 0 23px,#d9d6d6 23px 24px)}
+.ph{width:375px;height:812px;background:var(--color-bg);flex:none;display:flex;flex-direction:column;overflow:hidden;position:relative;font-size:16px;line-height:1.5}
+.sb{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:14px;font-weight:600;flex:none}
+.hd{display:flex;align-items:center;justify-content:space-between;padding:8px 20px 12px;border-bottom:2px solid var(--color-divider);flex:none;gap:12px}
+.hd .brand{font:800 16px var(--font-heading)}
+.who{font-size:14px;color:#5c5958;text-align:right;line-height:1.3}
+.who a{display:block;font-size:14px}
+.body{flex:1;overflow:hidden;padding:24px 20px;display:flex;flex-direction:column;gap:16px}
+.ft{flex:none;padding:12px 20px 28px;display:flex;flex-direction:column;gap:10px;border-top:2px solid var(--color-divider);background:var(--color-bg)}
+.lbl{font:600 11px/1 var(--font-body);letter-spacing:.08em;text-transform:uppercase;color:#5c5958;margin:0 0 10px;display:flex;gap:10px;align-items:baseline}
+.lbl b{background:#201e1d;color:#fff;padding:4px 7px;font-weight:600}
+.cell{display:flex;flex-direction:column;gap:9px;flex:none}
+.amber{background:oklch(0.96 0.05 85);color:oklch(0.40 0.09 70);border:1px solid oklch(0.80 0.12 80)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:14px;padding:4px 10px;line-height:1.4;white-space:nowrap}
+.pill i{width:8px;height:8px;display:inline-block;flex:none}
+.ink{background:#201e1d;color:#fff}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#5c5958}
+.num{font-variant-numeric:tabular-nums}
+.sq{display:inline-flex;gap:3px}.sq i{width:10px;height:10px;display:inline-block;border:1.5px solid #201e1d;box-sizing:border-box}.sq i.f{background:#201e1d}
+.big{min-height:52px;font-size:17px;margin:0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.thumb{aspect-ratio:1/1.35;border:1px solid var(--color-divider);position:relative}
+.pg .thumb{aspect-ratio:auto;height:116px}
+.pg{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px}
+.thumb b{position:absolute;top:6px;left:6px;font-size:12px;background:#201e1d;color:#fff;padding:2px 7px;font-weight:600}
+.qrow{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid var(--color-divider);gap:12px}
+.qrow .q{font-weight:600}
+</style>
+</helmet>
+
+<section style="padding:48px 56px 24px;max-width:1440px">
+  <h1 style="font-size:34px;margin:0 0 8px">Smart Marking — Student flow</h1>
+  <p style="font-size:16px;max-width:760px;margin:0 0 24px">Round 2 of 3. Phone artboards at 375 × 812. Same Modernist tokens and colour roles as the teacher flow; body text never below 16 px, every control ≥ 44 px. See <a href="Smart Marking - Teacher.dc.html">the teacher flow</a> for round 1.</p>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px;max-width:1240px;font-size:14px;line-height:1.5">
+    <div><h6 style="margin-bottom:8px">Assumptions</h6>
+      <p>The student arrives from the class link, so <code>CE4R-</code> is already known; they only type their number.</p>
+      <p>No account. Identity is shown on every screen with "Not you?" so a wrong number is caught early.</p>
+      <p>Teacher-facing words (escalation, confidence, reviewer, rubric) never appear here.</p>
+      <p>Students also open the link on school iPads and Chromebooks. The phone layout is the base; above 768 px it becomes two columns (S10, S11). Same components, no separate app.</p></div>
+    <div><h6 style="margin-bottom:8px">Colour roles</h6>
+      <p><span class="pill" style="background:var(--color-accent);color:#fff">Red</span> the one thing to do next: Continue, Hand in.</p>
+      <p><span class="pill amber">Amber</span> something to check: a blurry page, a lost connection, a wrong number. Always with words and an icon.</p>
+      <p><span class="pill ink">Ink</span> Feedback ready — finished, solid, unmissable in a list.</p>
+      <p><span class="pill" style="background:var(--color-neutral-200)">Grey</span> Handed in, marking — nothing to do.</p></div>
+    <div><h6 style="margin-bottom:8px">Design reasoning</h6>
+      <p>Marks are shown as a number and a row of squares (■■■□□), never colour alone.</p>
+      <p>Feedback is one long reading page in the order the brief gives: total, summary, strengths, question by question, work on next, next steps. Each question opens in place to show criteria and the student's own page.</p>
+      <p>Waiting states are calm: a timestamp and a sentence, no spinner.</p></div>
+  </div>
+</section>
+
+<section style="padding:24px 56px;display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start">
+
+<!-- S1 Enter number -->
+<div class="cell"><p class="lbl" id="lbl-s1"><b>S1</b> Enter your number</p>
+<div class="ph" id="s1">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><span class="brand">Smart Marking</span><span class="who">4E2 Mathematics</span></div>
+  <div class="body">
+    <h1 style="font-size:30px;margin:8px 0 0">Enter your register number</h1>
+    <p style="margin:0;color:#5c5958">It's the number next to your name on the class list.</p>
+    <div style="display:flex;border:2px solid var(--color-text);margin-top:8px;min-height:72px">
+      <div style="padding:0 14px;display:flex;align-items:center;font:800 26px var(--font-heading);letter-spacing:.06em;background:var(--color-neutral-200);color:#5c5958;flex:none">CE4R-</div>
+      <input inputmode="numeric" value="1" style="flex:1;border:0;background:#fff;font:800 40px var(--font-heading);padding:0 16px;min-width:0;outline:none;color:var(--color-text)">
+    </div>
+    <div style="font-size:14px;color:#5c5958">Different class? <a href="#">Type the whole ID, like CE4R-1</a></div>
+  </div>
+  <div class="ft" style="border-top:0">
+    <button class="btn btn-primary btn-block big" style="justify-content:space-between">Continue <span>→</span></button>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
+      <button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">1</button><button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">2</button><button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">3</button>
+      <button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">4</button><button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">5</button><button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">6</button>
+      <button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">7</button><button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">8</button><button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">9</button>
+      <span></span><button class="btn btn-secondary" style="min-height:52px;font-size:22px;justify-content:center;background:#fff">0</button><button class="btn btn-secondary" style="min-height:52px;font-size:18px;justify-content:center;background:#fff">⌫</button>
+    </div>
+  </div>
+</div></div>
+
+<!-- S1b error -->
+<div class="cell"><p class="lbl" id="lbl-s1b"><b>S1b</b> Enter your number · no such student</p>
+<div class="ph" id="s1b">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><span class="brand">Smart Marking</span><span class="who">4E2 Mathematics</span></div>
+  <div class="body">
+    <h1 style="font-size:30px;margin:8px 0 0">Enter your register number</h1>
+    <p style="margin:0;color:#5c5958">It's the number next to your name on the class list.</p>
+    <div style="display:flex;border:2px solid oklch(0.72 0.15 75);margin-top:8px;min-height:72px">
+      <div style="padding:0 14px;display:flex;align-items:center;font:800 26px var(--font-heading);letter-spacing:.06em;background:var(--color-neutral-200);color:#5c5958;flex:none">CE4R-</div>
+      <input inputmode="numeric" value="37" style="flex:1;border:0;background:#fff;font:800 40px var(--font-heading);padding:0 16px;min-width:0;outline:none;color:var(--color-text)">
+    </div>
+    <div class="amber" style="padding:12px 14px;display:flex;gap:10px;align-items:flex-start"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex:none;margin-top:2px"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg><div>No student #37 in this class — check the number on your class list. 4E2 has students 1 to 40.</div></div>
+    <div style="font-size:14px;color:#5c5958">Different class? <a href="#">Type the whole ID, like CE4R-1</a></div>
+  </div>
+  <div class="ft" style="border-top:0">
+    <button class="btn btn-primary btn-block big" style="justify-content:space-between">Try again <span>→</span></button>
+  </div>
+</div></div>
+
+<!-- S2 Confirm -->
+<div class="cell"><p class="lbl" id="lbl-s2"><b>S2</b> Confirm</p>
+<div class="ph" id="s2">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><span class="brand">Smart Marking</span><span class="who">4E2 Mathematics</span></div>
+  <div class="body" style="justify-content:center;gap:0">
+    <div class="eyebrow" style="margin-bottom:12px">Are you</div>
+    <div style="font:800 40px/1.1 var(--font-heading);letter-spacing:-.015em">Tan Wei Ling</div>
+    <div style="font-size:20px;color:#5c5958;margin-top:8px">#1 · 4E2 Mathematics</div>
+    <div style="border-top:2px solid var(--color-divider);margin:32px 0 20px"></div>
+    <p style="margin:0;color:#5c5958">Anyone with your class code and number can see your work, so keep them to yourself.</p>
+  </div>
+  <div class="ft">
+    <button class="btn btn-primary btn-block big">Yes, that's me</button>
+    <button class="btn btn-secondary btn-block big">Not me — go back</button>
+  </div>
+</div></div>
+
+<!-- S3 Home -->
+<div class="cell"><p class="lbl" id="lbl-s3"><b>S3</b> Home · assignments</p>
+<div class="ph" id="s3">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><span class="brand">Smart Marking</span><span class="who">Tan Wei Ling · #1<a href="#">Not you?</a></span></div>
+  <div class="body" style="gap:0;padding-top:20px">
+    <h1 style="font-size:30px;margin:0 0 4px">4E2 Mathematics</h1>
+    <div style="color:#5c5958;margin-bottom:8px">4 assignments</div>
+    <div style="border-top:2px solid var(--color-divider);padding:16px 0;display:flex;flex-direction:column;gap:12px">
+      <div><div style="font-size:18px;font-weight:600;line-height:1.3">Trigonometry quiz</div><div style="color:#5c5958">Due Fri 19 Sep</div></div>
+      <button class="btn btn-primary btn-block big" style="justify-content:space-between">Hand in <span>→</span></button>
+    </div>
+    <div style="border-top:2px solid var(--color-divider);padding:16px 0;display:flex;flex-direction:column;gap:10px">
+      <div><div style="font-size:18px;font-weight:600;line-height:1.3">Quadratic equations — Worksheet 3</div><div style="color:#5c5958">Due Wed 10 Sep</div></div>
+      <div class="row"><span class="pill" style="background:var(--color-neutral-200)"><i style="background:#201e1d"></i>Handed in · marking</span><span style="font-size:14px;color:#5c5958">Tue 3:12 pm</span></div>
+    </div>
+    <div style="border-top:2px solid var(--color-divider);padding:16px 0 0;display:flex;flex-direction:column;gap:12px">
+      <div><div style="font-size:18px;font-weight:600;line-height:1.3">Indices and standard form — Worksheet 2</div><div style="color:#5c5958">Due Wed 27 Aug</div></div>
+      <a href="#" class="ink" style="display:flex;justify-content:space-between;align-items:center;min-height:52px;padding:0 16px;text-decoration:none;color:#fff;font-weight:800;font-size:17px"><span>Feedback ready</span><span class="num" style="font-weight:600">22 / 30 →</span></a>
+    </div>
+    <div style="border-top:2px solid var(--color-divider);margin-top:16px;padding:16px 0 0;display:flex;flex-direction:column;gap:12px">
+      <div><div style="font-size:18px;font-weight:600;line-height:1.3">Simultaneous equations — Worksheet 1</div><div style="color:#5c5958">Due Mon 18 Aug</div></div>
+      <a href="#" class="ink" style="display:flex;justify-content:space-between;align-items:center;min-height:52px;padding:0 16px;text-decoration:none;color:#fff;font-weight:800;font-size:17px"><span>Feedback ready</span><span class="num" style="font-weight:600">17 / 20 →</span></a>
+    </div>
+  </div>
+</div></div>
+
+<!-- S4 Hand in -->
+<div class="cell"><p class="lbl" id="lbl-s4"><b>S4</b> Hand in · 4 pages, one blurry</p>
+<div class="ph" id="s4">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a><span class="who">Tan Wei Ling · #1</span></div>
+  <div class="body" style="gap:12px;padding-top:20px">
+    <div><div class="eyebrow">Trigonometry quiz</div><h1 style="font-size:30px;margin:2px 0 0">Hand in</h1></div>
+    <p style="margin:0;color:#5c5958">Photograph every page. Drag to reorder.</p>
+    <div class="pg">
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale"><b>1</b></div><div style="display:flex;gap:4px"><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px">Retake</button><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px;color:#5c5958">Delete</button></div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale" style="border:2px solid oklch(0.72 0.15 75);filter:blur(1.2px) grayscale(1)"><b>2</b></div><div class="amber" style="padding:6px 10px;font-size:14px;line-height:1.35">Page 2 looks blurry — retake?</div><button class="btn btn-secondary" style="min-height:44px;font-size:14px;background:#fff">Retake page 2</button></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale" style="transform:rotate(-2deg);box-shadow:var(--shadow-md);border-color:var(--color-accent)"><b>3</b><span style="position:absolute;bottom:6px;left:6px;font-size:12px;color:#5c5958">moving…</span></div><div style="display:flex;gap:4px"><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px">Retake</button><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px;color:#5c5958">Delete</button></div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale"><b>4</b></div><div style="display:flex;gap:4px"><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px">Retake</button><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px;color:#5c5958">Delete</button></div></div>
+    </div>
+  </div>
+  <div class="ft">
+    <div style="display:flex;gap:10px"><button class="btn btn-secondary big" style="flex:1;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>Take photo</button><button class="btn btn-secondary big" style="flex:1;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"></path></svg>Gallery</button></div>
+    <button class="btn btn-primary btn-block big" style="justify-content:space-between">Hand in 4 pages <span>→</span></button>
+  </div>
+</div></div>
+
+<!-- S5 Handed in -->
+<div class="cell"><p class="lbl" id="lbl-s5"><b>S5</b> Handed in · waiting</p>
+<div class="ph" id="s5">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a><span class="who">Tan Wei Ling · #1</span></div>
+  <div class="body" style="padding-top:20px">
+    <div><div class="eyebrow">Trigonometry quiz</div><h1 style="font-size:30px;margin:2px 0 0;display:flex;align-items:center;gap:10px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"></path></svg>Handed in</h1></div>
+    <div style="border-top:2px solid var(--color-divider);border-bottom:2px solid var(--color-divider);padding:14px 0;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div><div class="eyebrow">When</div><div style="font-weight:600">Tue 9 Sep, 3:12 pm</div></div>
+      <div><div class="eyebrow">Pages</div><div style="font-weight:600">4</div></div>
+    </div>
+    <p style="margin:0">Marking usually takes a day. We'll show your feedback here.</p>
+    <p style="margin:0;color:#5c5958">You can come back to this link any time. If you spot a missing page, you can add one until marking starts.</p>
+    <div style="display:flex;gap:8px;margin-top:8px"><div class="thumb paper grayscale" style="width:56px"></div><div class="thumb paper grayscale" style="width:56px"></div><div class="thumb paper grayscale" style="width:56px"></div><div class="thumb paper grayscale" style="width:56px"></div></div>
+  </div>
+  <div class="ft">
+    <button class="btn btn-secondary btn-block big">Add a page</button>
+    <button class="btn btn-secondary btn-block big">Back to assignments</button>
+  </div>
+</div></div>
+
+<!-- S6 Feedback top -->
+<div class="cell"><p class="lbl" id="lbl-s6"><b>S6</b> Feedback · top of page</p>
+<div class="ph" id="s6">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a><span class="who">Tan Wei Ling · #1</span></div>
+  <div class="body" style="gap:0;padding-top:20px">
+    <div class="eyebrow">Quadratic equations — Worksheet 3 · released Thu 11 Sep</div>
+    <div style="display:flex;align-items:baseline;gap:8px;margin:8px 0 4px"><span class="num" style="font:800 64px/1 var(--font-heading);letter-spacing:-.02em">18</span><span style="font:800 26px var(--font-heading);color:#5c5958">/ 25</span></div>
+    <div class="sq" style="gap:4px;margin-bottom:16px"><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i class="f" style="width:12px;height:12px"></i><i style="width:12px;height:12px"></i><i style="width:12px;height:12px"></i><i style="width:12px;height:12px"></i><i style="width:12px;height:12px"></i><i style="width:12px;height:12px"></i><i style="width:12px;height:12px"></i><i style="width:12px;height:12px"></i></div>
+    <p style="margin:0 0 20px">Wei Ling, you factorise and complete the square confidently and your working is easy to follow. Marks were lost when the formula was applied with a sign slip, and in the word problem the negative root was kept.</p>
+    <div style="border-top:2px solid var(--color-divider);padding-top:16px">
+      <h2 style="font-size:20px;margin:0 0 8px">What you did well</h2>
+      <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px"><li>Q1 both factors correct with roots stated clearly.</li><li>Q2 completed the square and gave roots to 2 dp as asked.</li><li>Working is laid out line by line, easy to award marks.</li></ul>
+    </div>
+    <div style="border-top:2px solid var(--color-divider);padding-top:16px;margin-top:20px">
+      <h2 style="font-size:20px;margin:0 0 4px">Question by question</h2>
+      <div class="qrow"><span class="q">Q1 · Factorise</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span><b class="num">4 / 4</b><span style="color:#7d7979">⌄</span></span></div>
+      <div class="qrow"><span class="q">Q2 · Complete the square</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span><b class="num">5 / 5</b><span style="color:#7d7979">⌄</span></span></div>
+      <div class="qrow"><span class="q">Q3 · Formula</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span><b class="num">3 / 5</b><span style="color:#7d7979">⌄</span></span></div>
+    </div>
+  </div>
+</div></div>
+
+<!-- S7 Feedback Q3 expanded -->
+<div class="cell"><p class="lbl" id="lbl-s7"><b>S7</b> Feedback · Q3 expanded</p>
+<div class="ph" id="s7">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a><span class="who">Worksheet 3 · <b class="num" style="color:var(--color-text)">18 / 25</b></span></div>
+  <div class="body" style="gap:0;padding-top:0">
+    <div class="qrow" style="border-bottom:0;padding-bottom:8px"><span class="q">Q3 · Formula</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span><b class="num">3 / 5</b><span style="color:#7d7979">⌃</span></span></div>
+    <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--color-divider)">
+      <p style="margin:0">Substituted b = 5 instead of −5, so both roots have the wrong sign.</p>
+      <p style="margin:0;padding:10px 12px;background:#fff;border-left:2px solid var(--color-text)"><b>Try next:</b> write down a, b, c before substituting.</p>
+      <table class="table" style="font-size:15px">
+        <tbody>
+          <tr><td style="padding:6px 0">Correct substitution</td><td class="num" style="text-align:right;padding:6px 0;white-space:nowrap">1 / 1</td></tr>
+          <tr><td style="padding:6px 0">Discriminant evaluated</td><td class="num" style="text-align:right;padding:6px 0;white-space:nowrap">1 / 1</td></tr>
+          <tr><td style="padding:6px 0">First root</td><td class="num" style="text-align:right;padding:6px 0;white-space:nowrap">0 / 1</td></tr>
+          <tr><td style="padding:6px 0">Second root</td><td class="num" style="text-align:right;padding:6px 0;white-space:nowrap">0 / 1</td></tr>
+          <tr><td style="padding:6px 0">Presentation</td><td class="num" style="text-align:right;padding:6px 0;white-space:nowrap">1 / 1</td></tr>
+        </tbody>
+      </table>
+      <div><div class="eyebrow" style="margin-bottom:6px">Your page 2</div>
+        <div class="paper grayscale" style="height:76px;border:1px solid var(--color-divider);padding:2px 14px;font:italic 14px/24px 'Comic Sans MS',cursive;color:#3a3737;overflow:hidden">Q3) 2x² − 5x − 3 = 0<br>x = (−5 ± √(25 + 24)) / 4<br>x = (−5 ± 7)/4 → x = ½ or −3</div>
+        <a href="#" style="font-size:15px;display:inline-block;margin-top:6px">Open full page</a></div>
+    </div>
+    <div class="qrow"><span class="q">Q4 · Word problem</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span><b class="num">3 / 6</b><span style="color:#7d7979">⌄</span></span></div>
+    <div class="qrow"><span class="q">Q5 · Sketch</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span><b class="num">3 / 5</b><span style="color:#7d7979">⌄</span></span></div>
+  </div>
+</div></div>
+
+<!-- S8 Next steps + offline -->
+<div class="cell"><p class="lbl" id="lbl-s8"><b>S8</b> Hand in · offline mid-upload</p>
+<div class="ph" id="s8">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i><i style="width:10px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a><span class="who">Tan Wei Ling · #1</span></div>
+  <div class="amber" style="padding:12px 20px;display:flex;gap:10px;align-items:flex-start;border-width:0 0 1px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex:none;margin-top:2px"><path d="M12 20h.01M2 8.8a15 15 0 0 1 20 0M5 12.9a10 10 0 0 1 14 0M8.5 16.4a5 5 0 0 1 7 0M2 2l20 20"></path></svg><div><b>You're offline.</b> 2 of 4 pages are sent. The rest are saved on this phone and will go when you're back online.</div></div>
+  <div class="body" style="gap:12px;padding-top:20px">
+    <div><div class="eyebrow">Trigonometry quiz</div><h1 style="font-size:30px;margin:2px 0 0">Handing in…</h1></div>
+    <div class="pg">
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale"><b>1</b></div><div style="font-size:14px;display:flex;align-items:center;gap:6px;min-height:44px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"></path></svg>Sent</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale"><b>2</b></div><div style="font-size:14px;display:flex;align-items:center;gap:6px;min-height:44px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"></path></svg>Sent</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale" style="opacity:.6"><b>3</b></div><div style="font-size:14px;color:#5c5958;min-height:44px;display:flex;align-items:center">Waiting for signal</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale" style="opacity:.6"><b>4</b></div><div style="font-size:14px;color:#5c5958;min-height:44px;display:flex;align-items:center">Waiting for signal</div></div>
+    </div>
+    <p style="margin:0;color:#5c5958;font-size:15px">Keep this page open, or come back later — your pages stay on this phone until they're sent.</p>
+  </div>
+  <div class="ft">
+    <button class="btn btn-primary btn-block big" style="justify-content:space-between">Try again now <span>↻</span></button>
+  </div>
+</div></div>
+
+<!-- S9 Next steps -->
+<div class="cell"><p class="lbl" id="lbl-s9"><b>S9</b> Feedback · end of page</p>
+<div class="ph" id="s9">
+  <div class="sb"><span>9:41</span><span style="display:flex;gap:4px"><i style="width:14px;height:10px;background:#201e1d"></i><i style="width:10px;height:10px;background:#201e1d"></i><i style="width:22px;height:10px;border:1.5px solid #201e1d;box-sizing:border-box"></i></span></div>
+  <div class="hd"><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a><span class="who">Worksheet 3 · <b class="num" style="color:var(--color-text)">18 / 25</b></span></div>
+  <div class="body" style="gap:0;padding-top:20px">
+    <div style="border-top:2px solid var(--color-divider);padding-top:16px">
+      <h2 style="font-size:20px;margin:0 0 8px">Work on next</h2>
+      <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px"><li>Signs when substituting into the formula</li><li>Rejecting roots that don't fit the question</li><li>Labelling the turning point on a sketch</li><li>Checking an answer by substituting it back</li></ul>
+    </div>
+    <div style="border-top:2px solid var(--color-divider);padding-top:16px;margin-top:20px">
+      <h2 style="font-size:20px;margin:0 0 8px">Next steps</h2>
+      <ol style="margin:0;padding-left:22px;display:flex;flex-direction:column;gap:10px">
+        <li>Redo Q3 on paper. Write a = 2, b = −5, c = −3 first, then substitute.</li>
+        <li>Textbook Ex 4C, questions 5 to 8. After each answer, ask: can this value be a length?</li>
+        <li>Sketch y = x² − 6x + 2 using your completed-square form from Q2 and label the turning point.</li>
+      </ol>
+    </div>
+    <div style="border-top:2px solid var(--color-divider);padding-top:16px;margin-top:20px;color:#5c5958">Marked by Smart Marking and checked by Mr Rahman. If a mark looks wrong, ask your teacher in class.</div>
+  </div>
+  <div class="ft">
+    <button class="btn btn-secondary btn-block big">See my pages</button>
+    <button class="btn btn-secondary btn-block big">Back to assignments</button>
+  </div>
+</div></div>
+
+</section>
+
+<section style="padding:24px 56px 80px;display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start">
+
+<!-- S10 Feedback iPad -->
+<div class="cell"><p class="lbl" id="lbl-s10"><b>S10</b> Feedback · iPad / Chromebook 1024</p>
+<div class="ph" id="s10" style="width:1024px;height:768px">
+  <div class="hd" style="padding:16px 40px"><span style="display:flex;align-items:center;gap:24px"><span class="brand" style="font-size:18px">Smart Marking</span><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a></span><span class="who" style="display:flex;gap:12px;align-items:baseline">Tan Wei Ling · #1 · 4E2 <a href="#" style="display:inline">Not you?</a></span></div>
+  <div style="padding:28px 40px 0;display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex:none">
+    <div><div class="eyebrow">Quadratic equations — Worksheet 3 · released Thu 11 Sep</div><h1 style="font-size:32px;margin:6px 0 0">Your feedback</h1></div>
+    <div style="display:flex;align-items:baseline;gap:8px"><span class="num" style="font:800 56px/1 var(--font-heading);letter-spacing:-.02em">18</span><span style="font:800 24px var(--font-heading);color:#5c5958">/ 25</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 400px;flex:1;margin-top:20px;border-top:2px solid var(--color-divider);overflow:hidden">
+    <div style="padding:20px 32px 0 40px;border-right:2px solid var(--color-divider);overflow:hidden;font-size:16px">
+      <p style="margin:0 0 20px;max-width:560px">Wei Ling, you factorise and complete the square confidently and your working is easy to follow. Marks were lost when the formula was applied with a sign slip, and in the word problem the negative root was kept.</p>
+      <div style="padding-top:16px;border-top:2px solid var(--color-divider)">
+        <h2 style="font-size:20px;margin:0 0 8px">What you did well</h2>
+        <ul style="margin:0;padding-left:20px;display:grid;grid-template-columns:1fr 1fr;gap:6px 24px"><li>Q1 both factors correct with roots stated clearly.</li><li>Q2 completed the square and gave roots to 2 dp as asked.</li><li>Working is laid out line by line, easy to award marks.</li></ul>
+      </div>
+      <div style="border-top:2px solid var(--color-divider);padding-top:16px;margin-top:20px">
+        <h2 style="font-size:20px;margin:0 0 4px">Question by question</h2>
+        <div class="qrow"><span class="q">Q1 · Factorise</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span><b class="num">4 / 4</b><span style="color:#7d7979">⌄</span></span></div>
+        <div class="qrow" style="background:#fff;margin:0 -12px;padding:14px 12px;border-bottom:0"><span class="q">Q3 · Formula</span><span style="display:flex;align-items:center;gap:10px"><span class="sq"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span><b class="num">3 / 5</b><span style="color:#7d7979">⌃</span></span></div>
+        <div style="background:#fff;margin:0 -12px;padding:0 12px 14px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:10px">
+          <p style="margin:0">Substituted b = 5 instead of −5, so both roots have the wrong sign.</p>
+          <p style="margin:0;padding:10px 12px;background:var(--color-bg);border-left:2px solid var(--color-text)"><b>Try next:</b> write down a, b, c before substituting.</p>
+        </div>
+      </div>
+    </div>
+    <div style="padding:20px 40px 0 32px;display:flex;flex-direction:column;gap:10px;overflow:hidden">
+      <div class="row"><b>Your page 2 · Q3</b><div style="display:flex;gap:6px"><span style="font:600 12px var(--font-body);border:1px solid var(--color-divider);padding:4px 8px">1</span><span style="font:600 12px var(--font-body);background:#201e1d;color:#fff;padding:4px 8px">2</span><span style="font:600 12px var(--font-body);border:1px solid var(--color-divider);padding:4px 8px">3</span><span style="font:600 12px var(--font-body);border:1px solid var(--color-divider);padding:4px 8px">4</span></div></div>
+      <div class="paper grayscale" style="flex:1;border:1px solid var(--color-divider);padding:16px 20px;font:italic 15px/24px 'Comic Sans MS',cursive;color:#3a3737;overflow:hidden">Q3) 2x² − 5x − 3 = 0<br>x = (−5 ± √(25 + 24)) / 4<br>x = (−5 ± √49) / 4<br>x = (−5 ± 7)/4<br>x = ½ or x = −3<br><br>Q4) Let width = x<br>x(x + 3) = 28<br>x² + 3x − 28 = 0<br>(x + 7)(x − 4) = 0<br>x = 4 or x = −7</div>
+      <table class="table" style="font-size:15px;flex:none">
+        <tbody>
+          <tr><td style="padding:6px 0">Correct substitution</td><td class="num" style="text-align:right;padding:6px 0">1 / 1</td></tr>
+          <tr><td style="padding:6px 0">Discriminant evaluated</td><td class="num" style="text-align:right;padding:6px 0">1 / 1</td></tr>
+          <tr><td style="padding:6px 0">First root</td><td class="num" style="text-align:right;padding:6px 0">0 / 1</td></tr>
+          <tr><td style="padding:6px 0">Second root</td><td class="num" style="text-align:right;padding:6px 0">0 / 1</td></tr>
+          <tr><td style="padding:6px 0">Presentation</td><td class="num" style="text-align:right;padding:6px 0">1 / 1</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div></div>
+
+<!-- S11 Hand in iPad -->
+<div class="cell"><p class="lbl" id="lbl-s11"><b>S11</b> Hand in · iPad / Chromebook 1024 (webcam or file upload)</p>
+<div class="ph" id="s11" style="width:1024px;height:768px">
+  <div class="hd" style="padding:16px 40px"><span style="display:flex;align-items:center;gap:24px"><span class="brand" style="font-size:18px">Smart Marking</span><a href="#" style="text-decoration:none;font-size:15px">← Assignments</a></span><span class="who" style="display:flex;gap:12px;align-items:baseline">Tan Wei Ling · #1 · 4E2 <a href="#" style="display:inline">Not you?</a></span></div>
+  <div style="padding:28px 40px 0;display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex:none">
+    <div><div class="eyebrow">Trigonometry quiz · due Fri 19 Sep</div><h1 style="font-size:32px;margin:6px 0 0">Hand in</h1></div>
+    <button class="btn btn-primary" style="min-height:52px;padding:0 20px;font-size:17px;gap:16px">Hand in 4 pages <span>→</span></button>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 360px;flex:1;margin-top:20px;border-top:2px solid var(--color-divider);overflow:hidden">
+    <div style="padding:20px 32px 0 40px;border-right:2px solid var(--color-divider)">
+      <p style="margin:0 0 16px;color:#5c5958">Pages in order. Drag to reorder.</p>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale"><b>1</b></div><div style="display:flex;gap:4px"><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px">Retake</button><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px;color:#5c5958">Delete</button></div></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale" style="border:2px solid oklch(0.72 0.15 75);filter:blur(1.2px) grayscale(1)"><b>2</b></div><div class="amber" style="padding:6px 10px;font-size:14px;line-height:1.35">Page 2 looks blurry — retake?</div><button class="btn btn-secondary" style="min-height:44px;font-size:14px;background:#fff">Retake page 2</button></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale"><b>3</b></div><div style="display:flex;gap:4px"><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px">Retake</button><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px;color:#5c5958">Delete</button></div></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="thumb paper grayscale"><b>4</b></div><div style="display:flex;gap:4px"><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px">Retake</button><button class="btn btn-ghost" style="min-height:44px;flex:1;padding:0 8px;font-size:14px;color:#5c5958">Delete</button></div></div>
+      </div>
+    </div>
+    <div style="padding:20px 40px 0 32px;display:flex;flex-direction:column;gap:12px">
+      <b>Add pages</b>
+      <div style="border:2px dashed var(--color-divider);padding:24px 20px;display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"></path></svg>
+        <div style="font-weight:600">Drop photos or a PDF here</div>
+        <div style="font-size:14px;color:#5c5958">JPG, PNG, HEIC or PDF. Pages are added to the end.</div>
+        <button class="btn btn-secondary" style="min-height:44px;margin-top:4px">Choose files</button>
+      </div>
+      <button class="btn btn-secondary big" style="gap:10px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>Use the camera</button>
+      <p style="margin:0;font-size:14px;color:#5c5958">On a Chromebook, "Use the camera" opens the webcam — hold each page flat and fill the frame. A phone photo is usually clearer; you can open the same link there.</p>
+    </div>
+  </div>
+</div></div>
+
+</section>
+
+</x-dc>
+</body>
+</html>
