@@ -341,7 +341,7 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
     return {
         "id": s["id"], "label": s["label"], "subject": s["subject"], "context": s["context"], "status": s["status"],
         "created_at": iso_utc(s["created_at"]), "rubric": rubric.model_dump(), "pages": pages, "marks": marks,
-        "marks_version": marks_version, "parts": parts,
+        "marks_version": marks_version, "parts": parts, "run_id": s["run_id"],
         "scheme_kind": scheme_info["scheme_kind"] if scheme_info else None,
         "assignment_id": s["assignment_id"], "assignment_title": s["assignment_title"],
         "totals": totals,
