@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from atomic_agents import AgentConfig, AtomicAgent
 from atomic_agents.context import SystemPromptGenerator
@@ -6,11 +6,16 @@ from atomic_agents.context import SystemPromptGenerator
 from sms.schemas.reflection import ReflectionInput, ReflectionUpdate
 
 
-def build_reflection(client: Any, model: str = "gpt-5-mini") -> AtomicAgent[ReflectionInput, ReflectionUpdate]:
+def build_reflection(
+    client: Any,
+    model: str = "gpt-5-mini",
+    model_api_parameters: Optional[dict] = None,
+) -> AtomicAgent[ReflectionInput, ReflectionUpdate]:
     return AtomicAgent[ReflectionInput, ReflectionUpdate](
         config=AgentConfig(
             client=client,
             model=model,
+            model_api_parameters=model_api_parameters,
             system_prompt_generator=SystemPromptGenerator(
                 background=[
                     "You are a marking-standards analyst reviewing teacher corrections.",

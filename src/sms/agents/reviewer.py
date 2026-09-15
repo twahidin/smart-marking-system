@@ -16,6 +16,7 @@ def build_reviewer(
     model: str = "gpt-5-mini",
     subject: str = "math",
     db: Optional[Database] = None,
+    model_api_parameters: Optional[dict] = None,
 ) -> AtomicAgent[ReviewInput, ReviewedScript]:
     cfg = _ROUTER.marker_prompt_config(subject)
     providers = {}
@@ -28,6 +29,7 @@ def build_reviewer(
         config=AgentConfig(
             client=client,
             model=model,
+            model_api_parameters=model_api_parameters,
             system_prompt_generator=SystemPromptGenerator(
                 background=cfg["reviewer_background"],
                 steps=cfg["reviewer_steps"],

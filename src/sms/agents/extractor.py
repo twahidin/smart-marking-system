@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from atomic_agents import AgentConfig, AtomicAgent
 from atomic_agents.context import SystemPromptGenerator
@@ -6,11 +6,16 @@ from atomic_agents.context import SystemPromptGenerator
 from sms.schemas.extraction import ExtractionInput, ExtractedScript
 
 
-def build_extractor(client: Any, model: str = "gpt-5-mini") -> AtomicAgent[ExtractionInput, ExtractedScript]:
+def build_extractor(
+    client: Any,
+    model: str = "gpt-5-mini",
+    model_api_parameters: Optional[dict] = None,
+) -> AtomicAgent[ExtractionInput, ExtractedScript]:
     return AtomicAgent[ExtractionInput, ExtractedScript](
         config=AgentConfig(
             client=client,
             model=model,
+            model_api_parameters=model_api_parameters,
             system_prompt_generator=SystemPromptGenerator(
                 background=[
                     "You are a precise handwriting transcription specialist for student exam scripts.",

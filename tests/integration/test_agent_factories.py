@@ -58,3 +58,19 @@ def test_reflection_factory(client):
 def test_marker_rejects_unknown_subject(client):
     with pytest.raises(KeyError):
         build_marker(client=client, model="gpt-5-mini", subject="fiction", db=None)
+
+
+def test_factories_accept_model_api_parameters():
+    from sms.agents.extractor import build_extractor
+    from sms.agents.feedback import build_feedback
+    from sms.agents.marker import build_marker
+    from sms.agents.reflection import build_reflection
+    from sms.agents.reviewer import build_reviewer
+    import instructor, openai
+    client = instructor.from_openai(openai.OpenAI(api_key="x"))
+    for build in (build_extractor, build_feedback, build_reflection):
+        agent = build(client=client, model="m", model_api_parameters={"max_tokens": 10})
+        assert agent.model_api_parameters == {"max_tokens": 10}
+    for build in (build_marker, build_reviewer):
+        agent = build(client=client, model="m", subject="math", model_api_parameters={"max_tokens": 10})
+        assert agent.model_api_parameters == {"max_tokens": 10}

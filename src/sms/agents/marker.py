@@ -25,12 +25,14 @@ def build_marker(
     model: str = "gpt-5-mini",
     subject: str = "math",
     db: Optional[Database] = None,
+    model_api_parameters: Optional[dict] = None,
 ) -> AtomicAgent[MarkingInput, MarkedScript]:
     cfg = _ROUTER.marker_prompt_config(subject)
     return AtomicAgent[MarkingInput, MarkedScript](
         config=AgentConfig(
             client=client,
             model=model,
+            model_api_parameters=model_api_parameters,
             system_prompt_generator=SystemPromptGenerator(
                 background=cfg["background"],
                 steps=cfg["steps"],
