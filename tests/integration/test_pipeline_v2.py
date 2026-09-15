@@ -375,3 +375,69 @@ def test_v2_rubric_band_marks_come_from_the_rubric_and_unknown_bands_escalate(tm
     # Content: marker band A (5) vs reviewer band B (3) -> totals differ -> disagreement; Language: unmappable -> disagreement
     assert r2.escalations == {"Content": "marker/reviewer disagree", "Language": "marker/reviewer disagree"}
     assert r2.final.rubric[0].marks == 5
+
+
+# --- round 2: empty allocations, adjusted pinned to its row, illegible outranks missing ----------
+
+def test_v2_empty_awarded_is_rebuilt_from_the_row_and_escalated_low_confidence(tmp_path):
+    bare = PartMark(q_id="1a", awarded=[], total=99, in_scheme=True, confidence=0.95, justification="looks fine")
+    db, agents, pipeline = make(tmp_path, mark=marked([bare, part("1b", (True,), 1, confidence=0.9)]))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    p = result.final.parts[0]
+    assert [(a.label, a.marks, a.got) for a in p.awarded] == [("M1", 1, False), ("A1", 1, False)]
+    assert p.total == 0 and p.in_scheme is True and "no allocations" in p.justification and "looks fine" in p.justification
+    assert result.escalations == {"1a": "low confidence"} and queue(db) == {"1a": "low confidence"}
+    assert json.loads(db.query("SELECT final_marks_json FROM marking_runs")[0]["final_marks_json"])["parts"][0]["total"] == 0
+
+
+def test_v2_adjusted_with_empty_awarded_is_a_disagreement(tmp_path):
+    adj = PartMark(q_id="1a", awarded=[], total=1, confidence=0.9)
+    db, agents, pipeline = make(tmp_path, mark=marked([part("1a", (True, False), 1, confidence=0.9), part("1b", (True,), 1, confidence=0.9)]),
+                                review=reviewed(ReviewVerdictV2(q_id="1a", verdict="ADJUST", adjusted=adj)))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {"1a": "marker/reviewer disagree"}
+    assert [a.got for a in result.final.parts[0].awarded] == [True, False]  # marker's breakdown kept
+
+
+def test_v2_silent_adjust_is_pinned_to_the_rows_key(tmp_path):
+    stray = PartMark(q_id="1b", awarded=[AllocationMark(label="M1", marks=1, got=False), AllocationMark(label="A1", marks=1, got=True)],
+                     total=1, confidence=0.9)
+    db, agents, pipeline = make(tmp_path, mark=marked([part("1a", (True, False), 1, confidence=0.9), part("1b", (True,), 1, confidence=0.9)]),
+                                review=reviewed(ReviewVerdictV2(q_id="1a", verdict="ADJUST", adjusted=stray)))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert [p.q_id for p in result.final.parts] == ["1a", "1b"] and result.escalations == {}
+    assert [a.got for a in result.final.parts[0].awarded] == [False, True]
+    # rubric: an adjusted mark naming another criterion is stored under the verdict's criterion
+    marks = MarkedScriptV2(kind="rubric", rubric=[RubricMark(criterion="Content", band="B", marks=3, confidence=0.9),
+                                                  RubricMark(criterion="Language", band="A", marks=5, confidence=0.9)])
+    review = ReviewedScriptV2(verdicts=[
+        ReviewVerdictV2(q_id="Content", verdict="ADJUST", adjusted=RubricMark(criterion="Language", band="B", marks=3, justification="re-worded", confidence=0.9)),
+        ReviewVerdictV2(q_id="Language", verdict="APPROVE")])
+    (tmp_path / "b").mkdir()
+    db2, r2 = _rubric_run(tmp_path / "b", marks, review)
+    assert [r.criterion for r in r2.final.rubric] == ["Content", "Language"] and r2.escalations == {}
+    assert r2.final.rubric[0].justification == "re-worded"
+
+
+def test_v2_missing_part_on_an_illegible_extraction_is_illegible(tmp_path):
+    db, agents, pipeline = make(tmp_path, extract=extracted(illegible=("1b",)), mark=marked([part("1a", (True, True), 2, confidence=0.9)]),
+                                review=ReviewedScriptV2(verdicts=[ReviewVerdictV2(q_id="1a", verdict="APPROVE")]))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {"1b": "illegible"} and queue(db) == {"1b": "illegible"}
+    assert result.final.parts[1].q_id == "1b" and result.final.parts[1].total == 0
+
+
+def test_v2_stored_marks_agree_with_the_queue_reason(tmp_path):
+    # illegible part with mis-copied marks: the normalised mark is what the record sees
+    miscopied = PartMark(q_id="1a", awarded=[AllocationMark(label="M1", marks=7, got=True), AllocationMark(label="A1", marks=1, got=False)],
+                         total=7, confidence=0.9)
+    # unknown label on 1b and an invented part 3: stored with in_scheme=False so record and queue agree
+    unknown = PartMark(q_id="1b", awarded=[AllocationMark(label="Q1", marks=1, got=True)], total=1, confidence=0.9)
+    invented = PartMark(q_id="3", awarded=[AllocationMark(label="M1", marks=1, got=True)], total=1, confidence=0.9)
+    db, agents, pipeline = make(tmp_path, extract=extracted(illegible=("1a",)), mark=marked([miscopied, unknown, invented]))
+    result = pipeline.run(images=[b"img"], template=TEMPLATE)
+    assert result.escalations == {"1a": "illegible", "1b": "not in scheme", "3": "not in scheme"}
+    p1a, p1b, p3 = result.final.parts
+    assert p1a.total == 1 and [a.marks for a in p1a.awarded] == [1, 1]
+    assert p1b.in_scheme is False and p1b.awarded[0].label == "Q1"
+    assert p3.in_scheme is False

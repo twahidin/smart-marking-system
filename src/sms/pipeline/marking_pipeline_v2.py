@@ -4,7 +4,7 @@ merge with escalation -> feedback -> persist as final_marks_json {"version": 2, 
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 from sms.memory.db import Database
 from sms.memory.extraction_cache import ExtractionCache
@@ -56,28 +56,48 @@ def _marks_of(m: Mark) -> int:
     return m.total if isinstance(m, PartMark) else m.marks
 
 
-def normalise_against_scheme(mark: Mark, row: Any) -> Tuple[Mark, bool]:
-    """Reconcile an LLM mark with the scheme it claims to follow. Returns (mark, in_scheme).
+class Normalised(NamedTuple):
+    mark: Mark
+    in_scheme: bool
+    empty: bool  # a mark-scheme part that listed no allocation at all (rebuilt from the row, not trusted)
+
+
+def normalise_against_scheme(mark: Mark, row: Any) -> Normalised:
+    """Reconcile an LLM mark with the scheme it claims to follow.
     PartMark + MarkSchemeEntry: every awarded label must exist in the row (else not in scheme); each
     allocation's marks are taken from the row by label and the total recomputed from the allocations
-    marked got. A part the marker flagged in_scheme=False stays out of the scheme.
+    marked got. A part with no allocation listed is never trusted: it is rebuilt from the row with every
+    allocation lost (total 0) and flagged `empty`. A part the marker flagged in_scheme=False stays out
+    of the scheme untouched.
     RubricMark + RubricCriterionBands: the band must exist in the criterion (else not in scheme) and its
     marks are taken from the rubric."""
     if isinstance(mark, PartMark) and isinstance(row, MarkSchemeEntry):
         if not mark.in_scheme:
-            return mark, False
+            return Normalised(mark, False, False)
+        if not mark.awarded:
+            rebuilt = mark.model_copy(update={
+                "awarded": [AllocationMark(label=mp.label, marks=mp.marks, got=False) for mp in row.marks],
+                "total": 0,
+                "justification": f"{mark.justification} (Marker returned no allocations)".strip(),
+            })
+            return Normalised(rebuilt, True, True)
         row_marks = {mp.label: mp.marks for mp in row.marks}
         if any(a.label not in row_marks for a in mark.awarded):
-            return mark, False
+            return Normalised(mark, False, False)
         awarded = [a.model_copy(update={"marks": row_marks[a.label]}) for a in mark.awarded]
-        total = sum(a.marks for a in awarded if a.got) if awarded else mark.total
-        return mark.model_copy(update={"awarded": awarded, "total": total}), True
+        total = sum(a.marks for a in awarded if a.got)
+        return Normalised(mark.model_copy(update={"awarded": awarded, "total": total}), True, False)
     if isinstance(mark, RubricMark) and isinstance(row, RubricCriterionBands):
         bands = {b.band: b.marks for b in row.bands}
         if mark.band not in bands:
-            return mark, False
-        return mark.model_copy(update={"marks": bands[mark.band]}), True
-    return mark, False
+            return Normalised(mark, False, False)
+        return Normalised(mark.model_copy(update={"marks": bands[mark.band]}), True, False)
+    return Normalised(mark, False, False)
+
+
+def _out_of_scheme(m: Mark) -> Mark:
+    """The stored form of a mark the scheme cannot account for: flagged so the record agrees with the queue."""
+    return m.model_copy(update={"in_scheme": False}) if isinstance(m, PartMark) else m
 
 
 def _missing_mark(row: Any) -> Mark:
@@ -213,11 +233,12 @@ class MarkingPipelineV2:
         for key, row in rows_by_key.items():
             m = by_key.get(key)
             if m is None:
-                # The marker returned nothing for this part: 0 marks with no confidence at all. Escalated as
-                # "low confidence" because that is the queue reason that means "the marker could not mark
-                # this" — the five reason strings are fixed for the record and the review queue.
+                # The marker returned nothing for this part: 0 marks with no confidence at all. An illegible
+                # part keeps its own reason; otherwise it is escalated as "low confidence" because that is
+                # the queue reason that means "the marker could not mark this" — the five reason strings are
+                # fixed for the record and the review queue.
                 final.append(_missing_mark(row))
-                escalations[key] = LOW_CONFIDENCE
+                escalations[key] = ILLEGIBLE if key in illegible else LOW_CONFIDENCE
                 continue
             merged, reason = self._merge_one(m, row, verdicts.get(key), key in illegible)
             final.append(merged)
@@ -225,7 +246,7 @@ class MarkingPipelineV2:
                 escalations[key] = reason
         for key, m in by_key.items():
             if key not in rows_by_key:  # invented part / criterion: kept as the marker's proposal, teacher decides
-                final.append(m)
+                final.append(_out_of_scheme(m))
                 escalations[key] = NOT_IN_SCHEME
         if self.kind == "mark_scheme":
             return MarkedScriptV2(kind="mark_scheme", parts=final), escalations  # type: ignore[arg-type]
@@ -235,11 +256,16 @@ class MarkingPipelineV2:
         # Reason priority: illegible -> not in scheme -> reviewer escalated -> disagree -> low confidence.
         # The marker's in_scheme / allocation check comes before any verdict so a reviewer's ADJUST
         # (whose adjusted part defaults to in_scheme=True) can never un-escalate an uncovered answer.
+        # Whatever the reason, the stored mark is the normalised one where the scheme accounts for it,
+        # and flagged in_scheme=False where it does not, so the record and the queue agree.
+        normalised, in_scheme, empty = normalise_against_scheme(m, row)
+        stored = normalised if in_scheme else _out_of_scheme(m)
         if illegible:
-            return m, ILLEGIBLE
-        normalised, in_scheme = normalise_against_scheme(m, row)
+            return stored, ILLEGIBLE
         if not in_scheme:
-            return m, NOT_IN_SCHEME
+            return stored, NOT_IN_SCHEME
+        if empty:
+            return stored, LOW_CONFIDENCE  # nothing to reconcile: the marker listed no allocation
         m = normalised
         # A missing reviewer verdict counts as APPROVE: the marker's (normalised) mark stands.
         if verdict is not None and verdict.verdict == ReviewVerdict.ESCALATE:
@@ -248,14 +274,14 @@ class MarkingPipelineV2:
             adjusted = verdict.adjusted
             if not isinstance(adjusted, type(m)):
                 return m, DISAGREE  # no usable corrected mark: the teacher sees both views
-            adjusted, adj_in_scheme = normalise_against_scheme(adjusted, row)
-            if not adj_in_scheme or _marks_of(adjusted) != _marks_of(m):
-                return m, DISAGREE  # marks differ (or the correction is unmappable): the teacher decides
+            adjusted, adj_in_scheme, adj_empty = normalise_against_scheme(adjusted, row)
+            if not adj_in_scheme or adj_empty or _marks_of(adjusted) != _marks_of(m):
+                return m, DISAGREE  # marks differ, no allocations, or unmappable: the teacher decides
             # same marks, different allocation / band wording: take the reviewer's correction quietly,
-            # keeping the marker's in_scheme and the lower of the two confidences
+            # pinned to this row's key, keeping the marker's in_scheme and the lower of the two confidences
             m = adjusted.model_copy(update={
                 "confidence": min(m.confidence, adjusted.confidence),
-                **({"in_scheme": m.in_scheme} if isinstance(m, PartMark) else {}),
+                **({"q_id": m.q_id, "in_scheme": m.in_scheme} if isinstance(m, PartMark) else {"criterion": m.criterion}),
             })
         if self.confidence_threshold and m.confidence < self.confidence_threshold:
             return m, LOW_CONFIDENCE
