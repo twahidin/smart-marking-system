@@ -19,7 +19,9 @@ from sms.worker.jobs import JobStore
 def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, label: str, subject: str,
                       context: str, rubric_json: str, files: List[Tuple[str, bytes]],
                       assignment_id: Optional[int] = None, class_assignment_id: Optional[int] = None,
-                      student_id: Optional[int] = None, source: str = "teacher") -> Dict[str, Any]:
+                      student_id: Optional[int] = None, source: str = "teacher",
+                      max_pages: Optional[int] = None) -> Dict[str, Any]:
+    """`max_pages` caps the pages after PDF rasterising (default: process_uploads' per-script limit)."""
     label = label.strip()
     if not label:
         raise ApiError(400, "bad_label", "Give the script a label")
@@ -31,7 +33,7 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
     if not files:
         raise ApiError(400, "no_files", "Add at least one page")
     try:
-        pages = process_uploads(files, storage)
+        pages = process_uploads(files, storage, **({"max_pages": max_pages} if max_pages is not None else {}))
     except UploadError as e:
         raise ApiError(400, "bad_upload", str(e))
     # A stale id from the SPA (template deleted meanwhile) is dropped rather than rejected.

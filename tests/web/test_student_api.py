@@ -67,8 +67,17 @@ def _png():
     return buf.getvalue()
 
 
-def _setup(auth):
-    auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "api_key": "sk-x", "rpm_limit": 60, "confidence_threshold": 0})
+def _pdf(pages):
+    import pymupdf as fitz
+    doc = fitz.open()
+    for _ in range(pages):
+        doc.new_page(width=200, height=300)
+    return doc.tobytes()
+
+
+def _setup(auth, with_key=True):
+    if with_key:
+        auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "api_key": "sk-x", "rpm_limit": 60, "confidence_threshold": 0})
     t = auth.post("/api/assignments", json={"title": "Worksheet 3", "subject": "math", "context": "", "rubric": RUBRIC,
                                             "scheme_kind": "mark_scheme", "questions": QUESTIONS, "scheme": SCHEME}).json()
     c = _class(auth)
@@ -109,6 +118,51 @@ def test_hand_in_refused_when_closed_or_not_open(auth, client):
     r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("p1.png", _png(), "image/png"))])
     assert r.status_code == 403 and r.json()["error"]["code"] == "uploads_closed"
     assert client.get("/api/student/assignments").json()[0]["allow_student_uploads"] is False
+    # a draft is invisible, so handing in to it is 404 not 403
+    assert client.post(f"/api/student/assignments/{draft['id']}/hand-in", files=[("files", ("p1.png", _png(), "image/png"))]).status_code == 404
+
+
+def test_hand_in_refused_after_release(auth, client, app):
+    t, c, ca, draft = _setup(auth)
+    sid, _ = seed_v2(app, label="#2 Muhammad Danish", assignment_id=t["id"], run_id="r-danish", queue={})
+    app.state.db.execute("UPDATE submissions SET class_assignment_id = :a, student_id = :s WHERE id = :id",
+                         {"a": ca["id"], "s": c["students"][1]["id"], "id": sid})
+    assert auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/release").status_code == 200
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("p1.png", _png(), "image/png"))])
+    assert r.status_code == 403 and r.json()["error"]["code"] == "uploads_closed"
+
+
+def test_hand_in_visibility_is_checked_before_the_teachers_key(auth, client):
+    t, c, ca, draft = _setup(auth, with_key=False)
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}", json={"title": "W", "due_at": None, "allow_student_uploads": False, "status": "open"})
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    png = [("files", ("p1.png", _png(), "image/png"))]
+    assert client.post(f"/api/student/assignments/{draft['id']}/hand-in", files=png).status_code == 404
+    assert client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=png).json()["error"]["code"] == "uploads_closed"
+    auth.post("/api/auth/login", json={"password": "letmein"})
+    assert auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}", json={"title": "W", "due_at": None, "allow_student_uploads": True, "status": "open"}).status_code == 200
+    r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=png)
+    assert r.status_code == 400 and r.json()["error"] == {
+        "code": "no_key", "message": "Your teacher has not finished setting up marking yet — try again later"}
+
+
+def test_hand_in_caps_pages_not_files(auth, client, app):
+    t, c, ca, draft = _setup(auth)
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    # one PDF that rasterises to 21 pages is over the cap even though it is a single file
+    r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("script.pdf", _pdf(21), "application/pdf"))])
+    assert r.status_code == 400 and r.json()["error"] == {"code": "too_many_pages", "message": "Hand in at most 20 pages"}
+    # 21 separate images are refused before the body is processed
+    r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", (f"p{i}.png", _png(), "image/png")) for i in range(21)])
+    assert r.status_code == 400 and r.json()["error"]["code"] == "too_many_pages"
+    assert app.state.db.query("SELECT COUNT(*) AS c FROM submissions", {})[0]["c"] == 0
+    # exactly 20 pages is fine
+    r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("script.pdf", _pdf(20), "application/pdf"))])
+    assert r.status_code == 202 and len(r.json()["pages"]) == 20
 
 
 def test_feedback_hidden_until_release_then_complete_and_scoped(auth, client, app):

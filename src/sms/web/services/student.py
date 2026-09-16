@@ -118,22 +118,35 @@ _HAND_IN_MESSAGES = {
 }
 
 
-def student_hand_in(db: Database, storage: PageStorage, jobs: JobStore, student: dict, caid: int,
-                    files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
+MAX_HAND_IN_PAGES = 20
+TOO_MANY_PAGES = f"Hand in at most {MAX_HAND_IN_PAGES} pages"
+
+
+def open_for_hand_in(db: Database, student: dict, caid: int) -> Dict[str, Any]:
+    """The class assignment the student may hand in to: 404 for a draft or another class's assignment,
+    403 `uploads_closed` unless it is open with student uploads allowed."""
     ca = get_class_assignment(db, student["class_id"], caid)
     if ca is None or ca["status"] == "draft":
         raise ApiError(404, "not_found", "No such assignment")
     if ca["status"] != "open" or not ca["allow_student_uploads"]:
         raise ApiError(403, "uploads_closed", "Hand-ins are closed for this assignment — ask your teacher")
+    return ca
+
+
+def student_hand_in(db: Database, storage: PageStorage, jobs: JobStore, student: dict, caid: int,
+                    files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
+    ca = open_for_hand_in(db, student, caid)
     st = get_student(db, student["class_id"], student["student_id"])
     if st is None:
         raise ApiError(401, "student_session", "Enter your class code and number to continue")
     try:
-        return hand_in(db, storage, jobs, ca=ca, student=st, files=files, source="student")
+        return hand_in(db, storage, jobs, ca=ca, student=st, files=files, source="student", max_pages=MAX_HAND_IN_PAGES)
     except ApiError as e:
         # Same codes as the teacher's route, but say what a student can do about it.
         if e.code in _HAND_IN_MESSAGES:
             raise ApiError(e.status, e.code, _HAND_IN_MESSAGES[e.code]) from None
+        if e.code == "bad_upload" and "too many pages" in e.message:
+            raise ApiError(400, "too_many_pages", TOO_MANY_PAGES) from None
         raise
 
 

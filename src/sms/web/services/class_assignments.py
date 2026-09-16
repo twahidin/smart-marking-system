@@ -118,8 +118,9 @@ def get_student(db: Database, class_id: int, student_id: int) -> Optional[Dict[s
 
 
 def hand_in(db: Database, storage: PageStorage, jobs: JobStore, *, ca: Dict[str, Any], student: Dict[str, Any],
-            files: List[Tuple[str, bytes]], source: str) -> Dict[str, Any]:
-    """Create the student's submission for a class assignment; marking starts as for any upload."""
+            files: List[Tuple[str, bytes]], source: str, max_pages: Optional[int] = None) -> Dict[str, Any]:
+    """Create the student's submission for a class assignment; marking starts as for any upload.
+    `max_pages` (pages after PDF rasterising) tightens the default per-script limit for student hand-ins."""
     template = get_template(db, ca["template_id"])
     if template is None:
         raise ApiError(409, "template_deleted", "This assignment was deleted from the bank — set it again from a current assignment")
@@ -127,7 +128,8 @@ def hand_in(db: Database, storage: PageStorage, jobs: JobStore, *, ca: Dict[str,
         raise ApiError(409, "already_handed_in", "This student has already handed in — remove the hand-in first to redo it")
     return create_submission(db, storage, jobs, label=f"#{student['reg_no']} {student['name']}", subject=template["subject"],
                              context=template["context"], rubric_json=json.dumps(template["rubric"]), files=files,
-                             assignment_id=template["id"], class_assignment_id=ca["id"], student_id=student["id"], source=source)
+                             assignment_id=template["id"], class_assignment_id=ca["id"], student_id=student["id"], source=source,
+                             max_pages=max_pages)
 
 
 def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: int) -> None:
