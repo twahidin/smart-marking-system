@@ -8,6 +8,7 @@ import { Notice } from "./components/Notice";
 import { AssignmentEditor } from "./pages/AssignmentEditor";
 import { Assignments } from "./pages/Assignments";
 import { Classes } from "./pages/Classes";
+import { ClassPage } from "./pages/ClassPage";
 import { Learning } from "./pages/Learning";
 import { NewSubmission } from "./pages/NewSubmission";
 import { Review } from "./pages/Review";
@@ -58,6 +59,7 @@ export function App() {
       <Route element={<Shell />}>
         <Route index element={<Navigate to="/classes" replace />} />
         <Route path="/classes" element={<Classes />} />
+        <Route path="/classes/:id" element={<ClassPage />} />
         <Route path="/submissions" element={<Submissions />} />
         <Route path="/submissions/new" element={<NewSubmission />} />
         <Route path="/submissions/:id" element={<SubmissionDetail />} />

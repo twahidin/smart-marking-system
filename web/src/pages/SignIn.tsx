@@ -9,7 +9,7 @@ export function SignIn() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
-  const from = (useLocation().state as any)?.from ?? "/submissions";
+  const from = (useLocation().state as any)?.from ?? "/classes";
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setError(null);
     try { await api.post("/api/auth/login", { password }); nav(from, { replace: true }); }
