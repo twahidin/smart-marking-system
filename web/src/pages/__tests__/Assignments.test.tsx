@@ -75,6 +75,25 @@ describe("Assignments", () => {
   });
 });
 
+describe("Assignments — delete guard", () => {
+  it("warns when scripts reference the assignment and deletes with force", async () => {
+    const inUse = [{ ...templates[0], submission_count: 3, pending_count: 1 }];
+    const calls = mockFetch({
+      "GET /api/assignments": () => new Response(JSON.stringify(inUse), { status: 200 }),
+      "DELETE /api/assignments/1?force=true": () => new Response(null, { status: 204 }),
+    });
+    render(<MemoryRouter><Assignments /></MemoryRouter>);
+    await screen.findByText("Worksheet 3");
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("3 scripts");
+    expect(dialog).toHaveTextContent("1 has not been marked yet");
+    expect(screen.queryByRole("button", { name: "Delete assignment" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Delete anyway" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/assignments/1?force=true")).toBe(true));
+  });
+});
+
 describe("Assignments — editor links", () => {
   const app = () => (
     <MemoryRouter initialEntries={["/assignments"]}>

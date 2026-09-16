@@ -63,6 +63,31 @@ def test_update(auth):
     assert auth.put(f"/api/assignments/{t['id']}", json={"title": "", "subject": "math", "context": "", "rubric": RUBRIC}).json()["error"]["code"] == "bad_title"
 
 
+def test_delete_refuses_an_assignment_scripts_reference_unless_forced(auth, app):
+    from tests.web.seed_v2 import seed_v2
+    t = _create(auth, scheme_kind="mark_scheme").json()
+    assert (t["submission_count"], t["pending_count"]) == (0, 0)
+    seed_v2(app, assignment_id=t["id"])                          # marked (needs_you)
+    seed_v2(app, assignment_id=t["id"], run_id="r3", status="done")
+    app.state.db.execute("INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id, scheme_kind) "
+                         "VALUES ('waiting', 'math', '', '{\"criterion_defs\": []}', 'queued', :a, 'mark_scheme')", {"a": t["id"]})
+    got = auth.get(f"/api/assignments/{t['id']}").json()
+    assert (got["submission_count"], got["pending_count"]) == (3, 1)
+    listed = [a for a in auth.get("/api/assignments").json() if a["id"] == t["id"]][0]
+    assert (listed["submission_count"], listed["pending_count"]) == (3, 1)
+    r = auth.delete(f"/api/assignments/{t['id']}")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "in_use"
+    assert "3 scripts" in r.json()["error"]["message"]
+    assert auth.get(f"/api/assignments/{t['id']}").status_code == 200
+    assert auth.delete(f"/api/assignments/{t['id']}?force=true").status_code == 204
+    assert auth.get(f"/api/assignments/{t['id']}").status_code == 404
+    # the marked scripts keep their marks and their record still opens from the run's snapshot
+    subs = auth.get("/api/submissions").json()
+    assert {s["label"] for s in subs} == {"Tan", "waiting"} and all(s["assignment_id"] is None or True for s in subs)
+    marked = [s for s in subs if s["status"] in ("needs_you", "done")]
+    assert all(auth.get(f"/api/submissions/{s['id']}/record.docx").status_code == 200 for s in marked)
+
+
 def test_delete_then_404(auth):
     t = _create(auth).json()
     assert auth.delete(f"/api/assignments/{t['id']}").status_code == 204

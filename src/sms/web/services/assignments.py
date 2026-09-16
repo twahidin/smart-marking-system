@@ -124,9 +124,16 @@ def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool) -> 
         "delete_pages_after_marking": flag,
         "effective_delete_pages": delete_default if flag is None else flag,
         "times_used": int(r["times_used"]),
+        "submission_count": int(r.get("submission_count") or 0),
+        "pending_count": int(r.get("pending_count") or 0),
         "created_at": iso_utc(r["created_at"]), "updated_at": iso_utc(r["updated_at"]),
     }
 
+
+# Scripts uploaded against the template, and how many of them have not been marked yet (those would fail
+# with "assignment deleted" if the template went away — see the delete guard).
+_COUNTS = ("(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id) AS submission_count, "
+           "(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id AND s.run_id IS NULL) AS pending_count")
 
 _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, "
            "scheme_json, delete_pages_after_marking) VALUES (:title, :subject, :context, :rubric, :scheme_kind, "
@@ -134,14 +141,14 @@ _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_js
 
 
 def list_templates(db: Database) -> List[Dict[str, Any]]:
-    rows = db.query("SELECT * FROM assignment_templates ORDER BY times_used DESC, updated_at DESC, id DESC")
+    rows = db.query(f"SELECT t.*, {_COUNTS} FROM assignment_templates t ORDER BY times_used DESC, updated_at DESC, id DESC")
     pages = _template_pages(db, [r["id"] for r in rows])
     default = global_delete_pages_default(db)
     return [_row_to_dict(r, pages[r["id"]], default) for r in rows]
 
 
 def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
-    rows = db.query("SELECT * FROM assignment_templates WHERE id = :id", {"id": template_id})
+    rows = db.query(f"SELECT t.*, {_COUNTS} FROM assignment_templates t WHERE t.id = :id", {"id": template_id})
     if not rows:
         return None
     return _row_to_dict(rows[0], _template_pages(db, [template_id])[template_id], global_delete_pages_default(db))
@@ -195,10 +202,21 @@ def duplicate_template(db: Database, template_id: int) -> Dict[str, Any]:
     return get_template(db, new_id)  # type: ignore[return-value]
 
 
-def delete_template(db: Database, template_id: int) -> None:
+def delete_template(db: Database, template_id: int, *, force: bool = False) -> None:
+    """Delete a template. Refused (409 `in_use`) while scripts reference it unless `force` — marked
+    scripts keep their marks and records (the run stores its own scheme snapshot), but unmarked ones
+    will fail with "assignment deleted" and have to be uploaded again."""
     with db.transaction() as tx:
-        if tx.execute("DELETE FROM assignment_templates WHERE id = :id", {"id": template_id}) == 0:
+        t = get_template(tx, template_id)
+        if t is None:
             raise ApiError(404, "not_found", "No such assignment")
+        if t["submission_count"] and not force:
+            n, pending = t["submission_count"], t["pending_count"]
+            msg = f"{n} script{'s' if n != 1 else ''} reference this assignment"
+            if pending:
+                msg += f" and {pending} of them {'have' if pending != 1 else 'has'} not been marked yet"
+            raise ApiError(409, "in_use", msg + " — delete anyway to remove it from the bank")
+        tx.execute("DELETE FROM assignment_templates WHERE id = :id", {"id": template_id})
         tx.execute("DELETE FROM pages WHERE template_id = :id", {"id": template_id})
 
 

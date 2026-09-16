@@ -10,7 +10,7 @@ from sms.web.deps import get_db, get_jobs, get_storage, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.assignments import (
     attach_paper, attach_scheme, create_template, delete_template, duplicate_template, enqueue_extract,
-    export_templates, extract_status, import_templates, list_templates, update_template,
+    export_templates, extract_status, get_template, import_templates, list_templates, update_template,
 )
 from sms.web.uploads import read_upload_files
 
@@ -56,14 +56,22 @@ def import_(payload: Any = Body(...), db=Depends(get_db)):
     return {"created": import_templates(db, payload)}
 
 
+@router.get("/{template_id}")
+def show(template_id: int, db=Depends(get_db)):
+    t = get_template(db, template_id)
+    if t is None:
+        raise ApiError(404, "not_found", "No such assignment")
+    return t
+
+
 @router.put("/{template_id}")
 def update(template_id: int, body: TemplateBody, db=Depends(get_db)):
     return update_template(db, template_id, **_kwargs(body))
 
 
 @router.delete("/{template_id}", status_code=204)
-def delete(template_id: int, db=Depends(get_db)):
-    delete_template(db, template_id)
+def delete(template_id: int, force: bool = False, db=Depends(get_db)):
+    delete_template(db, template_id, force=force)
     return Response(status_code=204)
 
 

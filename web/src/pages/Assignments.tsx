@@ -33,7 +33,7 @@ export function Assignments() {
   const body = (t: AssignmentTemplate, title: string) => ({ title, subject: t.subject, context: t.context, rubric: t.rubric, scheme_kind: t.scheme_kind, questions: t.questions, scheme: t.scheme, delete_pages_after_marking: t.delete_pages_after_marking });
   const duplicate = (t: AssignmentTemplate) => run(() => api.post(`/api/assignments/${t.id}/duplicate`));
   const rename = (t: AssignmentTemplate, title: string) => run(() => api.put(`/api/assignments/${t.id}`, body(t, title)));
-  const remove = (t: AssignmentTemplate) => run(() => api.delete(`/api/assignments/${t.id}`));
+  const remove = (t: AssignmentTemplate) => run(() => api.delete(`/api/assignments/${t.id}${(t.submission_count ?? 0) > 0 ? "?force=true" : ""}`));
 
   const importJson = (f: File) => run(async () => {
     let payload: unknown;
@@ -98,10 +98,22 @@ export function Assignments() {
       )}
       {pending?.kind === "delete" && (
         <Dialog title="Delete this assignment?" onClose={() => setPending(null)}
-          footer={<><Button variant="secondary" onClick={() => setPending(null)}>Cancel</Button><Button variant="primary" onClick={() => remove(pending.t)} disabled={busy}>Delete assignment</Button></>}>
-          <p><strong>{pending.t.title}</strong> will be removed from the bank. Scripts already marked with it keep their marks.</p>
+          footer={<><Button variant="secondary" onClick={() => setPending(null)}>Cancel</Button><Button variant="primary" onClick={() => remove(pending.t)} disabled={busy}>{(pending.t.submission_count ?? 0) > 0 ? "Delete anyway" : "Delete assignment"}</Button></>}>
+          <DeleteWarning t={pending.t} />
         </Dialog>
       )}
     </div>
+  );
+}
+
+function DeleteWarning({ t }: { t: AssignmentTemplate }) {
+  const n = t.submission_count ?? 0;
+  const pending = t.pending_count ?? 0;
+  if (n === 0) return <p><strong>{t.title}</strong> will be removed from the bank.</p>;
+  return (
+    <>
+      <p><strong>{t.title}</strong> is referenced by <strong>{n} script{n === 1 ? "" : "s"}</strong>.</p>
+      <p>Marked scripts keep their marks and their marking records.{pending > 0 && <> <strong>{pending}</strong> {pending === 1 ? "has" : "have"} not been marked yet — {pending === 1 ? "it" : "they"} will fail with "assignment deleted" and must be uploaded again against a current assignment.</>}</p>
+    </>
   );
 }
