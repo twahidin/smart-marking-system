@@ -1,6 +1,6 @@
 import time
 from collections import defaultdict, deque
-from typing import Deque, Dict
+from typing import Deque, Dict, Optional, Tuple
 
 from fastapi import Request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -8,12 +8,14 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sms.web.errors import ApiError
 
 COOKIE = "sms_session"
+STUDENT_COOKIE = "sms_student"
 SESSION_MAX_AGE = 60 * 60 * 24 * 30
 
 
 class SessionSigner:
     def __init__(self, secret: str):
         self._s = URLSafeTimedSerializer(secret, salt="sms-session")
+        self._student = URLSafeTimedSerializer(secret, salt="sms-student")
 
     def issue(self) -> str:
         return self._s.dumps({"role": "teacher"})
@@ -24,6 +26,18 @@ class SessionSigner:
         except (BadSignature, SignatureExpired):
             return False
         return data.get("role") == "teacher"
+
+    def issue_student(self, class_id: int, student_id: int) -> str:
+        return self._student.dumps({"role": "student", "class_id": class_id, "student_id": student_id})
+
+    def verify_student(self, token: str) -> Optional[Tuple[int, int]]:
+        try:
+            data = self._student.loads(token, max_age=SESSION_MAX_AGE)
+        except (BadSignature, SignatureExpired):
+            return None
+        if data.get("role") != "student":
+            return None
+        return int(data["class_id"]), int(data["student_id"])
 
 
 class LoginLimiter:
@@ -99,3 +113,19 @@ def require_teacher(request: Request) -> None:
     token = request.cookies.get(COOKIE)
     if not token or not request.app.state.signer.verify(token):
         raise ApiError(401, "unauthenticated", "Sign in to continue")
+
+
+def require_student(request: Request) -> dict:
+    token = request.cookies.get(STUDENT_COOKIE)
+    ids = request.app.state.signer.verify_student(token) if token else None
+    if ids is None:
+        raise ApiError(401, "student_session", "Enter your class code and number to continue")
+    rows = request.app.state.db.query(
+        "SELECT s.id AS student_id, s.class_id, s.reg_no, s.name, c.name AS class_name, c.code "
+        "FROM students s JOIN classes c ON c.id = s.class_id WHERE s.id = :s AND s.class_id = :c AND c.archived_at IS NULL",
+        {"s": ids[1], "c": ids[0]})
+    if not rows:
+        raise ApiError(401, "student_session", "Enter your class code and number to continue")
+    r = rows[0]
+    return {"student_id": r["student_id"], "class_id": r["class_id"], "reg_no": int(r["reg_no"]), "name": r["name"],
+            "class_name": r["class_name"], "code": r["code"]}
