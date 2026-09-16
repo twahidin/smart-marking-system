@@ -6,8 +6,9 @@ export function Nav({ needsYou }: { needsYou: number }) {
   // NavLink sets aria-current="page" on the active link by itself; app.css styles [aria-current="page"].
   return (
     <nav className="nav">
-      <NavLink to="/submissions" className="nav-brand" end>Smart Marking</NavLink>
+      <NavLink to="/classes" className="nav-brand" end>Smart Marking</NavLink>
       <div className="nav-links">
+        <NavLink to="/classes">Classes</NavLink>
         <NavLink to="/submissions">Submissions</NavLink>
         <NavLink to="/assignments">Assignments</NavLink>
         <NavLink to="/review">Review {needsYou > 0 && <span className="key">{needsYou}</span>}</NavLink>

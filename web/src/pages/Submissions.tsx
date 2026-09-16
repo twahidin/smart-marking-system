@@ -68,12 +68,13 @@ export function Submissions() {
         <table className="table tall">
           <thead><tr>
             <th style={{ width: 44 }}><input type="checkbox" aria-label="Select all scripts" checked={selected.size === rows.length} onChange={toggleAll} style={{ width: 18, height: 18 }} /></th>
-            <th>Script</th><th>Subject</th><th className="num">Pages</th><th>Status</th><th className="num">Total</th><th>Uploaded</th><th /></tr></thead>
+            <th>Script</th><th>Class</th><th>Subject</th><th className="num">Pages</th><th>Status</th><th className="num">Total</th><th>Uploaded</th><th /></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="row-link" onClick={() => nav(`/submissions/${r.id}`)}>
                 <td onClick={(e) => e.stopPropagation()}><label style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 40, cursor: "pointer" }}><input type="checkbox" aria-label={`Select ${r.label}`} checked={selected.has(r.id)} onChange={() => toggle(r.id)} style={{ width: 18, height: 18 }} /></label></td>
                 <td><strong>{r.label}</strong>{r.assignment_title && <div className="help">{r.assignment_title}</div>}</td>
+                <td>{r.class_label ?? "—"}</td>
                 <td>{subjectLabel[r.subject]}</td>
                 <td className="num">{r.page_count}</td>
                 <td><StatusPill status={r.status} needsYou={r.needs_you_qids} /></td>

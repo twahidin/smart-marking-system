@@ -7,6 +7,7 @@ import { Nav } from "./components/Nav";
 import { Notice } from "./components/Notice";
 import { AssignmentEditor } from "./pages/AssignmentEditor";
 import { Assignments } from "./pages/Assignments";
+import { Classes } from "./pages/Classes";
 import { Learning } from "./pages/Learning";
 import { NewSubmission } from "./pages/NewSubmission";
 import { Review } from "./pages/Review";
@@ -55,7 +56,8 @@ export function App() {
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
       <Route element={<Shell />}>
-        <Route index element={<Navigate to="/submissions" replace />} />
+        <Route index element={<Navigate to="/classes" replace />} />
+        <Route path="/classes" element={<Classes />} />
         <Route path="/submissions" element={<Submissions />} />
         <Route path="/submissions/new" element={<NewSubmission />} />
         <Route path="/submissions/:id" element={<SubmissionDetail />} />
@@ -65,7 +67,7 @@ export function App() {
         <Route path="/learning" element={<Learning />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
-      <Route path="*" element={<Navigate to="/submissions" replace />} />
+      <Route path="*" element={<Navigate to="/classes" replace />} />
     </Routes>
   );
 }

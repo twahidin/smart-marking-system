@@ -173,3 +173,9 @@ textarea.input { min-height: 72px; resize: vertical; }
 .alloc.got { background: var(--ink); color: var(--color-bg); }
 .alloc.lost { color: var(--muted); border-color: var(--color-divider); }
 .picker td:first-child { padding-left: 4px; }
+
+/* classes: card grid on the Classes list */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
+.card-link { display: block; border: 2px solid var(--color-divider); padding: 20px; text-decoration: none; color: inherit; min-height: 44px; }
+.card-link:hover { border-color: var(--ink); }
+.card-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }

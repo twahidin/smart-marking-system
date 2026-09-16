@@ -10,7 +10,7 @@ const row = (id: number, label: string, status: SubmissionRow["status"]): Submis
   total: status === "done" ? 7 : null, total_upper: status === "done" ? 7 : null, total_max: status === "done" ? 9 : null,
   needs_you_qids: status === "needs_you" ? ["1b"] : [], assignment_id: 3, assignment_title: "Quadratics — Worksheet 3",
 });
-const rows = [row(1, "Tan Wei Ling", "done"), row(2, "Lim Jun Hao", "needs_you"), row(3, "Nur Aisyah", "marking"), row(4, "Ravi", "failed")];
+const rows = [{ ...row(1, "Tan Wei Ling", "done"), class_label: "4E2 · #12", class_assignment_id: 7 }, row(2, "Lim Jun Hao", "needs_you"), row(3, "Nur Aisyah", "marking"), row(4, "Ravi", "failed")];
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -28,6 +28,17 @@ function setup() {
   render(<MemoryRouter><Submissions /></MemoryRouter>);
   return { zips, saved, click };
 }
+
+describe("Submissions — class column", () => {
+  it("shows which class assignment a script was handed in against, or a dash", async () => {
+    const { click } = setup();
+    const tanRow = (await screen.findByText("Tan Wei Ling")).closest("tr")!;
+    expect(screen.getByRole("columnheader", { name: "Class" })).toBeInTheDocument();
+    expect(tanRow).toHaveTextContent("4E2 · #12");
+    expect(screen.getByText("Lim Jun Hao").closest("tr")!).toHaveTextContent("—");
+    click.mockRestore();
+  });
+});
 
 describe("Submissions — download marking records", () => {
   it("with nothing ticked downloads every marked script shown and names how many were skipped", async () => {

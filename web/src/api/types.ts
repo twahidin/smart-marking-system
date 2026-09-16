@@ -26,7 +26,7 @@ export interface RubricBands { criterion: string; bands: Band[] }
 export interface AssignmentTemplate {
   id: number; title: string; subject: Subject; context: string; rubric: Rubric;
   criteria_count: number; total_marks: number; times_used: number; created_at: string; updated_at: string;
-  submission_count?: number; pending_count?: number;
+  submission_count?: number; pending_count?: number; class_assignment_count?: number;
   scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[];
   paper_page_ids: number[]; scheme_page_ids: number[];
   delete_pages_after_marking: boolean | null; effective_delete_pages: boolean;
@@ -43,6 +43,8 @@ export interface SubmissionRow {
   id: number; label: string; subject: Subject; page_count: number; status: SubmissionStatus; created_at: string;
   total: number | null; total_upper: number | null; total_max: number | null; needs_you_qids: string[];
   assignment_id: number | null; assignment_title: string | null;
+  /** `"4E2 · #12"` when the script was handed in against a class assignment, else null. */
+  class_label?: string | null; class_assignment_id?: number | null;
 }
 export interface Page { id: number; page_index: number; width: number; height: number; deleted?: boolean }
 export interface Mark {
@@ -78,6 +80,7 @@ export interface SubmissionDetail {
   /** 1 = criteria per question (slice 1); 2 = per-part marks against a mark scheme / rubric (`parts`). */
   marks_version?: 1 | 2; parts?: Part[]; scheme_kind?: SchemeKind | null;
   pages_deleted?: boolean; run_id?: string | null; marked_at?: string | null; marked_by?: string | null;
+  class_label?: string | null; class_assignment_id?: number | null;
 }
 export interface QueueItem {
   id: number; submission_id: number; submission_label: string; q_id: string; reason: string; reason_text?: string; created_at: string;
@@ -96,3 +99,25 @@ export interface Exemplar { id: number; subject: string; topic: string; q_id: st
 export interface ReflectionRun { id: number; subject: string; lookback_days: number; proposed_notes: number; started_at: string; finished_at: string | null; error: string | null }
 export interface ReflectionRuns { runs: ReflectionRun[]; pending: string[] }
 export type Stats = Record<string, { count: number; mean_latency_ms: number; total_tokens_in: number; total_tokens_out: number }>;
+
+/* ---- classes, classlists and class assignments (slice 2) ---- */
+export interface ClassRow { id: number; name: string; code: string; student_count: number; open_assignments: number; archived_at: string | null; created_at: string; updated_at: string }
+export interface Student { id: number; reg_no: number; name: string; submissions: number; last_seen_at: string | null }
+export interface ClasslistPreviewRow { reg_no: number | null; raw_reg_no: string; name: string; issues: ("missing_name" | "bad_reg_no" | "duplicate_reg_no")[] }
+export type ClassAssignmentStatus = "draft" | "open" | "released";
+export interface ClassAssignment {
+  id: number; class_id: number; template_id: number; title: string; due_at: string | null; status: ClassAssignmentStatus;
+  derived_status: ClassAssignmentStatus | "marking"; allow_student_uploads: boolean; released_at: string | null;
+  template_deleted: boolean; subject: Subject | null; scheme_kind: SchemeKind | null; submission_count: number; created_at: string; updated_at: string;
+}
+export type RosterStatus = "not_handed_in" | "handed_in" | "marking" | "failed" | "needs_you" | "ready" | "released";
+export interface RosterRow { student_id: number; reg_no: number; name: string; submission_id: number | null; pages: number; handed_in_at: string | null; late: boolean; source: "teacher" | "student" | null; status: RosterStatus; total: number | null; total_upper: number | null; total_max: number | null; needs_you_parts: string[] }
+export interface Roster { rows: RosterRow[]; counts: Record<"not_handed_in" | "handed_in" | "marking" | "needs_you" | "ready", number> }
+export interface ClassAssignmentDetail extends ClassAssignment { roster: Roster }
+
+/* ---- student-facing (class code + register number session) ---- */
+export type StudentAssignmentStatus = "to_hand_in" | "handed_in" | "checking" | "feedback_ready";
+export interface StudentMe { class_name: string; code: string; student_name: string; reg_no: number }
+export interface StudentAssignment { id: number; title: string; due_at: string | null; status: StudentAssignmentStatus; handed_in_at: string | null; pages: number; allow_student_uploads: boolean }
+export interface StudentFeedback { summary: string; strengths: string[]; improvement_plan: string[]; next_steps: string[]; total: number | null; max: number | null; questions: { label: string; mark: number; max: number; comment: string; try_next: string; transcription: string }[]; pages: number[] }
+export interface StudentAssignmentDetail extends StudentAssignment { feedback: StudentFeedback | null }

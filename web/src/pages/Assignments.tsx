@@ -11,6 +11,9 @@ import { fmtDate, schemeLabel, subjectLabel } from "../lib/format";
 
 type Pending = { kind: "rename"; t: AssignmentTemplate; title: string } | { kind: "delete"; t: AssignmentTemplate };
 
+/** Deleting needs `?force=true` (and a "Delete anyway" confirmation) once scripts or class assignments reference the template. */
+const inUse = (t: AssignmentTemplate) => (t.submission_count ?? 0) > 0 || (t.class_assignment_count ?? 0) > 0;
+
 export function Assignments() {
   const nav = useNavigate();
   const [rows, setRows] = useState<AssignmentTemplate[] | null>(null);
@@ -33,7 +36,7 @@ export function Assignments() {
   const body = (t: AssignmentTemplate, title: string) => ({ title, subject: t.subject, context: t.context, rubric: t.rubric, scheme_kind: t.scheme_kind, questions: t.questions, scheme: t.scheme, delete_pages_after_marking: t.delete_pages_after_marking });
   const duplicate = (t: AssignmentTemplate) => run(() => api.post(`/api/assignments/${t.id}/duplicate`));
   const rename = (t: AssignmentTemplate, title: string) => run(() => api.put(`/api/assignments/${t.id}`, body(t, title)));
-  const remove = (t: AssignmentTemplate) => run(() => api.delete(`/api/assignments/${t.id}${(t.submission_count ?? 0) > 0 ? "?force=true" : ""}`));
+  const remove = (t: AssignmentTemplate) => run(() => api.delete(`/api/assignments/${t.id}${inUse(t) ? "?force=true" : ""}`));
 
   const importJson = (f: File) => run(async () => {
     let payload: unknown;
@@ -98,7 +101,7 @@ export function Assignments() {
       )}
       {pending?.kind === "delete" && (
         <Dialog title="Delete this assignment?" onClose={() => setPending(null)}
-          footer={<><Button variant="secondary" onClick={() => setPending(null)}>Cancel</Button><Button variant="primary" onClick={() => remove(pending.t)} disabled={busy}>{(pending.t.submission_count ?? 0) > 0 ? "Delete anyway" : "Delete assignment"}</Button></>}>
+          footer={<><Button variant="secondary" onClick={() => setPending(null)}>Cancel</Button><Button variant="primary" onClick={() => remove(pending.t)} disabled={busy}>{inUse(pending.t) ? "Delete anyway" : "Delete assignment"}</Button></>}>
           <DeleteWarning t={pending.t} />
         </Dialog>
       )}
@@ -109,11 +112,19 @@ export function Assignments() {
 function DeleteWarning({ t }: { t: AssignmentTemplate }) {
   const n = t.submission_count ?? 0;
   const pending = t.pending_count ?? 0;
-  if (n === 0) return <p><strong>{t.title}</strong> will be removed from the bank.</p>;
+  const classes = t.class_assignment_count ?? 0;
+  if (!inUse(t)) return <p><strong>{t.title}</strong> will be removed from the bank.</p>;
   return (
     <>
-      <p><strong>{t.title}</strong> is referenced by <strong>{n} script{n === 1 ? "" : "s"}</strong>.</p>
-      <p>Marked scripts keep their marks and their marking records.{pending > 0 && <> <strong>{pending}</strong> {pending === 1 ? "has" : "have"} not been marked yet — {pending === 1 ? "it" : "they"} will fail with "assignment deleted" and must be uploaded again against a current assignment.</>}</p>
+      {n > 0 && (
+        <>
+          <p><strong>{t.title}</strong> is referenced by <strong>{n} script{n === 1 ? "" : "s"}</strong>.</p>
+          <p>Marked scripts keep their marks and their marking records.{pending > 0 && <> <strong>{pending}</strong> {pending === 1 ? "has" : "have"} not been marked yet — {pending === 1 ? "it" : "they"} will fail with "assignment deleted" and must be uploaded again against a current assignment.</>}</p>
+        </>
+      )}
+      {classes > 0 && (
+        <p>{n === 0 && <><strong>{t.title}</strong> </>}{n === 0 ? "is" : "It is"} set in <strong>{classes} class{classes === 1 ? "" : "es"}</strong>; those class assignments will need to be set again.</p>
+      )}
     </>
   );
 }
