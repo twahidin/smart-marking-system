@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from sms.providers.errors import error_message
@@ -73,10 +73,27 @@ def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings
     return saved.public_dict()
 
 
+def _saved_key(store: SettingsStore, provider: str) -> Optional[str]:
+    """The key saved for the provider being tested/listed — not necessarily the active provider's."""
+    try:
+        return store.key_for(provider)
+    except KeyError as e:
+        raise ApiError(400, "bad_provider", str(e))
+
+
+@router.delete("/settings/keys/{provider}", status_code=204)
+def delete_key(provider: str, store: SettingsStore = Depends(get_settings_store)):
+    try:
+        store.delete_key(provider)
+    except KeyError as e:
+        raise ApiError(400, "bad_provider", str(e))
+    return Response(status_code=204)
+
+
 @router.post("/settings/test")
 def test_connection(body: TestBody, store: SettingsStore = Depends(get_settings_store)):
     model = _model_name(body.model)
-    key = (body.api_key or "").strip() or store.load().api_key
+    key = (body.api_key or "").strip() or _saved_key(store, body.provider)
     if not key:
         raise ApiError(400, "no_key", "Enter an API key first")
     try:
@@ -90,7 +107,7 @@ def test_connection(body: TestBody, store: SettingsStore = Depends(get_settings_
 
 @router.post("/settings/models")
 def models_for_provider(body: ModelsBody, store: SettingsStore = Depends(get_settings_store)):
-    key = (body.api_key or "").strip() or store.load().api_key
+    key = (body.api_key or "").strip() or _saved_key(store, body.provider)
     if not key:
         raise ApiError(400, "no_key", "Enter an API key first")
     try:

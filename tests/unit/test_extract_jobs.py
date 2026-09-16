@@ -74,7 +74,7 @@ def test_paper_extract_job_requires_paper_pages_and_key(env):
     with pytest.raises(ValueError, match="question paper"):
         run_paper_extract_job(db, storage, store, tid, agent_factory=lambda **kw: FakeAgent())
     _add_pages(db, storage, tid, "paper")
-    db.execute("UPDATE settings SET api_key_enc = NULL")
+    db.execute("DELETE FROM provider_keys")
     with pytest.raises(RuntimeError, match="API key"):
         run_paper_extract_job(db, storage, store, tid, agent_factory=lambda **kw: FakeAgent())
     with pytest.raises(ValueError, match="not found"):

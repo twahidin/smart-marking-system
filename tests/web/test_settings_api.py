@@ -101,3 +101,14 @@ def test_delete_pages_after_marking_defaults_on_and_round_trips(auth):
     # omitted -> back to the default
     r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60, "confidence_threshold": 0})
     assert r.json()["delete_pages_after_marking"] is True
+
+
+def test_keys_are_per_provider_and_can_be_removed(auth):
+    auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "api_key": "sk-abcd1234", "rpm_limit": 60, "confidence_threshold": 0})
+    r = auth.put("/api/settings", json={"provider": "tokenrouter", "model": "z-ai/glm-5.3-flash", "api_key": "", "rpm_limit": 60, "confidence_threshold": 0})
+    assert r.json()["has_key"] is False and r.json()["keys"] == {"openai": "1234"}
+    r = auth.put("/api/settings", json={"provider": "tokenrouter", "model": "z-ai/glm-5.3-flash", "api_key": "tr-9999", "rpm_limit": 60, "confidence_threshold": 0})
+    assert r.json()["key_hint"] == "9999" and r.json()["keys"] == {"openai": "1234", "tokenrouter": "9999"}
+    assert auth.delete("/api/settings/keys/openai").status_code == 204
+    assert auth.get("/api/settings").json()["keys"] == {"tokenrouter": "9999"}
+    assert auth.delete("/api/settings/keys/nope").status_code == 400

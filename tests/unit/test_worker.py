@@ -60,7 +60,7 @@ def test_run_mark_job_needs_you(env):
 def test_run_mark_job_without_key_raises_non_retryable(env):
     db, store, storage, sid = env
     store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=0))
-    db.execute("UPDATE settings SET api_key_enc = NULL")
+    db.execute("DELETE FROM provider_keys")
     with pytest.raises(RuntimeError, match="API key"):
         run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
 
@@ -312,7 +312,7 @@ def test_scheduler_is_throttled_and_respects_auto_reflect(env):
 def test_scheduler_skips_without_api_key(env):
     db, store, storage, sid = env
     _corrections(db, "math", "r1")
-    db.execute("UPDATE settings SET api_key_enc = NULL")
+    db.execute("DELETE FROM provider_keys")
     Worker(db, storage, store)._maybe_schedule_reflection()
     assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == 0
 

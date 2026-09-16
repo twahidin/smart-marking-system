@@ -17,7 +17,7 @@ const providers = [
     models: [{ id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", vision: true }],
   },
 ];
-const settings = { provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true };
+const settings = { provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", keys: { tokenrouter: "abcd" }, auto_reflect: true };
 
 function mockFetch(onModels: () => Response) {
   vi.stubGlobal(
@@ -28,13 +28,35 @@ function mockFetch(onModels: () => Response) {
       if (path === "/api/settings" && init?.method !== "PUT") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
       if (path === "/api/settings" && init?.method === "PUT") { saved.push(JSON.parse(String(init.body))); return Promise.resolve(new Response(JSON.stringify({ ...settings, ...saved[saved.length - 1] }), { status: 200 })); }
       if (path === "/api/settings/models") return Promise.resolve(onModels());
+      if (path.startsWith("/api/settings/keys/") && init?.method === "DELETE") { deleted.push(path.slice("/api/settings/keys/".length)); return Promise.resolve(new Response(null, { status: 204 })); }
       return Promise.reject(new Error(`Unexpected fetch to ${path}`));
     }),
   );
 }
 const saved: any[] = [];
+const deleted: string[] = [];
 
-afterEach(() => { vi.unstubAllGlobals(); saved.length = 0; });
+afterEach(() => { vi.unstubAllGlobals(); saved.length = 0; deleted.length = 0; });
+
+describe("Settings — one key per provider", () => {
+  it("shows the saved key for the selected provider only, and removes it on request", async () => {
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    const key = await screen.findByLabelText("API key");
+    expect(key).toHaveAttribute("placeholder", "Saved key ending …abcd — leave blank to keep");
+    expect(screen.getByRole("radio", { name: /TokenRouter/ }).closest("label")).toHaveTextContent("✓");
+    expect(screen.getByRole("radio", { name: /Google Gemini/ }).closest("label")).not.toHaveTextContent("✓");
+    await userEvent.click(screen.getByRole("radio", { name: /Google Gemini/ }));
+    expect(key).toHaveAttribute("placeholder", "No key saved for Google Gemini yet — paste one");
+    expect(screen.getByRole("button", { name: "Load models from provider" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Remove key/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: /TokenRouter/ }));
+    expect(screen.getByRole("button", { name: "Load models from provider" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Remove TokenRouter key" }));
+    expect(deleted).toEqual(["tokenrouter"]);
+    expect(key).toHaveAttribute("placeholder", "No key saved for TokenRouter yet — paste one");
+  });
+});
 
 describe("Settings — free options", () => {
   it("labels the note as free options for Google Gemini and adopts its default rpm", async () => {

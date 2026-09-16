@@ -1,6 +1,6 @@
 import logging
-from dataclasses import dataclass, asdict
-from typing import Mapping, Optional
+from dataclasses import dataclass, asdict, field
+from typing import Dict, Mapping, Optional
 
 from sms.memory.db import Database
 from sms.providers.crypto import KeyCipher
@@ -20,6 +20,8 @@ class Settings:
     confidence_threshold: float = 0.0
     auto_reflect: bool = True
     delete_pages_after_marking: bool = True
+    # provider id -> last 4 characters of the key saved for it (every provider with a key, not just the active one)
+    keys: Dict[str, str] = field(default_factory=dict)
 
     @property
     def has_key(self) -> bool:
@@ -55,58 +57,84 @@ class SettingsStore:
         self.db = db
         self.cipher = cipher
 
+    def _decrypt(self, enc: Optional[str]) -> Optional[str]:
+        if not enc:
+            return None
+        try:
+            return self.cipher.decrypt(enc)
+        except ValueError:
+            logger.warning("A stored API key cannot be decrypted with this SECRET_KEY — enter it again under Settings")
+            return None
+
+    def _key_rows(self) -> Dict[str, str]:
+        return {r["provider"]: r["api_key_enc"] for r in self.db.query("SELECT provider, api_key_enc FROM provider_keys")}
+
+    def key_for(self, provider: str) -> Optional[str]:
+        """The key saved for `provider` (any provider, not just the active one), or None."""
+        return self._decrypt(self._key_rows().get(provider))
+
+    def key_hints(self) -> Dict[str, str]:
+        """provider -> last 4 characters, for every provider whose key decrypts."""
+        out: Dict[str, str] = {}
+        for provider, enc in self._key_rows().items():
+            key = self._decrypt(enc)
+            if key:
+                out[provider] = key[-4:]
+        return out
+
+    def delete_key(self, provider: str) -> None:
+        get_provider(provider)  # raises KeyError for unknown providers
+        self.db.execute("DELETE FROM provider_keys WHERE provider = :p", {"p": provider})
+
     def load(self) -> Settings:
         rows = self.db.query("SELECT * FROM settings WHERE id = 1")
+        hints = self.key_hints()
         if not rows:
-            return default_settings()
+            s = default_settings()
+            s.keys = hints
+            return s
         r = rows[0]
-        key = None
-        if r["api_key_enc"]:
-            try:
-                key = self.cipher.decrypt(r["api_key_enc"])
-            except ValueError:
-                logger.warning(
-                    "Stored API key cannot be decrypted with this SECRET_KEY — "
-                    "enter it again under Settings"
-                )
-                key = None
         return Settings(
-            provider=r["provider"], model=r["model"], api_key=key, base_url=r["base_url"],
+            provider=r["provider"], model=r["model"], api_key=self.key_for(r["provider"]), base_url=r["base_url"],
             extractor_model=r["extractor_model"] or None, rpm_limit=int(r["rpm_limit"]),
             confidence_threshold=float(r["confidence_threshold"]), auto_reflect=bool(r["auto_reflect"]),
-            delete_pages_after_marking=bool(r["delete_pages_after_marking"]),
+            delete_pages_after_marking=bool(r["delete_pages_after_marking"]), keys=hints,
         )
 
     def save(self, settings: Settings) -> Settings:
+        """Save the settings; a non-blank `api_key` is stored for `settings.provider` only (other
+        providers' keys are untouched), a blank one keeps whatever that provider already has."""
         get_provider(settings.provider)  # raises KeyError for unknown providers
-        existing = self.db.query("SELECT api_key_enc FROM settings WHERE id = 1")
         stripped_key = (settings.api_key or "").strip()
-        if stripped_key:
-            key_enc = self.cipher.encrypt(stripped_key)
-        else:
-            key_enc = existing[0]["api_key_enc"] if existing else None
         params = {
             "provider": settings.provider, "model": settings.model, "base_url": settings.base_url or None,
-            "extractor_model": settings.extractor_model or None, "key": key_enc,
+            "extractor_model": settings.extractor_model or None,
             "rpm": int(settings.rpm_limit), "thr": float(settings.confidence_threshold),
             "auto_reflect": bool(settings.auto_reflect),
             "delete_pages": bool(settings.delete_pages_after_marking),
         }
-        if existing:
-            self.db.execute(
-                "UPDATE settings SET provider = :provider, model = :model, base_url = :base_url, "
-                "extractor_model = :extractor_model, api_key_enc = :key, rpm_limit = :rpm, "
-                "confidence_threshold = :thr, auto_reflect = :auto_reflect, delete_pages_after_marking = :delete_pages, "
-                "updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-                params,
-            )
-        else:
-            self.db.execute(
-                "INSERT INTO settings (id, provider, model, base_url, extractor_model, api_key_enc, "
-                "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking) VALUES (1, :provider, :model, "
-                ":base_url, :extractor_model, :key, :rpm, :thr, :auto_reflect, :delete_pages)",
-                params,
-            )
+        with self.db.transaction() as tx:
+            if tx.query("SELECT id FROM settings WHERE id = 1"):
+                tx.execute(
+                    "UPDATE settings SET provider = :provider, model = :model, base_url = :base_url, "
+                    "extractor_model = :extractor_model, rpm_limit = :rpm, "
+                    "confidence_threshold = :thr, auto_reflect = :auto_reflect, delete_pages_after_marking = :delete_pages, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+                    params,
+                )
+            else:
+                tx.execute(
+                    "INSERT INTO settings (id, provider, model, base_url, extractor_model, "
+                    "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking) VALUES (1, :provider, :model, "
+                    ":base_url, :extractor_model, :rpm, :thr, :auto_reflect, :delete_pages)",
+                    params,
+                )
+            if stripped_key:
+                enc = self.cipher.encrypt(stripped_key)
+                if tx.execute("UPDATE provider_keys SET api_key_enc = :k, updated_at = CURRENT_TIMESTAMP WHERE provider = :p",
+                              {"k": enc, "p": settings.provider}) == 0:
+                    tx.execute("INSERT INTO provider_keys (provider, api_key_enc) VALUES (:p, :k)",
+                               {"p": settings.provider, "k": enc})
         return self.load()
 
     def ensure_seeded(self, env: Mapping[str, str]) -> None:

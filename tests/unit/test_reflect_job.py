@@ -81,7 +81,7 @@ def test_run_reflect_job_without_corrections_records_zero(env):
 
 def test_run_reflect_job_without_key_records_error_on_the_run(env):
     db, store = env
-    db.execute("UPDATE settings SET api_key_enc = NULL")
+    db.execute("DELETE FROM provider_keys")
     with pytest.raises(RuntimeError, match="API key"):
         run_reflect_job(db, store, "math", 7, agent_factory=lambda **kw: FakeAgent())
     run = db.query("SELECT error, finished_at FROM reflection_runs")[0]

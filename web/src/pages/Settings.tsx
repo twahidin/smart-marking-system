@@ -30,6 +30,10 @@ export function Settings() {
   if (!form || !spec || !saved) return <div className="page muted">Loading…</div>;
 
   const modelId = form.model === "__custom__" ? form.custom_model.trim() : form.model;
+  // Keys are stored per provider: the hint and the enabled state follow the *selected* provider, not the saved one.
+  const keys = saved.keys ?? (saved.has_key ? { [saved.provider]: saved.key_hint } : {});
+  const savedHint = keys[form.provider];
+  const hasKey = !!form.api_key || !!savedHint;
   const payload = { provider: form.provider, model: modelId, api_key: form.api_key || undefined, base_url: form.base_url || undefined,
                     extractor_model: form.extractor_model || undefined, rpm_limit: form.rpm_limit, confidence_threshold: form.confidence_threshold,
                     auto_reflect: form.auto_reflect, delete_pages_after_marking: form.delete_pages_after_marking };
@@ -47,6 +51,17 @@ export function Settings() {
       setFetched(r.models);
       setMsg(r.models.length ? null : { kind: "error", text: "Your key returned no models." });
     } catch (e) { setMsg({ kind: "error", text: e instanceof ApiError ? e.message : "Could not load models" }); }
+    finally { setBusy(null); }
+  };
+
+  const removeKey = async () => {
+    setBusy("save"); setMsg(null);
+    try {
+      await api.delete(`/api/settings/keys/${form.provider}`);
+      const next = { ...keys }; delete next[form.provider];
+      setSaved({ ...saved, keys: next, has_key: saved.provider === form.provider ? false : saved.has_key, key_hint: saved.provider === form.provider ? "" : saved.key_hint });
+      setMsg({ kind: "ok", text: `${spec.label} key removed.` });
+    } catch (e) { setMsg({ kind: "error", text: e instanceof ApiError ? e.message : "Could not remove the key" }); }
     finally { setBusy(null); }
   };
 
@@ -73,7 +88,7 @@ export function Settings() {
           <div className="seg" role="radiogroup" aria-label="Provider">
             {providers.map((p) => (
               <label key={p.id} className={`seg-opt ${form.provider === p.id ? "on" : ""}`}>
-                <input type="radio" name="provider" value={p.id} checked={form.provider === p.id} onChange={() => changeProvider(p.id)} />{p.label}
+                <input type="radio" name="provider" value={p.id} checked={form.provider === p.id} onChange={() => changeProvider(p.id)} />{p.label}{keys[p.id] && <span className="key-tick" title="Key saved" aria-hidden> ✓</span>}
               </label>
             ))}
           </div>
@@ -91,15 +106,18 @@ export function Settings() {
               )}
               <option value="__custom__">Custom model id…</option>
             </select>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={loadModels} disabled={busy !== null || (!form.api_key && !saved.has_key)} style={{ alignSelf: "flex-start" }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={loadModels} disabled={busy !== null || !hasKey} style={{ alignSelf: "flex-start" }}>
               {busy === "models" ? "Loading…" : fetched.length ? `Reload models (${fetched.length} found)` : "Load models from provider"}
             </button>
             {form.model === "__custom__" && <input className="input" placeholder="exact model id" aria-label="Custom model id" value={form.custom_model} onChange={(e) => setForm({ ...form, custom_model: e.target.value })} />}
           </div>
           <div className="field">
             <label htmlFor="key">API key</label>
-            <input id="key" className="input" type="password" autoComplete="off" placeholder={saved.has_key ? `Saved key ending …${saved.key_hint} — leave blank to keep` : "Paste your key"} value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
-            <a className="help" href={spec.key_url} target="_blank" rel="noreferrer">Where to get a {spec.label} key</a>
+            <input id="key" className="input" type="password" autoComplete="off" placeholder={savedHint ? `Saved key ending …${savedHint} — leave blank to keep` : `No key saved for ${spec.label} yet — paste one`} value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
+            <div className="actions" style={{ alignItems: "center" }}>
+              <a className="help" href={spec.key_url} target="_blank" rel="noreferrer">Where to get a {spec.label} key</a>
+              {savedHint && <button type="button" className="btn btn-ghost btn-sm" onClick={removeKey} disabled={busy !== null}>Remove {spec.label} key</button>}
+            </div>
           </div>
         </div>
         {spec.base_url_editable && (
@@ -141,7 +159,7 @@ export function Settings() {
         )}
         {msg && <Notice kind={msg.kind}>{msg.text}</Notice>}
         <div className="actions" style={{ marginTop: 24 }}>
-          <Button type="button" size="lg" onClick={test} disabled={busy !== null || !modelId || (!form.api_key && !saved.has_key)}>{busy === "test" ? "Testing…" : "Test connection"}</Button>
+          <Button type="button" size="lg" onClick={test} disabled={busy !== null || !modelId || !hasKey}>{busy === "test" ? "Testing…" : "Test connection"}</Button>
           <Button type="submit" variant="primary" size="lg" disabled={busy !== null || !modelId}>{busy === "save" ? "Saving…" : "Save"}</Button>
         </div>
       </form>

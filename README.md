@@ -62,7 +62,8 @@ Minimal `rubric.json`:
 
 Smart Marking is also a web app: sign in with a shared teacher password, pick an LLM provider
 (TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot/Kimi, Qwen, Google Gemini) and enter its API key
-under **Settings**, then set up an **Assignment** to mark against.
+under **Settings** (keys are kept per provider, so switching provider switches key; a ✓ on the provider tile
+means a key is saved), then set up an **Assignment** to mark against.
 
 **Assignments** are created by type: a **mark scheme** (per-question-part allocations like M1/A1/B1,
 for math/structured answers), a **rubric** (bands per criterion, for essays), or **criteria** (a flat
@@ -146,7 +147,7 @@ One service (this repo, Dockerfile) + a Postgres database + a volume mounted at 
 | `STORAGE_DIR` | `/data` |
 | `LLM_PROVIDER` | optional — `tokenrouter` (default), `openrouter`, `openai`, `anthropic`, `moonshot`, `qwen`, `google` |
 | `LLM_MODEL` | optional — defaults to the provider's default model |
-| `LLM_API_KEY` | optional — pre-seeds the key so the settings page can be skipped |
+| `LLM_API_KEY` | optional — pre-seeds the key for `LLM_PROVIDER` so the settings page can be skipped |
 
 Health check: `/api/health`. The marking worker runs inside the web service; to run it separately,
 add a second service from the same repo with start command `uv run --no-sync sms worker` and set

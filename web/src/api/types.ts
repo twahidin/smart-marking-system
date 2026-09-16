@@ -8,7 +8,7 @@ export interface ProviderSpec {
 }
 export interface Settings {
   provider: string; model: string; base_url: string | null; extractor_model: string | null;
-  rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string; auto_reflect: boolean;
+  rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string; keys?: Record<string, string>; auto_reflect: boolean;
   delete_pages_after_marking: boolean;
 }
 export interface Check { ok: boolean; latency_ms: number; error: string | null }

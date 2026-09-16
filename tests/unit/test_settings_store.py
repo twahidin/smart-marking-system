@@ -18,8 +18,9 @@ def test_load_without_row_returns_defaults(store):
 
 def test_save_encrypts_and_load_decrypts(store):
     store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-12345678", rpm_limit=60))
-    raw = store.db.query("SELECT api_key_enc FROM settings")[0]["api_key_enc"]
+    raw = store.db.query("SELECT api_key_enc FROM provider_keys WHERE provider = 'openai'")[0]["api_key_enc"]
     assert "sk-12345678" not in raw
+    assert store.db.query("SELECT api_key_enc FROM settings")[0]["api_key_enc"] is None
     s = store.load()
     assert s.api_key == "sk-12345678" and s.key_hint == "5678" and s.provider == "openai"
 
@@ -79,3 +80,48 @@ def test_delete_pages_after_marking_round_trips_and_defaults_on(store):
     store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=60, delete_pages_after_marking=False))
     s = store.load()
     assert s.delete_pages_after_marking is False and s.public_dict()["delete_pages_after_marking"] is False
+
+
+# --- one key per provider -----------------------------------------------------------------------
+
+def test_each_provider_keeps_its_own_key(store):
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-openai-f217", rpm_limit=60))
+    store.save(Settings(provider="tokenrouter", model="z-ai/glm-5.3-flash", api_key="tr-key-9999", rpm_limit=60))
+    s = store.load()
+    assert s.provider == "tokenrouter" and s.api_key == "tr-key-9999"
+    # switching back without pasting uses the key saved for that provider
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=60))
+    assert store.load().api_key == "sk-openai-f217"
+    assert store.key_for("tokenrouter") == "tr-key-9999" and store.key_for("google") is None
+    assert store.load().keys == {"openai": "f217", "tokenrouter": "9999"}
+
+
+def test_switching_to_a_provider_without_a_key_has_no_key(store):
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-openai-f217", rpm_limit=60))
+    store.save(Settings(provider="google", model="gemini-3.8-flash", api_key=None, rpm_limit=60))
+    s = store.load()
+    assert s.provider == "google" and not s.has_key and s.keys == {"openai": "f217"}
+
+
+def test_delete_key(store):
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-openai-f217", rpm_limit=60))
+    store.delete_key("openai")
+    assert not store.load().has_key and store.load().keys == {}
+    store.delete_key("openai")  # idempotent
+
+
+def test_migration_copies_the_legacy_single_key_to_its_provider(tmp_path):
+    from sqlalchemy import create_engine, text
+    path = tmp_path / "legacy.db"
+    db = Database(path=str(path))  # runs every migration; then simulate a pre-0008 row
+    cipher = KeyCipher("secret")
+    db.execute("DROP TABLE provider_keys")
+    db.execute("INSERT INTO settings (id, provider, model, api_key_enc, rpm_limit, confidence_threshold) "
+               "VALUES (1, 'openai', 'gpt-5-mini', :k, 60, 0)", {"k": cipher.encrypt("sk-legacy-1234")})
+    db.dispose()
+    with create_engine(f"sqlite:///{path}").begin() as conn:
+        conn.execute(text("DELETE FROM alembic_version"))
+        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0007')"))
+    store = SettingsStore(Database(path=str(path)), cipher)  # re-runs 0008
+    assert store.load().api_key == "sk-legacy-1234" and store.load().keys == {"openai": "1234"}
+    assert store.db.query("SELECT api_key_enc FROM settings")[0]["api_key_enc"] is None
