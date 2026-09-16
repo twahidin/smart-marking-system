@@ -86,22 +86,24 @@ export function ClassAssignmentPage() {
     setBusy(kind); setError(null);
     try { await fn(); } catch (e) { if (live.current) setError(msg(e, fallback)); } finally { if (live.current) setBusy(null); }
   };
+  // Dialogs close in `finally` so a refusal (409 needs_you / nothing_marked / marking …) shows in the page Notice
+  // rather than being hidden under the backdrop.
   const release = () => run("release", "Couldn't release feedback — try again.", async () => {
-    const updated = await api.post<ClassAssignment>(`${base}/release`);
+    let updated: ClassAssignment;
+    try { updated = await api.post<ClassAssignment>(`${base}/release`); }
+    finally { if (live.current) setReleasing(false); }
     if (!live.current) return;
-    setReleasing(false);
     setDetail((d) => (d ? { ...d, ...updated } : d));
     // The roster's statuses flip to "released" server-side; refresh just that part so the header keeps the release result.
     try { const fresh = await api.get<ClassAssignmentDetail>(base); if (live.current) setDetail((d) => (d ? { ...d, roster: fresh.roster } : d)); }
-    catch { /* the release went through; the next load shows the roster */ }
+    catch (e) { if (live.current) setError(msg(e, "Feedback was released, but the roster couldn't be refreshed — reload the page.")); }
   });
   const downloadCsv = () => run("csv", "Couldn't download the marks — try again.", () => downloadFile(`${base}/marks.csv`, "marks.csv"));
   const downloadRecords = () => run("records", "Couldn't download the records — try again.", () => downloadFile("/api/submissions/records.zip", "marking-records.zip", { ids: recordIds }));
   const remove = (r: RosterRow) => run("remove", "Couldn't remove the hand-in — try again.", async () => {
-    await api.delete(`${base}/students/${r.student_id}/submission`);
-    if (!live.current) return;
-    setRemoving(null);
-    await load();
+    try { await api.delete(`${base}/students/${r.student_id}/submission`); }
+    finally { if (live.current) setRemoving(null); }
+    if (live.current) await load();
   });
 
   return (
@@ -145,7 +147,7 @@ export function ClassAssignmentPage() {
               return (
                 <tr key={r.student_id} className={link ? "row-link" : undefined} onClick={link ? () => nav(link) : undefined}>
                   <td className="num">{r.reg_no}</td>
-                  <td><strong>{r.name}</strong></td>
+                  <td>{link ? <Link to={link} onClick={(e) => e.stopPropagation()}><strong>{r.name}</strong></Link> : <strong>{r.name}</strong>}</td>
                   <td className="num">{r.submission_id !== null ? r.pages : "—"}</td>
                   <td className="muted">
                     {r.handed_in_at === null ? "—" : <>{r.source === "teacher" ? "Uploaded by you" : fmtDate(r.handed_in_at)}{r.late && <span className="tertiary"> · late</span>}</>}

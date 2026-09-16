@@ -49,6 +49,8 @@ describe("ClassAssignmentPage", () => {
     expect(screen.getByRole("button", { name: "Release feedback" })).toBeDisabled();
     expect(screen.getByText("Needs you · 3")).toBeInTheDocument();
     expect(screen.getByText("15–17 / 25")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Tan Wei Ling" })).toHaveAttribute("href", "/submissions/11");
+    expect(screen.queryByRole("link", { name: "Priya Nair" })).not.toBeInTheDocument();
     expect(screen.getByText(/late/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Not handed in/ }));
     expect(screen.getAllByRole("row")).toHaveLength(2);
@@ -69,6 +71,21 @@ describe("ClassAssignmentPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Release to students" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/release"))).toBe(true));
     expect(await screen.findByText(/Released/)).toBeInTheDocument();
+  });
+
+  it("shows the server's reason when release is refused", async () => {
+    const ready = { ...detail, derived_status: "open" as const, roster: { ...detail.roster, counts: { ...detail.roster.counts, needs_you: 0 }, rows: detail.roster.rows.map((r) => r.status === "needs_you" ? { ...r, status: "ready" as const, needs_you_parts: [] } : r) } };
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(ready), { status: 200 }),
+      "POST /api/classes/1/assignments/3/release": () => new Response(JSON.stringify({ error: { code: "needs_you", message: "1 part still needs you — clear the review queue first" } }), { status: 409 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Release feedback" }));
+    await userEvent.click(screen.getByRole("button", { name: "Release to students" }));
+    expect(await screen.findByText(/still needs you/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Release feedback" })).toBeInTheDocument();
   });
 
   it("uploads pages for a student who has not handed in", async () => {
