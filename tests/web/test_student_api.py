@@ -90,7 +90,9 @@ def test_student_sees_open_assignments_and_hands_in_once(auth, client, app):
     sid = r.json()["id"]
     row = app.state.db.query("SELECT * FROM submissions WHERE id = :s", {"s": sid})[0]
     assert row["source"] == "student" and row["student_id"] == c["students"][0]["id"] and row["label"] == "#1 Tan Wei Ling"
-    assert client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("p1.png", _png(), "image/png"))]).json()["error"]["code"] == "already_handed_in"
+    again = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("p1.png", _png(), "image/png"))])
+    assert again.status_code == 409 and again.json()["error"] == {
+        "code": "already_handed_in", "message": "You have already handed this in — ask your teacher if you need to hand in again"}
     got = client.get(f"/api/student/assignments/{ca['id']}").json()
     assert got["status"] == "handed_in" and got["handed_in_at"] is not None and got["pages"] == 2 and got["feedback"] is None
     # the teacher's roster shows the same

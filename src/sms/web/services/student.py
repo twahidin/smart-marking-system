@@ -112,6 +112,12 @@ def student_assignment(db: Database, jobs: JobStore, student: dict, caid: int) -
     return out
 
 
+_HAND_IN_MESSAGES = {
+    "already_handed_in": "You have already handed this in — ask your teacher if you need to hand in again",
+    "template_deleted": "This assignment is no longer available — ask your teacher",
+}
+
+
 def student_hand_in(db: Database, storage: PageStorage, jobs: JobStore, student: dict, caid: int,
                     files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
     ca = get_class_assignment(db, student["class_id"], caid)
@@ -122,7 +128,13 @@ def student_hand_in(db: Database, storage: PageStorage, jobs: JobStore, student:
     st = get_student(db, student["class_id"], student["student_id"])
     if st is None:
         raise ApiError(401, "student_session", "Enter your class code and number to continue")
-    return hand_in(db, storage, jobs, ca=ca, student=st, files=files, source="student")
+    try:
+        return hand_in(db, storage, jobs, ca=ca, student=st, files=files, source="student")
+    except ApiError as e:
+        # Same codes as the teacher's route, but say what a student can do about it.
+        if e.code in _HAND_IN_MESSAGES:
+            raise ApiError(e.status, e.code, _HAND_IN_MESSAGES[e.code]) from None
+        raise
 
 
 def student_page_path(db: Database, storage: PageStorage, student: dict, page_id: int) -> Path:
