@@ -1,6 +1,8 @@
 import json
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from sqlalchemy.exc import IntegrityError
+
 from sms.memory.db import Database
 from sms.reasons import reason_text
 from sms.pipeline.router import SubjectRouter
@@ -16,7 +18,8 @@ from sms.worker.jobs import JobStore
 
 def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, label: str, subject: str,
                       context: str, rubric_json: str, files: List[Tuple[str, bytes]],
-                      assignment_id: Optional[int] = None) -> Dict[str, Any]:
+                      assignment_id: Optional[int] = None, class_assignment_id: Optional[int] = None,
+                      student_id: Optional[int] = None, source: str = "teacher") -> Dict[str, Any]:
     label = label.strip()
     if not label:
         raise ApiError(400, "bad_label", "Give the script a label")
@@ -41,21 +44,28 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
     # The assignment type the script is uploaded against is kept on the row ('criteria' for a quick mark) so
     # a later retry can refuse to mark it with a different pipeline once the assignment has changed or gone.
     scheme_kind = template["scheme_kind"] if template else "criteria"
-    with db.transaction() as tx:
-        sid = tx.insert(
-            "INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id, scheme_kind) "
-            "VALUES (:label, :subject, :context, :rubric, 'uploaded', :aid, :kind) RETURNING id",
-            {"label": label, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
-             "aid": assignment_id, "kind": scheme_kind},
-        )
-        page_rows = []
-        for i, p in enumerate(pages):
-            pid = tx.insert(
-                "INSERT INTO pages (submission_id, page_index, sha256, storage_path, source_filename, width, height) "
-                "VALUES (:s, :i, :h, :p, :f, :w, :ht) RETURNING id",
-                {"s": sid, "i": i, "h": p.sha256, "p": p.storage_path, "f": p.source_filename, "w": p.width, "ht": p.height},
+    try:
+        with db.transaction() as tx:
+            sid = tx.insert(
+                "INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id, scheme_kind, "
+                "class_assignment_id, student_id, source, handed_in_at) "
+                "VALUES (:label, :subject, :context, :rubric, 'uploaded', :aid, :kind, :ca, :st, :src, "
+                + ("CURRENT_TIMESTAMP" if class_assignment_id is not None else "NULL") + ") RETURNING id",
+                {"label": label, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
+                 "aid": assignment_id, "kind": scheme_kind, "ca": class_assignment_id, "st": student_id, "src": source},
             )
-            page_rows.append({"id": pid, "page_index": i, "width": p.width, "height": p.height})
+            page_rows = []
+            for i, p in enumerate(pages):
+                pid = tx.insert(
+                    "INSERT INTO pages (submission_id, page_index, sha256, storage_path, source_filename, width, height) "
+                    "VALUES (:s, :i, :h, :p, :f, :w, :ht) RETURNING id",
+                    {"s": sid, "i": i, "h": p.sha256, "p": p.storage_path, "f": p.source_filename, "w": p.width, "ht": p.height},
+                )
+                page_rows.append({"id": pid, "page_index": i, "width": p.width, "height": p.height})
+    except IntegrityError:
+        # uq_submissions_student_assignment: a second hand-in raced the first. The files process_uploads
+        # already stored are left orphaned — the sweep does not touch them and a duplicate hand-in is rare.
+        raise ApiError(409, "already_handed_in", "This student has already handed in — remove the hand-in first to redo it")
     if assignment_id is not None:
         mark_template_used(db, assignment_id)
     jobs.enqueue("mark", sid)
@@ -283,8 +293,10 @@ def serialise_parts_v2(scheme_info: dict, final: dict, extracted: dict, pending:
 
 def list_submissions(db: Database) -> List[Dict[str, Any]]:
     subs = db.query("SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count, "
-                    "a.title AS assignment_title "
-                    "FROM submissions s LEFT JOIN assignment_templates a ON a.id = s.assignment_id ORDER BY s.id DESC")
+                    "a.title AS assignment_title, cl.name AS class_name, st.reg_no AS reg_no "
+                    "FROM submissions s LEFT JOIN assignment_templates a ON a.id = s.assignment_id "
+                    "LEFT JOIN students st ON st.id = s.student_id LEFT JOIN classes cl ON cl.id = st.class_id "
+                    "ORDER BY s.id DESC")
     out = []
     for s in subs:
         rubric = Rubric.model_validate_json(s["rubric_json"])
@@ -305,6 +317,8 @@ def list_submissions(db: Database) -> List[Dict[str, Any]]:
             "id": s["id"], "label": s["label"], "subject": s["subject"], "page_count": s["page_count"],
             "status": s["status"], "created_at": iso_utc(s["created_at"]),
             "assignment_id": s["assignment_id"], "assignment_title": s["assignment_title"],
+            "class_assignment_id": s["class_assignment_id"],
+            "class_label": f"{s['class_name']} · #{s['reg_no']}" if s["class_name"] else None,
             "total": totals["total"] if totals else None,
             "total_upper": totals["total_upper"] if totals else None,
             "total_max": totals["total_max"] if totals else None,
@@ -368,6 +382,7 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
         "marked_by": marked_by(run),
         "scheme_kind": scheme_info["scheme_kind"] if scheme_info else None,
         "assignment_id": s["assignment_id"], "assignment_title": s["assignment_title"],
+        "class_assignment_id": s["class_assignment_id"],
         "totals": totals,
         "feedback": feedback,
         "job": {"status": job["status"], "attempts": job["attempts"], "error": job["error"],

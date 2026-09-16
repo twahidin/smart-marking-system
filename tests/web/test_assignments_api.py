@@ -88,6 +88,17 @@ def test_delete_refuses_an_assignment_scripts_reference_unless_forced(auth, app)
     assert all(auth.get(f"/api/submissions/{s['id']}/record.docx").status_code == 200 for s in marked)
 
 
+def test_delete_refuses_an_assignment_set_in_a_class_unless_forced(auth):
+    t = _create(auth).json()
+    c = auth.post("/api/classes", json={"name": "4E2"}).json()
+    auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]})
+    assert auth.get(f"/api/assignments/{t['id']}").json()["class_assignment_count"] == 1
+    r = auth.delete(f"/api/assignments/{t['id']}")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "in_use"
+    assert r.json()["error"]["message"] == "set in 1 class — delete anyway to remove it from the bank"
+    assert auth.delete(f"/api/assignments/{t['id']}?force=true").status_code == 204
+
+
 def test_delete_then_404(auth):
     t = _create(auth).json()
     assert auth.delete(f"/api/assignments/{t['id']}").status_code == 204

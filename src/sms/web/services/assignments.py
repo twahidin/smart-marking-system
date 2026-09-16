@@ -126,14 +126,16 @@ def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool) -> 
         "times_used": int(r["times_used"]),
         "submission_count": int(r.get("submission_count") or 0),
         "pending_count": int(r.get("pending_count") or 0),
+        "class_assignment_count": int(r.get("class_assignment_count") or 0),
         "created_at": iso_utc(r["created_at"]), "updated_at": iso_utc(r["updated_at"]),
     }
 
 
-# Scripts uploaded against the template, and how many of them have not been marked yet (those would fail
-# with "assignment deleted" if the template went away — see the delete guard).
+# Scripts uploaded against the template, how many of them have not been marked yet (those would fail
+# with "assignment deleted" if the template went away), and the classes it is set in — see the delete guard.
 _COUNTS = ("(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id) AS submission_count, "
-           "(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id AND s.run_id IS NULL) AS pending_count")
+           "(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id AND s.run_id IS NULL) AS pending_count, "
+           "(SELECT COUNT(*) FROM class_assignments c WHERE c.template_id = t.id) AS class_assignment_count")
 
 _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, "
            "scheme_json, delete_pages_after_marking) VALUES (:title, :subject, :context, :rubric, :scheme_kind, "
@@ -203,19 +205,25 @@ def duplicate_template(db: Database, template_id: int) -> Dict[str, Any]:
 
 
 def delete_template(db: Database, template_id: int, *, force: bool = False) -> None:
-    """Delete a template. Refused (409 `in_use`) while scripts reference it unless `force` — marked
-    scripts keep their marks and records (the run stores its own scheme snapshot), but unmarked ones
-    will fail with "assignment deleted" and have to be uploaded again."""
+    """Delete a template. Refused (409 `in_use`) while scripts reference it or a class has it set, unless
+    `force` — marked scripts keep their marks and records (the run stores its own scheme snapshot), but
+    unmarked ones will fail with "assignment deleted" and have to be uploaded again, and the class
+    assignments stay with `template_deleted` so later hand-ins are refused."""
     with db.transaction() as tx:
         t = get_template(tx, template_id)
         if t is None:
             raise ApiError(404, "not_found", "No such assignment")
-        if t["submission_count"] and not force:
-            n, pending = t["submission_count"], t["pending_count"]
-            msg = f"{n} script{'s' if n != 1 else ''} reference this assignment"
-            if pending:
-                msg += f" and {pending} of them {'have' if pending != 1 else 'has'} not been marked yet"
-            raise ApiError(409, "in_use", msg + " — delete anyway to remove it from the bank")
+        if (t["submission_count"] or t["class_assignment_count"]) and not force:
+            n, pending, classes = t["submission_count"], t["pending_count"], t["class_assignment_count"]
+            parts = []
+            if n:
+                msg = f"{n} script{'s' if n != 1 else ''} reference this assignment"
+                if pending:
+                    msg += f" and {pending} of them {'have' if pending != 1 else 'has'} not been marked yet"
+                parts.append(msg)
+            if classes:
+                parts.append(f"set in {classes} class{'es' if classes != 1 else ''}")
+            raise ApiError(409, "in_use", " and ".join(parts) + " — delete anyway to remove it from the bank")
         tx.execute("DELETE FROM assignment_templates WHERE id = :id", {"id": template_id})
         tx.execute("DELETE FROM pages WHERE template_id = :id", {"id": template_id})
 
