@@ -65,7 +65,7 @@ export function SubmissionDetail() {
         <div className="page-header">
           <div>
             <h1>{d.label}</h1>
-            <p className="meta">{d.assignment_title ? `${d.assignment_title} · ` : ""}{subjectLabel[d.subject]}{d.context && ` · ${d.context}`} · uploaded {fmtDate(d.created_at)} · {d.pages.length} page{d.pages.length === 1 ? "" : "s"}{d.marked_at ? ` · marked ${fmtDate(d.marked_at)}` : ""}</p>
+            <p className="meta">{d.assignment_title ? `${d.assignment_title} · ` : ""}{subjectLabel[d.subject]}{d.context && ` · ${d.context}`} · uploaded {fmtDate(d.created_at)} · {d.pages.length} page{d.pages.length === 1 ? "" : "s"}{d.marked_at ? ` · marked ${fmtDate(d.marked_at)}` : ""}{d.marked_by ? ` by ${d.marked_by}` : ""}</p>
             <div className="actions" style={{ marginTop: 12, alignItems: "center" }}>
               <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={download} disabled={!canDownload || downloading} title={canDownload ? undefined : "Available once marking finishes."}>{downloading ? "Preparing…" : "Download marking record"}</Button>
               {!canDownload && <span className="help">Available once marking finishes.</span>}

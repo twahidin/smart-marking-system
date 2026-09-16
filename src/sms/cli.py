@@ -17,6 +17,7 @@ from sms.pipeline.marking_pipeline import MarkingPipeline
 from sms.providers.client import build_client
 from sms.providers.registry import get_provider
 from sms.schemas.marking import Rubric
+from sms.worker.mark_job import stamp_run_model
 
 
 def _open_db(db_arg: str) -> Database:
@@ -59,6 +60,7 @@ def _mark(args) -> int:
         confidence_threshold=args.confidence_threshold,
     )
     result = pipeline.run(images=images, assignment_context=args.context, rubric=rubric)
+    stamp_run_model(db, result.run_id, _provider_id(args), args.model)
     print(json.dumps({
         "run_id": result.run_id,
         "escalations": result.escalations,

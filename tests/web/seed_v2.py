@@ -44,7 +44,7 @@ DEFAULT_QUEUE = {"2": "not in scheme"}
 
 def seed_v2(app, *, kind="mark_scheme", parts=None, rubric=None, extracted=None, queue: Optional[Dict[str, str]] = None,
             label="Tan", run_id="r2", status=None, questions=None, scheme=None, notes="ECF applies",
-            assignment_id=None, subject="math") -> Tuple[int, Dict[str, int]]:
+            assignment_id=None, subject="math", provider="openai", model="gpt-5-mini") -> Tuple[int, Dict[str, int]]:
     """Insert a submission with a v2 run. Returns (submission_id, {q_id: queue_item_id})."""
     db = app.state.db
     if kind == "mark_scheme":
@@ -76,11 +76,11 @@ def seed_v2(app, *, kind="mark_scheme", parts=None, rubric=None, extracted=None,
     db.execute("INSERT INTO pages (submission_id, page_index, sha256, storage_path, width, height) "
                "VALUES (:s, 0, :h, :p, 1, 1)", {"s": sid, "h": f"h{sid}", "p": f"pages/h{sid}.jpg"})
     db.execute("INSERT INTO marking_runs (run_id, stage, subject, rubric_json, extracted_json, marks_json, reviewed_json, "
-               "feedback_json, final_marks_json, submission_id, final_status) "
-               "VALUES (:r, 'complete', :subj, :rubric, :ex, :marks, :rev, :fb, :final, :s, :fs)",
+               "feedback_json, final_marks_json, submission_id, final_status, provider, model) "
+               "VALUES (:r, 'complete', :subj, :rubric, :ex, :marks, :rev, :fb, :final, :s, :fs, :p, :m)",
                {"r": run_id, "subj": subject, "rubric": json.dumps(rubric_json), "ex": json.dumps(extracted),
                 "marks": json.dumps(final), "rev": json.dumps(reviewed), "fb": json.dumps(feedback),
-                "final": json.dumps(final), "s": sid, "fs": "escalated" if queue else "complete"})
+                "final": json.dumps(final), "s": sid, "fs": "escalated" if queue else "complete", "p": provider, "m": model})
     qids = {}
     for key, reason in queue.items():
         qids[key] = db.insert("INSERT INTO teacher_queue (run_id, q_id, reason, status, submission_id) "

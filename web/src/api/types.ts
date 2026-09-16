@@ -26,6 +26,7 @@ export interface RubricBands { criterion: string; bands: Band[] }
 export interface AssignmentTemplate {
   id: number; title: string; subject: Subject; context: string; rubric: Rubric;
   criteria_count: number; total_marks: number; times_used: number; created_at: string; updated_at: string;
+  submission_count?: number; pending_count?: number;
   scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[];
   paper_page_ids: number[]; scheme_page_ids: number[];
   delete_pages_after_marking: boolean | null; effective_delete_pages: boolean;
@@ -76,7 +77,7 @@ export interface SubmissionDetail {
   feedback: Feedback | null; job: Job | null; assignment_id: number | null; assignment_title: string | null;
   /** 1 = criteria per question (slice 1); 2 = per-part marks against a mark scheme / rubric (`parts`). */
   marks_version?: 1 | 2; parts?: Part[]; scheme_kind?: SchemeKind | null;
-  pages_deleted?: boolean; run_id?: string | null; marked_at?: string | null;
+  pages_deleted?: boolean; run_id?: string | null; marked_at?: string | null; marked_by?: string | null;
 }
 export interface QueueItem {
   id: number; submission_id: number; submission_label: string; q_id: string; reason: string; reason_text?: string; created_at: string;

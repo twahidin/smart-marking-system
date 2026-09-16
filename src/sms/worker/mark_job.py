@@ -57,6 +57,12 @@ def _default_pipeline_factory(*, db: Database, settings, subject: str, bucket: O
     return MarkingPipeline(db=db, subject=subject, confidence_threshold=settings.confidence_threshold, **limited)
 
 
+def stamp_run_model(db: Database, run_id: str, provider: str, model: str) -> None:
+    """Record which provider/model marked the run, so records report what actually marked the script."""
+    db.execute("UPDATE marking_runs SET provider = :p, model = :m WHERE run_id = :r",
+               {"p": provider, "m": model, "r": run_id})
+
+
 KIND_NAMES = {"criteria": "quick mark", "mark_scheme": "mark scheme", "rubric": "rubric"}
 
 
@@ -113,6 +119,7 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
         result = pipeline.run(images=images, assignment_context=sub["context"] or "Student script",
                               rubric=rubric, submission_id=submission_id)
     status = "needs_you" if result.escalations else "done"
+    stamp_run_model(db, result.run_id, settings.provider, settings.model)
     db.execute("UPDATE submissions SET status = :st, run_id = :rid, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
                {"st": status, "rid": result.run_id, "id": submission_id})
     if status == "done":

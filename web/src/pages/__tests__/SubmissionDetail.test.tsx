@@ -92,6 +92,14 @@ const v2: D = {
   ],
 };
 
+describe("SubmissionDetail — marked by", () => {
+  it("says which provider and model marked the script", async () => {
+    mockFetch({ "/api/submissions/7": () => new Response(JSON.stringify({ ...v2, marked_by: "google · gemini-3.8-flash" }), { status: 200 }) });
+    renderDetail();
+    expect(await screen.findByText(/by google · gemini-3.8-flash/)).toBeInTheDocument();
+  });
+});
+
 describe("SubmissionDetail — per-part marks (v2)", () => {
   it("renders the parts table with scheme answers, chips, the needs-you pill and the teacher's mark", async () => {
     mockFetch({ "/api/submissions/7": () => new Response(JSON.stringify(v2), { status: 200 }) });

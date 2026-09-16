@@ -536,3 +536,23 @@ def test_run_mark_job_refuses_a_script_whose_pages_were_deleted(env):
     with pytest.raises(RuntimeError, match="deleted after marking"):
         run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
     assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
+
+
+class RunRowPipeline(FakePipeline):
+    """A fake that also writes the marking_runs row a real pipeline writes, so the stamp has a target."""
+
+    def __init__(self, db):
+        super().__init__(escalations=[])
+        self.db = db
+
+    def run(self, images, assignment_context, rubric, submission_id=None):
+        self.db.execute("INSERT INTO marking_runs (run_id, stage, subject, rubric_json, final_status, submission_id) "
+                        "VALUES ('r1', 'complete', 'math', '{}', 'complete', ?)", (submission_id,))
+        return super().run(images, assignment_context, rubric, submission_id)
+
+
+def test_run_mark_job_stamps_provider_and_model_on_the_run(env):
+    db, store, storage, sid = env
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: RunRowPipeline(db))
+    row = db.query("SELECT provider, model FROM marking_runs WHERE run_id = 'r1'")[0]
+    assert (row["provider"], row["model"]) == ("openai", "gpt-5-mini")

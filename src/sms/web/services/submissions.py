@@ -159,6 +159,13 @@ def compute_totals_v2(kind: str, scheme: Iterable[dict], marks: Iterable[dict], 
     return {"total": total, "total_upper": upper, "total_max": maximum}
 
 
+def marked_by(run: Optional[dict]) -> Optional[str]:
+    """`provider · model` stamped on the run; None for runs from before that was recorded."""
+    if not run or not run.get("provider"):
+        return None
+    return f"{run['provider']} · {run['model']}" if run.get("model") else str(run["provider"])
+
+
 def _run_row(db: Database, run_id: Optional[str]) -> Optional[dict]:
     if not run_id:
         return None
@@ -358,6 +365,7 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
         "pages_deleted": bool(pages) and all(p["deleted"] for p in pages), "marks": marks,
         "marks_version": marks_version, "parts": parts, "run_id": s["run_id"],
         "marked_at": iso_utc(run["created_at"]) if run else None,
+        "marked_by": marked_by(run),
         "scheme_kind": scheme_info["scheme_kind"] if scheme_info else None,
         "assignment_id": s["assignment_id"], "assignment_title": s["assignment_title"],
         "totals": totals,

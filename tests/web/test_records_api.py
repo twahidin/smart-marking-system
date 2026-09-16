@@ -106,3 +106,21 @@ def test_v1_record_still_renders(auth, app):
     table = Document(io.BytesIO(r.content)).tables[0]
     assert table.rows[1].cells[0].text == "Q1" and table.rows[1].cells[4].text == "5 / 5"
     assert table.rows[1].cells[1].text == "c1 method (2) · c2 answer (3)"
+
+
+def test_record_says_which_model_marked_the_script_not_the_current_one(auth, app):
+    auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "api_key": "sk-x", "rpm_limit": 60,
+                                    "confidence_threshold": 0})
+    sid, _ = seed_v2(app, label="Lim", provider="google", model="gemini-3.8-flash")
+    text = "\n".join(p.text for p in Document(io.BytesIO(auth.get(f"/api/submissions/{sid}/record.docx").content)).paragraphs)
+    assert "google · gemini-3.8-flash" in text and "gpt-5-mini" not in text
+    assert auth.get(f"/api/submissions/{sid}").json()["marked_by"] == "google · gemini-3.8-flash"
+
+
+def test_record_marks_legacy_runs_as_not_recorded(auth, app):
+    auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "api_key": "sk-x", "rpm_limit": 60,
+                                    "confidence_threshold": 0})
+    sid, _ = seed_v2(app, label="Lim", provider=None, model=None)
+    text = "\n".join(p.text for p in Document(io.BytesIO(auth.get(f"/api/submissions/{sid}/record.docx").content)).paragraphs)
+    assert "Marked by: not recorded" in text and "gpt-5-mini" not in text
+    assert auth.get(f"/api/submissions/{sid}").json()["marked_by"] is None
