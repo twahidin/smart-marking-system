@@ -108,8 +108,9 @@ Status mapping for a student: no submission → `to_hand_in`; submission not `do
 - **Draft** assignments are invisible to students. **Open**: hand-in allowed once per student, late
   allowed (roster shows "late"); marking starts on hand-in as it does for teacher uploads.
 - **Release** requires zero pending `teacher_queue` items across the assignment's submissions and at
-  least one marked submission; it sets `status = released`, `released_at`. Students who hand in after
-  release still get marked and see feedback as soon as their script is `done` (no second release).
+  least one marked submission (and the assignment must be `open`); it sets `status = released`,
+  `released_at`. Release closes student hand-ins; pages the **teacher** uploads for a student after
+  release are marked and shown to that student as soon as the script is `done` (no second release).
   There is no un-release.
 - **Remove hand-in** (teacher) deletes the student's submission, pages, queue items and jobs; the
   student sees "To hand in" again.
