@@ -1,10 +1,11 @@
 import io
+import json
 
 from PIL import Image
 
 from tests.web.seed_v2 import QUESTIONS as V2_QUESTIONS, SCHEME as V2_SCHEME, seed_v2
 
-RUBRIC ={"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2}]}
+RUBRIC = {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2}]}
 SCHEME = [{"q_id": "1a", "answer": "x = 3", "marks": [{"label": "M1", "marks": 1}, {"label": "A1", "marks": 1}], "notes": ""}]
 QUESTIONS = [{"q_id": "1a", "text": "Solve 3x = 9", "max_marks": 2}]
 
@@ -135,6 +136,10 @@ def test_roster_counts_release_gate_and_marks_csv(auth, app):
     auth.post(f"/api/queue/{qids['2']}/resolve", json={"allocations": [{"label": "M1", "got": True}, {"label": "A1", "got": False}], "reason": "ok"})
     released = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/release").json()
     assert released["status"] == "released" and released["released_at"] is not None
+    # releasing again is refused and released_at is not re-stamped
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/release")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "already_released"
+    assert auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}").json()["released_at"] == released["released_at"]
     rows = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}").json()["roster"]["rows"]
     assert [r["status"] for r in rows] == ["released", "released", "not_handed_in"]
     # marks csv: one column per part in scheme order, teacher's mark wins, blanks for not handed in
@@ -147,12 +152,75 @@ def test_roster_counts_release_gate_and_marks_csv(auth, app):
     assert lines[3] == "3,Priya Nair,,,,,6,not_handed_in"
 
 
-def test_release_needs_at_least_one_marked_script(auth):
+def test_release_needs_an_open_assignment_and_at_least_one_marked_script(auth):
     t = _template(auth)
     c = _class_with_students(auth)
     ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    # a draft cannot be released, whatever its scripts look like
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/release")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "not_open"
+    assert "Open the assignment" in r.json()["error"]["message"]
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+             json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
     r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/release")
     assert r.status_code == 409 and r.json()["error"]["code"] == "nothing_marked"
+    assert auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}").json()["status"] == "open"
+
+
+def _seed_v1(app, *, label, assignment_id, run_id, marks, status="done"):
+    """A submission marked by criteria (a v1 run): `marks` are final_marks_json rows {q_id, criterion_scores, total, ...}."""
+    db = app.state.db
+    sid = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status, run_id, assignment_id) "
+                    "VALUES (:l, 'math', '', :r, :st, :run, :aid) RETURNING id",
+                    {"l": label, "r": json.dumps(RUBRIC), "st": status, "run": run_id, "aid": assignment_id})
+    db.execute("INSERT INTO pages (submission_id, page_index, sha256, storage_path, width, height) VALUES (:s, 0, :h, :p, 1, 1)",
+               {"s": sid, "h": f"h{sid}", "p": f"pages/h{sid}.jpg"})
+    final = json.dumps({"marks": marks})
+    db.execute("INSERT INTO marking_runs (run_id, stage, subject, rubric_json, marks_json, final_marks_json, submission_id, final_status) "
+               "VALUES (:r, 'complete', 'math', :rubric, :m, :m, :s, 'complete')",
+               {"r": run_id, "rubric": json.dumps(RUBRIC), "m": final, "s": sid})
+    return sid
+
+
+def _v1_mark(q_id, score, total=None):
+    return {"q_id": q_id, "criterion_scores": [score], "total": score if total is None else total,
+            "confidence": 0.9, "evidence": "", "rationale": ""}
+
+
+def test_marks_csv_for_a_criteria_template_uses_the_marked_questions(auth, app):
+    t = _template(auth, scheme_kind="criteria", questions=[], scheme=[])  # RUBRIC: one criterion, max 2
+    c = _class_with_students(auth, names=("Tan Wei Ling", "Muhammad Danish", "Priya Nair"))
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+             json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    tan, danish, priya = c["students"]
+    # columns are the marked questions in first-seen order across the roster: Tan answered q1, q2; Danish q2, q3
+    sid_tan = _seed_v1(app, label="#1 Tan Wei Ling", assignment_id=t["id"], run_id="v1-tan", marks=[_v1_mark("q1", 2), _v1_mark("q2", 1)])
+    sid_dan = _seed_v1(app, label="#2 Muhammad Danish", assignment_id=t["id"], run_id="v1-dan", marks=[_v1_mark("q2", 0), _v1_mark("q3", 2)])
+    _link(app, sid_tan, ca["id"], tan["id"])
+    _link(app, sid_dan, ca["id"], danish["id"])
+    # the teacher corrected Tan's q2 to full marks
+    app.state.db.execute("INSERT INTO teacher_corrections (run_id, q_id, agent_mark, teacher_mark, reason, criterion_scores_json) "
+                         "VALUES ('v1-tan', 'q2', 1, 2, 'generous', '[2]')")
+    r = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}/marks.csv")
+    assert r.status_code == 200
+    lines = r.text.strip().splitlines()
+    assert lines[0] == "reg_no,name,Q1,Q2,Q3,total,max,status"
+    assert lines[1] == "1,Tan Wei Ling,2,2,,4,4,ready"      # max = 2 per question x 2 questions marked
+    assert lines[2] == "2,Muhammad Danish,,0,2,2,4,ready"
+    assert lines[3] == "3,Priya Nair,,,,,6,not_handed_in"   # max = 2 per question x 3 columns
+    # the roster totals agree with the CSV
+    rows = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}").json()["roster"]["rows"]
+    assert (rows[0]["total"], rows[0]["total_max"]) == (4, 4) and (rows[1]["total"], rows[1]["total_max"]) == (2, 4)
+
+
+def test_marks_csv_refuses_when_the_template_was_deleted(auth):
+    t = _template(auth)
+    c = _class_with_students(auth)
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    assert auth.delete(f"/api/assignments/{t['id']}?force=true").status_code == 204
+    r = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}/marks.csv")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "template_deleted"
 
 
 def test_status_transitions_no_unrelease_and_no_draft_with_hand_ins(auth, app):

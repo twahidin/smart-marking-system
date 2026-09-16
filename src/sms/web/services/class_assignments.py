@@ -4,7 +4,7 @@ import io
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sms.memory.db import Database
 from sms.schemas.scheme import q_label
@@ -203,9 +203,13 @@ def roster(db: Database, ca: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def release(db: Database, class_id: int, caid: int) -> Dict[str, Any]:
-    """Release feedback to the class: refused while any part still waits in the review queue or
-    nothing has been marked. Releasing is one-way (see update_class_assignment)."""
-    require_class_assignment(db, class_id, caid)
+    """Release feedback to the class: only an open assignment, and refused while any part still waits
+    in the review queue or nothing has been marked. Releasing is one-way (see update_class_assignment)."""
+    ca = require_class_assignment(db, class_id, caid)
+    if ca["status"] == "released":
+        raise ApiError(409, "already_released", "Feedback for this assignment has already been released")
+    if ca["status"] != "open":
+        raise ApiError(409, "not_open", "Open the assignment before releasing feedback")
     n = int(db.query("SELECT COUNT(*) AS c FROM teacher_queue q JOIN submissions s ON s.id = q.submission_id "
                      "WHERE s.class_assignment_id = :a AND q.status = 'pending'", {"a": caid})[0]["c"] or 0)
     if n:
@@ -218,23 +222,24 @@ def release(db: Database, class_id: int, caid: int) -> Dict[str, Any]:
     return get_class_assignment(db, class_id, caid)  # type: ignore[return-value]
 
 
-def part_columns(template: Optional[dict]) -> List[Tuple[str, str]]:
-    """(key, label) per scheme row in scheme order; criteria templates use their criterion ids."""
-    if template is None:
-        return []
+def part_columns(template: dict, marks: Iterable[Dict[str, Any]]) -> List[Tuple[str, str, int]]:
+    """(key, label, max) per CSV column. A mark scheme / rubric template has one column per scheme row
+    in scheme order. A criteria template has no per-question scheme, so its columns are the questions
+    the marked scripts answered (`marks`: one key -> mark dict per script, from final_mark_by_key) in
+    first-seen order, each worth the rubric's total (the sum of its criterion maxima)."""
     kind = template["scheme_kind"]
     if kind in ("mark_scheme", "rubric"):
-        keys = [row_key(kind, row) for row in template["scheme"]]
-        return [(k, q_label(k) if kind == "mark_scheme" else k) for k in keys]
-    return [(c["id"], c["id"]) for c in template["rubric"]["criterion_defs"]]
-
-
-def row_max_for(template: dict, key: str) -> int:
-    """Marks available for one column of the template: the scheme row's max, or a criterion's max_score."""
-    kind = template["scheme_kind"]
-    if kind in ("mark_scheme", "rubric"):
-        return next((row_max(kind, row) for row in template["scheme"] if row_key(kind, row) == key), 0)
-    return next((int(c["max_score"]) for c in template["rubric"]["criterion_defs"] if c["id"] == key), 0)
+        seen: Set[str] = set()
+        cols = []
+        for row in template["scheme"]:
+            key = row_key(kind, row)
+            if key not in seen:
+                seen.add(key)
+                cols.append((key, q_label(key) if kind == "mark_scheme" else key, row_max(kind, row)))
+        return cols
+    per_q_max = sum(int(c["max_score"]) for c in template["rubric"]["criterion_defs"])
+    keys = list(dict.fromkeys(k for m in marks for k in m))
+    return [(k, q_label(k), per_q_max) for k in keys]
 
 
 def final_mark_by_key(detail: dict) -> Dict[str, Any]:
@@ -255,20 +260,26 @@ def slug(text: str) -> str:
 
 
 def marks_csv(db: Database, jobs: JobStore, ca: Dict[str, Any]) -> str:
-    """One row per student: a column per part (scheme order), total, max and status; blanks for
-    students who have not handed in or whose script is not marked yet."""
+    """One row per student: a column per part (see part_columns), total, max and status; blanks for
+    students who have not handed in or whose script is not marked yet (their `max` is the sum of the
+    column maxima)."""
     template = get_template(db, ca["template_id"])
-    cols = part_columns(template)
-    buf = io.StringIO()
-    w = csv.writer(buf, lineterminator="\n")
-    w.writerow(["reg_no", "name", *[label for _, label in cols], "total", "max", "status"])
-    scheme_max = sum((row_max_for(template, k) for k, _ in cols), 0) if template else 0
-    for r in roster(db, ca)["rows"]:
-        marks: Dict[str, Any] = {}
+    if template is None:
+        raise ApiError(409, "template_deleted", "This assignment was deleted from the bank — the marks CSV needs its scheme")
+    rows = roster(db, ca)["rows"]
+    marks_by_sub: Dict[int, Dict[str, Any]] = {}
+    for r in rows:
         if r["submission_id"] is not None:
             detail = get_submission(db, jobs, r["submission_id"])
-            marks = final_mark_by_key(detail) if detail and detail.get("run_id") else {}
-        cells = [marks.get(k, "") for k, _ in cols]
+            marks_by_sub[r["submission_id"]] = final_mark_by_key(detail) if detail and detail.get("run_id") else {}
+    cols = part_columns(template, marks_by_sub.values())
+    scheme_max = sum(m for _, _, m in cols)
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["reg_no", "name", *[label for _, label, _ in cols], "total", "max", "status"])
+    for r in rows:
+        marks = marks_by_sub.get(r["submission_id"], {})
+        cells = [marks.get(k, "") for k, _, _ in cols]
         total = "" if r["total"] is None else r["total"]
         maximum = r["total_max"] if r["total_max"] is not None else scheme_max
         w.writerow([r["reg_no"], r["name"], *cells, total, maximum, r["status"]])
