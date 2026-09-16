@@ -115,6 +115,22 @@ describe("HandIn", () => {
     expect(items[1].querySelector("img")).toHaveAttribute("src", "blob:x");
   });
 
+  it("keeps at most 20 pages and says so", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(detail),
+    });
+    render(app("/s/a/1/hand-in"));
+    const gallery = await screen.findByLabelText("Choose from gallery");
+    await userEvent.upload(gallery, Array.from({ length: 21 }, (_, i) => jpg(`p${i + 1}.jpg`)));
+    expect(screen.getAllByRole("listitem")).toHaveLength(20);
+    expect(screen.getByRole("status")).toHaveTextContent("You can hand in at most 20 pages.");
+    expect(screen.getByRole("button", { name: "Hand in 20 pages" })).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[19]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(19);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("redirects to the assignment page when it is no longer waiting to be handed in", async () => {
     mockFetch({
       "GET /api/student/me": () => ok(me),

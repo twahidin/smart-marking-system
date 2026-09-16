@@ -10,6 +10,7 @@ import { studentApi as api } from "./api";
 
 interface Page { id: string; file: File; url: string }
 
+const MAX_PAGES = 20;
 const OFFLINE = "Couldn't hand in — check your signal and try again.";
 const UNREACHABLE = "Can't reach Smart Marking — check your signal and try again.";
 
@@ -19,6 +20,7 @@ export function HandIn() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [overLimit, setOverLimit] = useState(false);
   const [busy, setBusy] = useState(false);
   const [doneAt, setDoneAt] = useState<string | null>(null);
   const camera = useRef<HTMLInputElement>(null);
@@ -39,12 +41,22 @@ export function HandIn() {
   pagesRef.current = pages;
   useEffect(() => () => pagesRef.current.forEach((p) => p.url && URL.revokeObjectURL(p.url)), []);
 
+  // Object URLs are created outside the state updater — StrictMode runs updaters twice in dev and would leak one per file.
   const add = (picked: File[]) => {
     if (picked.length === 0) return;
     setError(null);
-    setPages((cur) => [...cur, ...picked.map((file) => ({ id: String(nextId.current++), file, url: canThumbnail(file) ? URL.createObjectURL(file) : "" }))]);
+    const kept = picked.slice(0, Math.max(0, MAX_PAGES - pages.length));
+    setOverLimit(kept.length < picked.length);
+    if (kept.length === 0) return;
+    const built: Page[] = kept.map((file) => ({ id: String(nextId.current++), file, url: canThumbnail(file) ? URL.createObjectURL(file) : "" }));
+    setPages((cur) => [...cur, ...built]);
   };
-  const remove = (i: number) => { setError(null); setPages((cur) => { cur[i].url && URL.revokeObjectURL(cur[i].url); return cur.filter((_, j) => j !== i); }); };
+  const remove = (i: number) => {
+    setError(null); setOverLimit(false);
+    const gone = pages[i];
+    if (gone?.url) URL.revokeObjectURL(gone.url);
+    setPages((cur) => cur.filter((p) => p !== gone));
+  };
   const move = (i: number, d: -1 | 1) => setPages((cur) => { const c = [...cur]; const j = i + d; if (j < 0 || j >= c.length) return cur; [c[i], c[j]] = [c[j], c[i]]; return c; });
 
   const submit = async () => {
@@ -101,7 +113,8 @@ export function HandIn() {
         <input ref={gallery} type="file" accept="image/*,.pdf,.heic,.heif" multiple hidden aria-label="Choose from gallery"
           onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
-      <p className="help">One photo per page, in order — up to 20 pages. Photos are shrunk on your phone before they're sent.</p>
+      <p className="help">{`One photo per page, in order — up to ${MAX_PAGES} pages. Photos are shrunk on your phone before they're sent.`}</p>
+      {overLimit && <p role="status" className="notice">{`You can hand in at most ${MAX_PAGES} pages.`}</p>}
       {n > 0 && (
         <ol className="student-pages" aria-label="Pages">
           {pages.map((p, i) => (
