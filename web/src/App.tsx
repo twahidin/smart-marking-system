@@ -17,6 +17,7 @@ import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
 import { SubmissionDetail } from "./pages/SubmissionDetail";
 import { Submissions } from "./pages/Submissions";
+import { AssignmentView } from "./student/AssignmentView";
 import { Confirm } from "./student/Confirm";
 import { Enter } from "./student/Enter";
 import { HandIn } from "./student/HandIn";
@@ -62,12 +63,13 @@ export function App() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
-      {/* student side — phone-first, no teacher Nav; the feedback route lands in Task 12 */}
+      {/* student side — phone-first, no teacher Nav */}
       <Route path="/c/:code" element={<Enter />} />
       <Route path="/join" element={<Enter />} />
       <Route path="/s/confirm" element={<Confirm />} />
       <Route path="/s" element={<StudentLayout />}>
         <Route index element={<Home />} />
+        <Route path="a/:caid" element={<AssignmentView />} />
         <Route path="a/:caid/hand-in" element={<HandIn />} />
       </Route>
       <Route element={<Shell />}>
