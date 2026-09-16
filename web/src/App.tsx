@@ -17,6 +17,10 @@ import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
 import { SubmissionDetail } from "./pages/SubmissionDetail";
 import { Submissions } from "./pages/Submissions";
+import { Confirm } from "./student/Confirm";
+import { Enter } from "./student/Enter";
+import { Home } from "./student/Home";
+import { StudentLayout } from "./student/StudentLayout";
 
 type AuthState = "loading" | "authed" | "anon" | "error";
 
@@ -57,6 +61,13 @@ export function App() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
+      {/* student side — phone-first, no teacher Nav; hand-in and feedback routes land in Tasks 11–12 */}
+      <Route path="/c/:code" element={<Enter />} />
+      <Route path="/join" element={<Enter />} />
+      <Route path="/s/confirm" element={<Confirm />} />
+      <Route path="/s" element={<StudentLayout />}>
+        <Route index element={<Home />} />
+      </Route>
       <Route element={<Shell />}>
         <Route index element={<Navigate to="/classes" replace />} />
         <Route path="/classes" element={<Classes />} />
