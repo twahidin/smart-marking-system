@@ -65,9 +65,12 @@ def _visible(db: Database, student: dict, caid: Optional[int] = None) -> List[di
 
 def _row(r: dict) -> Dict[str, Any]:
     sub = {"status": r["sub_status"]} if r["submission_id"] is not None else None
+    # Students may hand in only while the assignment is open (the same rule `open_for_hand_in` enforces);
+    # after release only the teacher's upload route adds scripts, so Home must not advertise a hand-in.
     return {"id": r["id"], "title": r["title"], "due_at": iso_utc(r["due_at"]),
             "status": _status(sub, r["status"] == "released"), "handed_in_at": iso_utc(r["handed_in_at"]),
-            "pages": int(r["page_count"] or 0), "allow_student_uploads": bool(r["allow_student_uploads"])}
+            "pages": int(r["page_count"] or 0),
+            "allow_student_uploads": bool(r["allow_student_uploads"]) and r["status"] == "open"}
 
 
 def student_assignments(db: Database, student: dict) -> List[Dict[str, Any]]:

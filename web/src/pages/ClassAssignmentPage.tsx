@@ -173,7 +173,7 @@ export function ClassAssignmentPage() {
       {releasing && (
         <Dialog title="Release feedback to students?" onClose={() => setReleasing(false)}
           footer={<><Button variant="secondary" onClick={() => setReleasing(false)}>Cancel</Button><Button variant="primary" onClick={release} disabled={busy !== null}>Release to students</Button></>}>
-          <p>Students will see their marks and feedback. Anyone who hands in later is marked and shown feedback automatically.</p>
+          <p>Students will see their marks and feedback. Students can no longer hand in. Pages you upload for a student later are marked and shown to them automatically.</p>
         </Dialog>
       )}
       {uploading && <UploadDialog base={base} student={uploading} onClose={() => setUploading(null)} onDone={() => { setUploading(null); load(); }} />}

@@ -86,6 +86,16 @@ def test_teacher_upload_for_a_student_creates_a_linked_submission(auth, app):
     assert auth.delete(f"/api/classes/{c['id']}/assignments/{ca['id']}/students/{tan['id']}/submission").status_code == 404
     assert auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/students/{tan['id']}/upload",
                      files=[("files", ("p1.png", _png(), "image/png"))]).status_code == 202
+    # removing a marked hand-in also drops its marking run and queue items, not just pages and jobs
+    danish = c["students"][1]
+    sid_dan, qids = seed_v2(app, label="#2 Muhammad Danish", assignment_id=t["id"], run_id="r-dan-remove")
+    _link(app, sid_dan, ca["id"], danish["id"])
+    assert app.state.db.query("SELECT 1 FROM marking_runs WHERE submission_id = :s", {"s": sid_dan}) != []
+    assert auth.delete(f"/api/classes/{c['id']}/assignments/{ca['id']}/students/{danish['id']}/submission").status_code == 204
+    assert app.state.db.query("SELECT 1 FROM submissions WHERE id = :s", {"s": sid_dan}) == []
+    assert app.state.db.query("SELECT 1 FROM marking_runs WHERE submission_id = :s", {"s": sid_dan}) == []
+    assert app.state.db.query("SELECT 1 FROM marking_runs WHERE run_id = 'r-dan-remove'", {}) == []
+    assert app.state.db.query("SELECT 1 FROM teacher_queue WHERE submission_id = :s", {"s": sid_dan}) == []
 
 
 def test_upload_for_unknown_student_or_deleted_template(auth):

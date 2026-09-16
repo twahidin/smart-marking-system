@@ -153,9 +153,8 @@ function AssignmentsTab({ cls, onOpenCount }: { cls: ClassRow; onOpenCount: (n: 
             {rows.map((ca) => (
               <tr key={ca.id}>
                 <td>
-                  {ca.template_deleted
-                    ? <><strong>{ca.title}</strong><div className="warn-note">Assignment deleted from the bank — set it again</div></>
-                    : <Link to={`/classes/${cls.id}/assignments/${ca.id}`}><strong>{ca.title}</strong></Link>}
+                  <Link to={`/classes/${cls.id}/assignments/${ca.id}`}><strong>{ca.title}</strong></Link>
+                  {ca.template_deleted && <div className="warn-note">Assignment deleted from the bank — set it again</div>}
                   {ca.scheme_kind && <div className="help">{schemeLabel[ca.scheme_kind] ?? ca.scheme_kind}</div>}
                 </td>
                 <td><span className={`pill ${STATUS[ca.derived_status].pill}`}>{STATUS[ca.derived_status].label}</span></td>

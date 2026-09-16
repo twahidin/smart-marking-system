@@ -132,6 +132,10 @@ def test_hand_in_refused_after_release(auth, client, app):
     client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
     r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("p1.png", _png(), "image/png"))])
     assert r.status_code == 403 and r.json()["error"]["code"] == "uploads_closed"
+    # the list says the same, so Home shows "Hand-ins closed" rather than advertising a hand-in the server refuses
+    lst = client.get("/api/student/assignments").json()
+    assert [(a["id"], a["status"], a["allow_student_uploads"]) for a in lst] == [(ca["id"], "to_hand_in", False)]
+    assert client.get(f"/api/student/assignments/{ca['id']}").json()["allow_student_uploads"] is False
 
 
 def test_hand_in_visibility_is_checked_before_the_teachers_key(auth, client):

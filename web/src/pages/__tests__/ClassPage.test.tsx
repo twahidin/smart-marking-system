@@ -85,4 +85,17 @@ describe("ClassPage", () => {
     expect(calls.some((c) => c.method === "PUT" && c.path === "/api/classes/1/assignments/3")).toBe(true);
     expect(within(row).getByRole("link", { name: "Worksheet 3" })).toHaveAttribute("href", "/classes/1/assignments/3");
   });
+
+  it("keeps the link to a class assignment whose template was deleted, with the warning beside it", async () => {
+    const gone: ClassAssignment = { id: 4, class_id: 1, template_id: 9, title: "Old worksheet", due_at: null, status: "open", derived_status: "marking", allow_student_uploads: true, released_at: null, template_deleted: true, subject: "math", scheme_kind: "mark_scheme", submission_count: 2, created_at: "", updated_at: "" };
+    mockFetch({
+      "GET /api/classes/1": () => new Response(JSON.stringify(cls), { status: 200 }),
+      "GET /api/classes/1/assignments": () => new Response(JSON.stringify([gone]), { status: 200 }),
+    });
+    render(app("?tab=assignments"));
+    const row = (await screen.findByText("Old worksheet")).closest("tr")!;
+    expect(within(row).getByRole("link", { name: "Old worksheet" })).toHaveAttribute("href", "/classes/1/assignments/4");
+    expect(within(row).getByText("Assignment deleted from the bank — set it again")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Open" })).not.toBeInTheDocument();
+  });
 });

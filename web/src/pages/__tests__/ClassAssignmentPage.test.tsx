@@ -68,6 +68,9 @@ describe("ClassAssignmentPage", () => {
     });
     render(app());
     await userEvent.click(await screen.findByRole("button", { name: "Release feedback" }));
+    // releasing closes student hand-ins; only the teacher's upload adds scripts afterwards
+    expect(screen.getByText(/Students can no longer hand in\. Pages you upload for a student later are marked and shown to them automatically\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Anyone who hands in later/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Release to students" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/release"))).toBe(true));
     expect(await screen.findByText(/Released/)).toBeInTheDocument();

@@ -133,7 +133,7 @@ def hand_in(db: Database, storage: PageStorage, jobs: JobStore, *, ca: Dict[str,
 
 
 def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: int) -> None:
-    """Delete the student's submission (pages, jobs, queue items) so they can hand in again."""
+    """Delete the student's submission (pages, jobs, queue items, marking runs) so they can hand in again."""
     rows = db.query("SELECT id FROM submissions WHERE class_assignment_id = :a AND student_id = :s", {"a": ca_id, "s": student_id})
     if not rows:
         raise ApiError(404, "not_found", "This student has not handed in")
@@ -143,6 +143,7 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
     with db.transaction() as tx:
         paths = [r["storage_path"] for r in tx.query("SELECT storage_path FROM pages WHERE submission_id = :s AND deleted_at IS NULL", {"s": sid})]
         tx.execute("DELETE FROM teacher_queue WHERE submission_id = :s", {"s": sid})
+        tx.execute("DELETE FROM marking_runs WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM jobs WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM submissions WHERE id = :s", {"s": sid})

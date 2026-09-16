@@ -105,8 +105,9 @@ number, photograph their pages (camera or gallery, reorder, up to 20 pages) and 
 as usual and the class assignment page shows a progress strip and a per-student roster (not handed in,
 handed in, marking, needs you, ready — late hand-ins are flagged). Clear anything in **Review**, then
 **Release feedback** — until then a student only sees that their work is in (or marked and being
-checked); afterwards they see their marks and feedback on the same link, and anyone who hands in later
-is marked and shown feedback automatically. **Download marks CSV** gives one row per student;
+checked); afterwards they see their marks and feedback on the same link. Releasing closes student
+hand-ins; the teacher can still **Upload pages** for a student, and those are marked and shown to them
+automatically. **Download marks CSV** gives one row per student;
 **Download marking records** the bulk `.zip`.
 
 There is no student password — the class code plus register number is the accepted trade-off, since
