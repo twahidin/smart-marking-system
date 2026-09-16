@@ -3,11 +3,13 @@
     SMS_TEST_DATABASE_URL=postgresql://sms:sms@localhost:5432/sms_test uv run pytest tests/postgres -q
 
 Exercises the code paths that differ between SQLite and Postgres: RETURNING, FOR UPDATE SKIP LOCKED,
-ON CONFLICT against a partial unique index, aggregate types (Decimal/bigint), and datetime columns.
+ON CONFLICT against a partial unique index, aggregate types (Decimal/bigint), datetime columns, and the
+partial unique index that keeps a student to one hand-in per class assignment.
 """
 import os
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from sms.memory.db import Database
 from sms.memory.metrics import MetricsSummary, record_run_metric
@@ -90,3 +92,37 @@ def test_enqueue_unique_is_backed_by_the_partial_unique_index(db):
         assert db.query("SELECT COUNT(*) AS c FROM jobs WHERE dedupe_key = :k", {"k": key})[0]["c"] == 2
     finally:
         db.execute("DELETE FROM jobs WHERE dedupe_key = :k", {"k": key})
+
+
+def test_second_hand_in_for_the_same_student_and_assignment_raises_integrity_error(db):
+    # hand_in relies on uq_submissions_student_assignment (partial, WHERE both columns are NOT NULL) to turn a
+    # raced second tap into a 409; a plain SQLite run cannot prove the index exists on Postgres.
+    class_id = db.insert("INSERT INTO classes (name, code) VALUES ('pg-smoke class', 'PGSM') RETURNING id")
+    try:
+        student_id = db.insert(
+            "INSERT INTO students (class_id, reg_no, name) VALUES (:c, 1, 'pg-smoke student') RETURNING id",
+            {"c": class_id},
+        )
+        ca_id = db.insert(
+            "INSERT INTO class_assignments (class_id, template_id, title, status) "
+            "VALUES (:c, 0, 'pg-smoke assignment', 'open') RETURNING id",
+            {"c": class_id},
+        )
+        insert = (
+            "INSERT INTO submissions (label, subject, context, rubric_json, status, class_assignment_id, student_id, "
+            "source, handed_in_at) VALUES ('pg-smoke hand-in', 'math', '', '{}', 'uploaded', :ca, :st, 'student', "
+            "CURRENT_TIMESTAMP) RETURNING id"
+        )
+        first = db.insert(insert, {"ca": ca_id, "st": student_id})
+        assert isinstance(first, int)
+        with pytest.raises(IntegrityError):
+            db.insert(insert, {"ca": ca_id, "st": student_id})
+        assert db.query(
+            "SELECT COUNT(*) AS c FROM submissions WHERE class_assignment_id = :ca AND student_id = :st",
+            {"ca": ca_id, "st": student_id},
+        )[0]["c"] == 1
+    finally:
+        db.execute("DELETE FROM submissions WHERE class_assignment_id IN (SELECT id FROM class_assignments WHERE class_id = :c)",
+                   {"c": class_id})
+        # students and class_assignments cascade from the class
+        db.execute("DELETE FROM classes WHERE id = :c", {"c": class_id})

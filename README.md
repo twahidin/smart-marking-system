@@ -96,6 +96,25 @@ assignment can override it (always keep / always delete / follow the default —
 assignment starts on "Off", since the whole transcription is what the record keeps). Question-paper
 and mark-scheme pages are never deleted.
 
+**Classes and student hand-in** turn marking into a class routine. Under **Classes**, create a class
+and upload its classlist as a CSV (`name, reg_no`); the preview flags any bad rows before **Confirm
+classlist** replaces the roster. Each class gets a four-character code and a link (`/c/CODE`) —
+**Copy link** and paste it into Google Classroom once. Then **Set assignment** from the assignment bank,
+with an optional due date, and **Open** it. Students open the link on their phone, type their register
+number, photograph their pages (camera or gallery, reorder, up to 20 pages) and hand in; marking runs
+as usual and the class assignment page shows a progress strip and a per-student roster (not handed in,
+handed in, marking, needs you, ready — late hand-ins are flagged). Clear anything in **Review**, then
+**Release feedback** — until then a student only sees that their work is in (or marked and being
+checked); afterwards they see their marks and feedback on the same link, and anyone who hands in later
+is marked and shown feedback automatically. **Download marks CSV** gives one row per student;
+**Download marking records** the bulk `.zip`.
+
+There is no student password — the class code plus register number is the accepted trade-off, since
+the link lives in a closed Google Classroom and a student can only ever see their own work. A student
+who handed in the wrong pages asks their teacher, who clicks **Remove hand-in** on the roster so they
+can redo it (a second hand-in is refused while the first stands); the teacher can also **Upload
+pages** for a student who has no phone.
+
 ### Settings
 
 - **Delete pages after marking** — global default for the page-deletion behaviour above; an assignment
@@ -187,7 +206,8 @@ See [docs/plans/2026-09-04-smart-marking-system-design.md](docs/plans/2026-09-04
 
 **Status**: MVP — math marking via CLI, plus a FastAPI + React web app (sign-in, settings, typed
 assignments with mark-scheme/rubric editors and paper/scheme extraction from uploaded pages,
-assignment-first marking, per-part review, downloadable marking records, and automatic page deletion).
+assignment-first marking, per-part review, downloadable marking records, automatic page deletion,
+and classes with a student phone hand-in and released feedback).
 
 Done since the original MVP:
 
@@ -195,11 +215,13 @@ Done since the original MVP:
   marking records (`.docx`; bulk `.zip` + `markbook.xlsx`)
 - Reading the question paper and mark scheme / rubric from uploaded pages (`Read questions` /
   `Read mark scheme`) instead of typing them in
+- Classes and students (classlist CSV, class link, assignments set from the bank, per-student roster,
+  marks CSV, feedback released per assignment)
+- Student phone flow (students open the class link, type their register number, photograph and hand
+  in their own pages, and see their feedback once released)
 
 Roadmap:
 
-- Classes and students (organize assignments and submissions by class/student instead of ad-hoc uploads)
-- Student phone flow (students photograph and submit their own scripts)
 - Bulk-upload page sorter (split a multi-script batch scan into per-student submissions)
 - Per-class memory (rubric notes and exemplar cases scoped to a class, not just per subject)
 - Language and science subject factories (prompts already ship)
