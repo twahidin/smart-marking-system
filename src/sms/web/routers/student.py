@@ -1,11 +1,20 @@
-from fastapi import APIRouter, Depends, Request, Response
+from typing import List
+
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from sms.web.deps import SESSION_MAX_AGE, STUDENT_COOKIE, client_ip, get_db, require_student
+from sms.web.deps import (SESSION_MAX_AGE, STUDENT_COOKIE, client_ip, get_db, get_jobs, get_settings_store, get_storage,
+                          require_student)
 from sms.web.errors import ApiError
-from sms.web.services.student import lookup_student, public, touch_last_seen
+from sms.web.services.student import (lookup_student, public, student_assignment, student_assignments, student_hand_in,
+                                      student_page_path, touch_last_seen)
+from sms.web.uploads import check_content_length, read_upload_files
 
 router = APIRouter(prefix="/api/student", tags=["student"])
+
+MAX_HAND_IN_PAGES = 20
 
 
 class IdBody(BaseModel):
@@ -49,3 +58,33 @@ def end_session(response: Response):
 @router.get("/me")
 def me(student: dict = Depends(require_student)):
     return {"class_name": student["class_name"], "code": student["code"], "student_name": student["name"], "reg_no": student["reg_no"]}
+
+
+@router.get("/assignments")
+def assignments(student: dict = Depends(require_student), db=Depends(get_db)):
+    return student_assignments(db, student)
+
+
+@router.get("/assignments/{caid}")
+def assignment(caid: int, student: dict = Depends(require_student), db=Depends(get_db), jobs=Depends(get_jobs)):
+    return student_assignment(db, jobs, student, caid)
+
+
+@router.post("/assignments/{caid}/hand-in", status_code=202)
+async def hand_in_pages(caid: int, request: Request, files: List[UploadFile] = File(...),
+                        student: dict = Depends(require_student), db=Depends(get_db), storage=Depends(get_storage),
+                        jobs=Depends(get_jobs), settings=Depends(get_settings_store)):
+    check_content_length(request)
+    if len(files) > MAX_HAND_IN_PAGES:
+        raise ApiError(400, "too_many_pages", f"Hand in at most {MAX_HAND_IN_PAGES} pages")
+    if not await run_in_threadpool(lambda: settings.load().has_key):
+        raise ApiError(400, "no_key", "Your teacher has not finished setting up marking yet — try again later")
+    payload = await read_upload_files(request, files)
+    # PDF rasterising and image normalising are CPU-bound; keep them off the event loop.
+    return await run_in_threadpool(student_hand_in, db, storage, jobs, student, caid, payload)
+
+
+@router.get("/pages/{page_id}")
+def page(page_id: int, student: dict = Depends(require_student), db=Depends(get_db), storage=Depends(get_storage)):
+    return FileResponse(student_page_path(db, storage, student, page_id), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
