@@ -1,16 +1,20 @@
 """A bank template set to a class: due date, status (draft/open/released), and the students' hand-ins."""
+import csv
+import io
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sms.memory.db import Database
+from sms.schemas.scheme import q_label
 from sms.storage import PageStorage
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 from sms.web.services.assignments import get_template
 from sms.web.services.classes import get_class
 from sms.web.services.pages_cleanup import unlink_pages
-from sms.web.services.submissions import create_submission
+from sms.web.services.submissions import create_submission, get_submission, row_key, row_max, submission_totals
 from sms.worker.jobs import JobStore
 
 STATUSES = ("draft", "open", "released")
@@ -87,6 +91,10 @@ def update_class_assignment(db: Database, class_id: int, caid: int, *, title: st
         raise ApiError(400, "bad_status", "Status must be draft, open or released")
     if status == "released" and ca["status"] != "released":
         raise ApiError(400, "bad_status", "Use Release feedback to release an assignment")
+    if ca["status"] == "released" and status != "released":
+        raise ApiError(400, "bad_status", "A released assignment cannot be reopened")
+    if ca["status"] == "open" and status == "draft" and ca["submission_count"]:
+        raise ApiError(400, "bad_status", "Remove the hand-ins before moving it back to draft")
     title = (title or "").strip()
     if not title:
         raise ApiError(400, "bad_title", "Give the assignment a title")
@@ -141,3 +149,127 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
         orphaned = [p for p in dict.fromkeys(paths)
                     if not tx.query("SELECT 1 FROM pages WHERE storage_path = :p AND deleted_at IS NULL", {"p": p})]
     unlink_pages(storage, orphaned)
+
+
+# --- roster, release and marks export ---------------------------------------------------------
+
+def _student_status(sub: Optional[dict], released: bool) -> str:
+    if sub is None:
+        return "not_handed_in"
+    st = sub["status"]
+    if st in ("uploaded", "queued"):
+        return "handed_in"
+    if st == "marking":
+        return "marking"
+    if st == "failed":
+        return "failed"
+    if st == "needs_you":
+        return "needs_you"
+    return "released" if released else "ready"
+
+
+def roster(db: Database, ca: Dict[str, Any]) -> Dict[str, Any]:
+    """One row per student in the class (register order) with their hand-in's progress and totals,
+    plus progress counts. `failed` scripts count under `marking` and `released` under `ready`."""
+    students = db.query("SELECT id, reg_no, name FROM students WHERE class_id = :c ORDER BY reg_no", {"c": ca["class_id"]})
+    subs = {r["student_id"]: r for r in db.query(
+        "SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count "
+        "FROM submissions s WHERE s.class_assignment_id = :a", {"a": ca["id"]})}
+    pending: Dict[int, List[str]] = {}
+    for q in db.query("SELECT q.submission_id, q.q_id FROM teacher_queue q JOIN submissions s ON s.id = q.submission_id "
+                      "WHERE s.class_assignment_id = :a AND q.status = 'pending' ORDER BY q.id", {"a": ca["id"]}):
+        pending.setdefault(q["submission_id"], []).append(q_label(q["q_id"]))
+    released = ca["status"] == "released"
+    due = ca["due_at"]
+    rows = []
+    counts = {"not_handed_in": 0, "handed_in": 0, "marking": 0, "needs_you": 0, "ready": 0}
+    for st in students:
+        sub = subs.get(st["id"])
+        status = _student_status(sub, released)
+        totals = submission_totals(db, sub) if sub else None
+        handed = iso_utc(sub["handed_in_at"]) if sub else None
+        rows.append({
+            "student_id": st["id"], "reg_no": int(st["reg_no"]), "name": st["name"],
+            "submission_id": sub["id"] if sub else None, "pages": int(sub["page_count"] or 0) if sub else 0,
+            "handed_in_at": handed, "late": bool(due and handed and handed > due), "source": sub["source"] if sub else None,
+            "status": status,
+            "total": totals["total"] if totals else None, "total_upper": totals["total_upper"] if totals else None,
+            "total_max": totals["total_max"] if totals else None,
+            "needs_you_parts": pending.get(sub["id"], []) if sub else [],
+        })
+        bucket = {"failed": "marking", "released": "ready"}.get(status, status)
+        counts[bucket] += 1
+    return {"rows": rows, "counts": counts}
+
+
+def release(db: Database, class_id: int, caid: int) -> Dict[str, Any]:
+    """Release feedback to the class: refused while any part still waits in the review queue or
+    nothing has been marked. Releasing is one-way (see update_class_assignment)."""
+    require_class_assignment(db, class_id, caid)
+    n = int(db.query("SELECT COUNT(*) AS c FROM teacher_queue q JOIN submissions s ON s.id = q.submission_id "
+                     "WHERE s.class_assignment_id = :a AND q.status = 'pending'", {"a": caid})[0]["c"] or 0)
+    if n:
+        raise ApiError(409, "needs_you", f"{n} part{'s' if n != 1 else ''} still need{'s' if n == 1 else ''} you — clear the review queue first")
+    marked = db.query("SELECT COUNT(*) AS c FROM submissions WHERE class_assignment_id = :a AND run_id IS NOT NULL", {"a": caid})[0]["c"]
+    if not int(marked or 0):
+        raise ApiError(409, "nothing_marked", "Nothing has been marked yet")
+    db.execute("UPDATE class_assignments SET status = 'released', released_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
+               "WHERE id = :id", {"id": caid})
+    return get_class_assignment(db, class_id, caid)  # type: ignore[return-value]
+
+
+def part_columns(template: Optional[dict]) -> List[Tuple[str, str]]:
+    """(key, label) per scheme row in scheme order; criteria templates use their criterion ids."""
+    if template is None:
+        return []
+    kind = template["scheme_kind"]
+    if kind in ("mark_scheme", "rubric"):
+        keys = [row_key(kind, row) for row in template["scheme"]]
+        return [(k, q_label(k) if kind == "mark_scheme" else k) for k in keys]
+    return [(c["id"], c["id"]) for c in template["rubric"]["criterion_defs"]]
+
+
+def row_max_for(template: dict, key: str) -> int:
+    """Marks available for one column of the template: the scheme row's max, or a criterion's max_score."""
+    kind = template["scheme_kind"]
+    if kind in ("mark_scheme", "rubric"):
+        return next((row_max(kind, row) for row in template["scheme"] if row_key(kind, row) == key), 0)
+    return next((int(c["max_score"]) for c in template["rubric"]["criterion_defs"] if c["id"] == key), 0)
+
+
+def final_mark_by_key(detail: dict) -> Dict[str, Any]:
+    """key -> int mark or "Review" (pending) from a submission detail; teacher corrections win."""
+    out: Dict[str, Any] = {}
+    if detail.get("marks_version") == 2:
+        for p in detail.get("parts") or []:
+            out[p["q_id"]] = "Review" if p["escalated"] else (p["teacher"]["total"] if p.get("teacher") else p["total"])
+    else:
+        for m in detail.get("marks") or []:
+            out[m["q_id"]] = "Review" if m["escalated"] else (sum(m["teacher_scores"]) if m.get("teacher_scores") else m["total"])
+    return out
+
+
+def slug(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return s or "assignment"
+
+
+def marks_csv(db: Database, jobs: JobStore, ca: Dict[str, Any]) -> str:
+    """One row per student: a column per part (scheme order), total, max and status; blanks for
+    students who have not handed in or whose script is not marked yet."""
+    template = get_template(db, ca["template_id"])
+    cols = part_columns(template)
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["reg_no", "name", *[label for _, label in cols], "total", "max", "status"])
+    scheme_max = sum((row_max_for(template, k) for k, _ in cols), 0) if template else 0
+    for r in roster(db, ca)["rows"]:
+        marks: Dict[str, Any] = {}
+        if r["submission_id"] is not None:
+            detail = get_submission(db, jobs, r["submission_id"])
+            marks = final_mark_by_key(detail) if detail and detail.get("run_id") else {}
+        cells = [marks.get(k, "") for k, _ in cols]
+        total = "" if r["total"] is None else r["total"]
+        maximum = r["total_max"] if r["total_max"] is not None else scheme_max
+        w.writerow([r["reg_no"], r["name"], *cells, total, maximum, r["status"]])
+    return buf.getvalue()

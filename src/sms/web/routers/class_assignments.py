@@ -7,8 +7,8 @@ from pydantic import BaseModel
 from sms.web.deps import get_db, get_jobs, get_settings_store, get_storage, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.class_assignments import (delete_class_assignment, get_student, hand_in, list_class_assignments,
-                                                remove_hand_in, require_class_assignment, set_assignment,
-                                                update_class_assignment)
+                                                marks_csv, release, remove_hand_in, require_class_assignment, roster,
+                                                set_assignment, slug, update_class_assignment)
 from sms.web.uploads import check_content_length, read_upload_files
 
 router = APIRouter(prefix="/api/classes/{class_id}/assignments", tags=["class-assignments"],
@@ -42,7 +42,22 @@ def create(class_id: int, body: SetBody, db=Depends(get_db)):
 
 @router.get("/{caid}")
 def show(class_id: int, caid: int, db=Depends(get_db)):
-    return require_class_assignment(db, class_id, caid)
+    ca = require_class_assignment(db, class_id, caid)
+    return {**ca, "roster": roster(db, ca)}
+
+
+@router.post("/{caid}/release")
+def release_feedback(class_id: int, caid: int, db=Depends(get_db)):
+    return release(db, class_id, caid)
+
+
+@router.get("/{caid}/marks.csv")
+async def marks(class_id: int, caid: int, db=Depends(get_db), jobs=Depends(get_jobs)):
+    ca = require_class_assignment(db, class_id, caid)
+    # One detail read per script; keep the loop off the event loop for a large class.
+    text = await run_in_threadpool(marks_csv, db, jobs, ca)
+    return Response(content=text, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{slug(ca["title"])}-marks.csv"'})
 
 
 @router.put("/{caid}")

@@ -291,6 +291,31 @@ def serialise_parts_v2(scheme_info: dict, final: dict, extracted: dict, pending:
     return out
 
 
+def submission_totals(db: Database, s: dict, *, pending: Optional[Dict[str, dict]] = None) -> Optional[Dict[str, int]]:
+    """{total, total_upper, total_max} for a submissions row (needs `id`, `run_id` and `rubric_json`), or None when
+    unmarked. `pending` is the row's pending queue items (`_pending`) when the caller already has them."""
+    run = _run_row(db, s["run_id"])
+    if not run:
+        return None
+    if pending is None:
+        pending = _pending(db, s["id"])
+    scheme_info = run_scheme(run)
+    if scheme_info:
+        final_v2 = run_final_v2(run)
+        if not final_v2:
+            return None
+        kind = scheme_info["scheme_kind"]
+        return compute_totals_v2(kind, scheme_info["scheme"], final_v2.get("parts" if kind == "mark_scheme" else "rubric") or [],
+                                 set(pending), _corrections_v2(db, s["run_id"]))
+    if not run["final_marks_json"]:
+        return None
+    final = json.loads(run["final_marks_json"]).get("marks") or []
+    if not final:
+        return None
+    rubric = Rubric.model_validate_json(s["rubric_json"])
+    return compute_totals(rubric, final, set(pending), _corrections(db, s["run_id"]))
+
+
 def list_submissions(db: Database) -> List[Dict[str, Any]]:
     subs = db.query("SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count, "
                     "a.title AS assignment_title, cl.name AS class_name, st.reg_no AS reg_no "
@@ -299,20 +324,8 @@ def list_submissions(db: Database) -> List[Dict[str, Any]]:
                     "ORDER BY s.id DESC")
     out = []
     for s in subs:
-        rubric = Rubric.model_validate_json(s["rubric_json"])
-        run = _run_row(db, s["run_id"])
         pending = _pending(db, s["id"])
-        scheme_info = run_scheme(run)
-        totals = None
-        if scheme_info and run:
-            final_v2 = run_final_v2(run)
-            if final_v2:
-                kind = scheme_info["scheme_kind"]
-                totals = compute_totals_v2(kind, scheme_info["scheme"], final_v2.get("parts" if kind == "mark_scheme" else "rubric") or [],
-                                           set(pending), _corrections_v2(db, s["run_id"]))
-        elif run and run["final_marks_json"]:
-            final = json.loads(run["final_marks_json"]).get("marks") or []
-            totals = compute_totals(rubric, final, set(pending), _corrections(db, s["run_id"])) if final else None
+        totals = submission_totals(db, s, pending=pending)
         out.append({
             "id": s["id"], "label": s["label"], "subject": s["subject"], "page_count": s["page_count"],
             "status": s["status"], "created_at": iso_utc(s["created_at"]),
