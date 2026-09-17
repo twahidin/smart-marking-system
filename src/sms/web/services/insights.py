@@ -20,9 +20,17 @@ MIN_ATTEMPTS = 5        # ...and a part needs this many settled marks before it 
 # A hand-in whose marks are not final yet: still queued, being marked, or waiting in the review queue.
 PENDING_STATUSES = ("handed_in", "marking", "needs_you")
 
+# One marked script: its roster row, its marks by part (see _part_marks) and its submission detail.
+MarkedScript = Tuple[dict, Dict[str, dict], dict]
 
-def _part_rows(template: Optional[dict]) -> List[dict]:
-    """The scheme's parts in scheme order: [{q_id, label, max, allocations: [label]}]."""
+
+def _part_rows(template: Optional[dict], marked: List[MarkedScript]) -> List[dict]:
+    """The parts statistics are grouped by: [{q_id, label, max, allocations: [label]}] in scheme order.
+
+    A mark scheme / rubric template has one part per scheme row. A criteria template has no
+    per-question scheme, so — as the marks CSV does — its parts are the questions the marked scripts
+    answered, in first-seen order, each worth the rubric's total (the sum of its criterion maxima).
+    Keying those by the scripts' own q_ids is what lets `_part_marks` find them."""
     if not template:
         return []
     kind = template["scheme_kind"]
@@ -33,8 +41,9 @@ def _part_rows(template: Optional[dict]) -> List[dict]:
         rows = [{"q_id": row_key(kind, r), "label": row_key(kind, r), "max": row_max(kind, r),
                  "allocations": [b["band"] for b in r.get("bands") or []]} for r in template["scheme"]]
     else:
-        rows = [{"q_id": c["id"], "label": c["id"], "max": int(c["max_score"]), "allocations": []}
-                for c in template["rubric"]["criterion_defs"]]
+        per_q_max = sum(int(c["max_score"]) for c in template["rubric"]["criterion_defs"])
+        rows = [{"q_id": q, "label": q_label(q), "max": per_q_max, "allocations": []}
+                for q in dict.fromkeys(q for _, pm, _ in marked for q in pm)]
     seen: Dict[str, dict] = {}
     for row in rows:  # a scheme with the same q_id twice shows as one part, as the marks CSV does
         seen.setdefault(row["q_id"], row)
@@ -82,7 +91,7 @@ def _part_marks(detail: dict) -> Dict[str, dict]:
     return out
 
 
-def _marked_scripts(db: Database, jobs: JobStore, rows: List[dict]) -> List[Tuple[dict, Dict[str, dict], dict]]:
+def _marked_scripts(db: Database, jobs: JobStore, rows: List[dict]) -> List[MarkedScript]:
     """(roster row, marks by part, submission detail) per marked script, in register order."""
     out = []
     for r in rows:
@@ -111,12 +120,14 @@ def compute_stats(db: Database, jobs: JobStore, ca: dict) -> Dict[str, Any]:
     got, a row per scheme part (mean, full and zero scores, which allocations were lost), a row per
     marked student, the weakest parts and the spread of totals.
 
-    A part's `attempted` counts the scripts with a settled mark for it — a part still waiting in the
-    review queue counts under `pending` instead and stays out of the averages until it is resolved."""
-    parts = _part_rows(get_template(db, ca["template_id"]))
-    order = {p["q_id"]: i for i, p in enumerate(parts)}
+    A part's `attempted` counts the scripts with a settled (non-pending) mark for it, so it is also
+    the `of` in every `most_lost` row — a part still waiting in the review queue counts under
+    `pending` instead and stays out of the averages until it is resolved."""
     rows = roster(db, ca)["rows"]
+    # The scripts come first: a criteria template's parts are only knowable from the marks themselves.
     marked = _marked_scripts(db, jobs, rows)
+    parts = _part_rows(get_template(db, ca["template_id"]), marked)
+    order = {p["q_id"]: i for i, p in enumerate(parts)}
     per_part = []
     for p in parts:
         seen = [pm[p["q_id"]] for _, pm, _ in marked if p["q_id"] in pm]

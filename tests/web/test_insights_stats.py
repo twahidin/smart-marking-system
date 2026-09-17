@@ -3,7 +3,7 @@ from sms.web.services.class_assignments import get_class_assignment
 from sms.web.services.insights import compute_stats, select_samples
 
 from tests.web.seed_v2 import QUESTIONS as V2_QUESTIONS, SCHEME as V2_SCHEME, _alloc, part, seed_v2
-from tests.web.test_class_assignments_api import _class_with_students, _link, _template
+from tests.web.test_class_assignments_api import _class_with_students, _link, _seed_v1, _template, _v1_mark
 
 DANISH_PARTS = [part("1a", [_alloc("M1", 1, True, "3x=9 seen"), _alloc("A1", 1, False, "x = 6")], 1, "M1 only"),
                 part("1b", [_alloc("B1", 1, True, "9")], 1, "B1 for 9"),
@@ -63,6 +63,32 @@ def test_compute_stats_counts_a_resolved_part_with_the_teachers_marks(auth, app)
     assert p["2"]["allocations"] == [{"label": "M1", "lost": 0}, {"label": "A1", "lost": 1}]
     s = {x["reg_no"]: x for x in st["students"]}
     assert s[1]["weak_parts"] == ["1b", "2"] and s[1]["total"] == 3
+
+
+def test_compute_stats_for_a_criteria_template_uses_the_marked_questions(auth, app):
+    """A criteria template has no per-question scheme, so the parts are the questions the scripts
+    answered (v1 runs key their marks by q_id), each worth the rubric's total."""
+    t = _template(auth, scheme_kind="criteria", questions=[], scheme=[])   # RUBRIC: one criterion, max 2
+    c = _class_with_students(auth, names=("Tan Wei Ling", "Muhammad Danish", "Priya Nair"))
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    tan, danish, _priya = c["students"]
+    sid_tan = _seed_v1(app, label="#1 Tan Wei Ling", assignment_id=t["id"], run_id="v1-tan",
+                       marks=[_v1_mark("q1", 2), _v1_mark("q2", 1)])
+    sid_dan = _seed_v1(app, label="#2 Muhammad Danish", assignment_id=t["id"], run_id="v1-dan",
+                       marks=[_v1_mark("q2", 0), _v1_mark("q3", 2)])
+    _link(app, sid_tan, ca["id"], tan["id"])
+    _link(app, sid_dan, ca["id"], danish["id"])
+    _row, st = _stats(app, c, ca)
+    assert (st["n_students"], st["n_marked"], st["n_pending"]) == (3, 2, 0)
+    assert [(x["q_id"], x["label"], x["max"]) for x in st["parts"]] == [("q1", "Q1", 2), ("q2", "Q2", 2), ("q3", "Q3", 2)]
+    p = {x["q_id"]: x for x in st["parts"]}
+    assert (p["q1"]["attempted"], p["q2"]["attempted"], p["q3"]["attempted"]) == (1, 2, 1)
+    assert p["q2"]["mean_pct"] == 25.0 and p["q2"]["zero"] == 1 and p["q2"]["full"] == 0
+    assert st["weakest"] == ["q2", "q1", "q3"] and st["most_lost"] == []   # criteria marks have no allocations
+    assert st["totals"]["max"] == 6                                        # 2 marks x the 3 questions answered
+    s = {x["reg_no"]: x for x in st["students"]}
+    assert (s[1]["total"], s[2]["total"]) == (3, 2) and s[2]["weak_parts"] == ["q2"]
+    assert all(x["total"] <= x["max"] for x in st["students"])
 
 
 def test_select_samples_is_anonymous(auth, app):
