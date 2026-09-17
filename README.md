@@ -2,6 +2,8 @@
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/smart-marking?utm_medium=integration&utm_source=button&utm_campaign=smart-marking)
 
+**New here?** Read the [step-by-step setup guide](docs/setup-guide/README.md) (also as a [PDF](docs/setup-guide/Smart-Marking-Setup-Guide.pdf)) — every screen is the real app, from deploying on Railway to students reading feedback on their phones.
+
 AI agents that mark, review, and give feedback on student scripts from images, built on [atomic-agents](https://github.com/eigenwise/atomic-agents). Agents get smarter and faster with every teacher correction.
 
 ## How it works
