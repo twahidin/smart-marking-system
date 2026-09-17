@@ -30,6 +30,8 @@ const serve = (p: any[], s: any) => { served = { providers: p, settings: s }; };
 const calls: { path: string; method: string; body: any }[] = [];
 const saved: any[] = [];
 const deleted: string[] = [];
+/** >0 makes an unforced DELETE of a provider key answer 409 `in_use` with this count. */
+let keysInUse = 0;
 
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
 const noContent = () => Promise.resolve(new Response(null, { status: 204 }));
@@ -70,13 +72,20 @@ function mockFetch(onModels: () => Response) {
         served.providers = served.providers.map((p) => (p.id === provider ? { ...p, models: p.models.filter((m: any) => m.id !== id) } : p));
         return noContent();
       }
-      if (path.startsWith("/api/settings/keys/") && method === "DELETE") { deleted.push(path.slice("/api/settings/keys/".length)); return noContent(); }
+      if (path.startsWith("/api/settings/keys/") && method === "DELETE") {
+        const suffix = path.slice("/api/settings/keys/".length);
+        if (keysInUse && !suffix.includes("force=1")) {
+          return json({ count: keysInUse, error: { code: "in_use", message: `${keysInUse} assignments use this provider — they will fail to mark until you pick another model` } }, 409);
+        }
+        deleted.push(suffix);
+        return noContent();
+      }
       return Promise.reject(new Error(`Unexpected fetch to ${path}`));
     }),
   );
 }
 
-afterEach(() => { vi.unstubAllGlobals(); served = { providers, settings }; calls.length = 0; saved.length = 0; deleted.length = 0; });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); served = { providers, settings }; calls.length = 0; saved.length = 0; deleted.length = 0; keysInUse = 0; });
 
 describe("Settings — one key per provider", () => {
   it("shows the saved key for the selected provider only, and removes it on request", async () => {
@@ -94,6 +103,26 @@ describe("Settings — one key per provider", () => {
     expect(screen.getByRole("button", { name: "Load models from provider" })).toBeEnabled();
     await userEvent.click(screen.getByRole("button", { name: "Remove TokenRouter key" }));
     expect(deleted).toEqual(["tokenrouter"]);
+    expect(key).toHaveAttribute("placeholder", "No key saved for TokenRouter yet — paste one");
+  });
+
+  it("asks before removing a key assignments are pinned to, and forces only on a yes", async () => {
+    keysInUse = 3;
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    const key = await screen.findByLabelText("API key");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove TokenRouter key" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(
+      "3 assignments use this provider — remove the key anyway? They will fail to mark until you pick another model."));
+    expect(deleted).toEqual([]);                     // said no: the key is still there
+    expect(key).toHaveAttribute("placeholder", "Saved key ending …abcd — leave blank to keep");
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Remove TokenRouter key" }));
+    await waitFor(() => expect(deleted).toEqual(["tokenrouter?force=1"]));
+    expect(await screen.findByText("TokenRouter key removed.")).toBeInTheDocument();
     expect(key).toHaveAttribute("placeholder", "No key saved for TokenRouter yet — paste one");
   });
 });
@@ -176,6 +205,8 @@ describe("Settings — notifications", () => {
     expect(put.timezone).toBe("Asia/Singapore");
     // Once the server reports the chat as linked, the status line and the buttons change.
     expect(await screen.findByText("Linked \u2713 (chat \u20265544)")).toBeInTheDocument();
+    // The token is write-only: the field empties on save so the placeholder can report what is stored.
+    expect(screen.getByLabelText("Telegram bot token")).toHaveValue("");
     expect(screen.getByLabelText("Telegram bot token")).toHaveAttribute("placeholder", "Saved token ending \u2026:abc \u2014 leave blank to keep");
     await userEvent.click(screen.getByRole("button", { name: "Send test message" }));
     await waitFor(() => expect(calls.some((c) => c.path === "/api/settings/telegram/test")).toBe(true));

@@ -185,6 +185,21 @@ describe("InsightsPanel", () => {
     expect(rows[2]).toHaveTextContent("follow-through from a previous part");
   });
 
+  it("folds the repeated bands a short paper produces into one row each", async () => {
+    // Five bands over a paper worth 3 marks: the server's 2–2 band comes back twice, and the count
+    // sits on the second of them. One row per range, and every script still accounted for.
+    const short: InsightsPayload = {
+      ...payload, report: null, generated_at: null,
+      stats: { ...stats, totals: { mean: 1.6, median: 2, max: 3, buckets: [
+        { from: 0, to: 0, n: 1 }, { from: 1, to: 1, n: 2 }, { from: 2, to: 2, n: 0 },
+        { from: 2, to: 2, n: 4 }, { from: 3, to: 3, n: 3 }] } },
+    };
+    mockFetch({ [`GET ${INSIGHTS}`]: json(short) });
+    render(panel());
+    const dist = within(await screen.findByRole("list", { name: "Score distribution" })).getAllByRole("listitem");
+    expect(dist.map((li) => li.textContent)).toEqual(["0–01", "1–12", "2–24", "3–33"]);
+  });
+
   it("says nothing is marked yet instead of drawing an empty chart", async () => {
     const empty: InsightsPayload = {
       ...payload, report: null, generated_at: null,

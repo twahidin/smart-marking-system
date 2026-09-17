@@ -55,7 +55,9 @@ const dropFile = (zoneTitle: string, name: string) => {
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 
 function Where() { const loc = useLocation(); return <div data-testid="where">{loc.pathname}</div>; }
-function renderAt(path: string, pollMs = 5) {
+/** 50 ms, not 5: the transient "Reading…" state has to survive long enough to be asserted on, or a
+ *  slow tick can let the poll reach "done" first and the assertion flakes. */
+function renderAt(path: string, pollMs = 50) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Where />

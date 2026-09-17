@@ -71,12 +71,27 @@ export function Settings() {
 
   const removeKey = async () => {
     setBusy("save"); setMsg(null);
-    try {
-      await api.delete(`/api/settings/keys/${form.provider}`);
+    const forget = () => {
       const next = { ...keys }; delete next[form.provider];
       setSaved({ ...saved, keys: next, has_key: saved.provider === form.provider ? false : saved.has_key, key_hint: saved.provider === form.provider ? "" : saved.key_hint });
       setMsg({ kind: "ok", text: `${spec.label} key removed.` });
-    } catch (e) { setMsg({ kind: "error", text: e instanceof ApiError ? e.message : "Could not remove the key" }); }
+    };
+    try {
+      await api.delete(`/api/settings/keys/${form.provider}`);
+      forget();
+    } catch (e) {
+      // Assignments pinned to this provider would fail to mark the moment the key went, so the
+      // server refuses until we say we mean it.
+      if (e instanceof ApiError && e.code === "in_use") {
+        const n = e.body?.count ?? 0;
+        if (window.confirm(`${n} assignment${n === 1 ? "" : "s"} use this provider — remove the key anyway? They will fail to mark until you pick another model.`)) {
+          try { await api.delete(`/api/settings/keys/${form.provider}?force=1`); forget(); }
+          catch (err) { setMsg({ kind: "error", text: err instanceof ApiError ? err.message : "Could not remove the key" }); }
+        }
+      } else {
+        setMsg({ kind: "error", text: e instanceof ApiError ? e.message : "Could not remove the key" });
+      }
+    }
     finally { setBusy(null); }
   };
 
@@ -133,7 +148,9 @@ export function Settings() {
   };
   const save = async (e: FormEvent) => {
     e.preventDefault(); setBusy("save"); setMsg(null);
-    try { const s = await api.put<S>("/api/settings", payload); setSaved(s); setForm({ ...form, api_key: "" }); setMsg({ kind: "ok", text: "Saved." }); }
+    // Both secrets are write-only: once saved, the field empties and its placeholder reports the
+    // stored one's last four characters, exactly as it does on a fresh load.
+    try { const s = await api.put<S>("/api/settings", payload); setSaved(s); setForm({ ...form, api_key: "", telegram_bot_token: "" }); setMsg({ kind: "ok", text: "Saved." }); }
     catch (err) { setMsg({ kind: "error", text: err instanceof ApiError ? err.message : "Could not save" }); }
     finally { setBusy(null); }
   };

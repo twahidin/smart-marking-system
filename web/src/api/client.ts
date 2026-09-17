@@ -1,5 +1,7 @@
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
+  /** `body` is the whole parsed response, so a handler can read detail the server put beside the
+   *  error envelope — the count on a 409 `in_use`, say — without re-reading the message. */
+  constructor(public status: number, public code: string, message: string, public body?: any) {
     super(message);
   }
 }
@@ -11,7 +13,7 @@ async function parse(res: Response) {
   try { body = text ? JSON.parse(text) : null; } catch { body = null; }
   if (!res.ok) {
     const err = body?.error ?? { code: "http_" + res.status, message: text || res.statusText };
-    throw new ApiError(res.status, err.code, err.message);
+    throw new ApiError(res.status, err.code, err.message, body);
   }
   return body;
 }

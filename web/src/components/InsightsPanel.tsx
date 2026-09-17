@@ -1,7 +1,7 @@
 import { Download, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { InsightsPayload } from "../api/types";
+import type { InsightsBucket, InsightsPayload } from "../api/types";
 import { downloadFile } from "../lib/download";
 import { fmtDate, providerLabel } from "../lib/format";
 import { Button } from "./Button";
@@ -10,6 +10,21 @@ import { Notice } from "./Notice";
 const POLL_MS = 5_000;          // while the generate job is queued or running
 const WEAK = 3;                 // the weakest parts the chart marks amber
 const msg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
+
+/**
+ * The score bands to draw. Five bands over a paper worth fewer than five marks come back with the
+ * same range twice (0–0, 1–1, 2–2, 2–2, 3–3): fold a repeat into the band before it, so the list is
+ * one row per distinct range and no script is dropped out of the counts.
+ */
+function bands(buckets: InsightsBucket[]): InsightsBucket[] {
+  const out: InsightsBucket[] = [];
+  for (const b of buckets) {
+    const last = out[out.length - 1];
+    if (last && last.from === b.from && last.to === b.to) last.n += b.n;
+    else out.push({ ...b });
+  }
+  return out;
+}
 
 /** "38 of 40 marked · 3 still being marked or waiting for you · mean 15.2 / 25" */
 function headline(stats: InsightsPayload["stats"]): string {
@@ -75,7 +90,8 @@ export function InsightsPanel({ classId, caId }: { classId: number; caId: number
   const byReg = new Map(stats.students.map((s) => [s.reg_no, s]));
   const weak = new Set(stats.weakest.slice(0, WEAK));
   const nothing = stats.n_marked === 0;
-  const tallest = Math.max(1, ...stats.totals.buckets.map((b) => b.n));
+  const spread = bands(stats.totals.buckets);
+  const tallest = Math.max(1, ...spread.map((b) => b.n));
   const generated = data.generated_at
     ? `Generated ${fmtDate(data.generated_at)}${data.provider ? ` · ${providerLabel[data.provider] ?? data.provider} ${data.model ?? ""}` : ""}`
     : null;
@@ -199,13 +215,13 @@ export function InsightsPanel({ classId, caId }: { classId: number; caId: number
             </>
           )}
 
-          {stats.totals.buckets.length > 0 && (
+          {spread.length > 0 && (
             <section className="section">
               <h2>Score distribution</h2>
               <p className="help">How many scripts scored in each band, out of {stats.totals.max}.</p>
               <ol className="bars" role="list" aria-label="Score distribution">
-                {stats.totals.buckets.map((b) => (
-                  <li key={b.from}>
+                {spread.map((b, i) => (
+                  <li key={i}>
                     <span>{b.from}–{b.to}</span>
                     <span className="bar" style={{ width: `${Math.round((b.n / tallest) * 100)}%` }} />
                     <span className="pct">{b.n}</span>
