@@ -1,10 +1,11 @@
 import { ArrowRight, Download, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { ClassAssignment, ClassAssignmentDetail, ClassRow, RosterRow, RosterStatus } from "../api/types";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
+import { InsightsPanel } from "../components/InsightsPanel";
 import { Notice } from "../components/Notice";
 import { ProgressStrip, type StripBucket } from "../components/ProgressStrip";
 import { downloadFile } from "../lib/download";
@@ -33,11 +34,16 @@ const BUCKET_LABEL: Record<StripBucket, string> = { not_handed_in: "not handed i
 const hasRecord = (r: RosterRow) => r.submission_id !== null && (r.status === "needs_you" || r.status === "ready" || r.status === "released");
 const inFlight = (r: RosterRow) => r.status === "handed_in" || r.status === "marking";
 
+type Tab = "roster" | "insights";
+const TABS: { id: Tab; label: string }[] = [{ id: "roster", label: "Roster" }, { id: "insights", label: "Insights" }];
+
 export function ClassAssignmentPage() {
   const { id, caid } = useParams();
   const classId = Number(id);
   const caId = Number(caid);
   const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get("tab") === "insights" ? "insights" : "roster";
   const [cls, setCls] = useState<ClassRow | null>(null);
   const [detail, setDetail] = useState<ClassAssignmentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,45 +135,58 @@ export function ClassAssignmentPage() {
       {error && <Notice kind="error">{error}</Notice>}
       {detail.template_deleted && <Notice>The assignment was deleted from the bank — new hand-ins can't be marked until it is set again.</Notice>}
 
-      <ProgressStrip counts={roster.counts} filter={filter} onFilter={setFilter} />
+      <div className="seg" role="radiogroup" aria-label="View" style={{ marginTop: 8 }}>
+        {TABS.map((t) => (
+          <label key={t.id} className={`seg-opt ${tab === t.id ? "on" : ""}`}>
+            <input type="radio" name="tab" checked={tab === t.id} onChange={() => setParams(t.id === "roster" ? {} : { tab: t.id }, { replace: true })} />{t.label}
+          </label>
+        ))}
+      </div>
 
-      {filter && (
-        <div className="section-head">
-          <p className="meta" style={{ margin: 0 }}>Showing {rows.length} student{rows.length === 1 ? "" : "s"} {BUCKET_LABEL[filter]}</p>
-          <Button variant="ghost" onClick={() => setFilter(null)}>Show all {roster.rows.length}</Button>
-        </div>
-      )}
-      {roster.rows.length === 0 && <p className="help">No students yet — import a classlist under the class's Students tab.</p>}
-      {roster.rows.length > 0 && (
-        <table className="table tall">
-          <thead><tr><th className="num">#</th><th>Name</th><th className="num">Pages</th><th>Handed in</th><th>Status</th><th className="num">Total</th><th /></tr></thead>
-          <tbody>
-            {rows.map((r) => {
-              const link = r.submission_id !== null ? `/submissions/${r.submission_id}` : null;
-              return (
-                <tr key={r.student_id} className={link ? "row-link" : undefined} onClick={link ? () => nav(link) : undefined}>
-                  <td className="num">{r.reg_no}</td>
-                  <td>{link ? <Link to={link} onClick={(e) => e.stopPropagation()}><strong>{r.name}</strong></Link> : <strong>{r.name}</strong>}</td>
-                  <td className="num">{r.submission_id !== null ? r.pages : "—"}</td>
-                  <td className="muted">
-                    {r.handed_in_at === null ? "—" : <>{r.source === "teacher" ? "Uploaded by you" : fmtDate(r.handed_in_at)}{r.late && <span className="tertiary"> · late</span>}</>}
-                  </td>
-                  <td><span className={`pill ${ROW_STATUS[r.status].pill}`}>{rowLabel(r)}</span></td>
-                  <td className="num">{totalLabel(r.total !== null && r.total_upper !== null && r.total_max !== null ? { total: r.total, total_upper: r.total_upper, total_max: r.total_max } : null)}</td>
-                  <td>
-                    <div className="actions" style={{ justifyContent: "flex-end", flexWrap: "nowrap", alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
-                      {r.status === "not_handed_in" && (
-                        <Button variant="secondary" icon={<Upload size={14} aria-hidden />} onClick={() => setUploading(r)} disabled={detail.template_deleted}>Upload pages</Button>
-                      )}
-                      {r.submission_id !== null && <Button variant="ghost" onClick={() => setRemoving(r)} disabled={busy !== null}>Remove hand-in</Button>}
-                      {link && <ArrowRight size={16} aria-hidden className="tertiary" />}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {tab === "insights" && <InsightsPanel classId={classId} caId={caId} />}
+      {tab === "roster" && (
+        <>
+          <ProgressStrip counts={roster.counts} filter={filter} onFilter={setFilter} />
+
+          {filter && (
+            <div className="section-head">
+              <p className="meta" style={{ margin: 0 }}>Showing {rows.length} student{rows.length === 1 ? "" : "s"} {BUCKET_LABEL[filter]}</p>
+              <Button variant="ghost" onClick={() => setFilter(null)}>Show all {roster.rows.length}</Button>
+            </div>
+          )}
+          {roster.rows.length === 0 && <p className="help">No students yet — import a classlist under the class's Students tab.</p>}
+          {roster.rows.length > 0 && (
+            <table className="table tall">
+              <thead><tr><th className="num">#</th><th>Name</th><th className="num">Pages</th><th>Handed in</th><th>Status</th><th className="num">Total</th><th /></tr></thead>
+              <tbody>
+                {rows.map((r) => {
+                  const link = r.submission_id !== null ? `/submissions/${r.submission_id}` : null;
+                  return (
+                    <tr key={r.student_id} className={link ? "row-link" : undefined} onClick={link ? () => nav(link) : undefined}>
+                      <td className="num">{r.reg_no}</td>
+                      <td>{link ? <Link to={link} onClick={(e) => e.stopPropagation()}><strong>{r.name}</strong></Link> : <strong>{r.name}</strong>}</td>
+                      <td className="num">{r.submission_id !== null ? r.pages : "—"}</td>
+                      <td className="muted">
+                        {r.handed_in_at === null ? "—" : <>{r.source === "teacher" ? "Uploaded by you" : fmtDate(r.handed_in_at)}{r.late && <span className="tertiary"> · late</span>}</>}
+                      </td>
+                      <td><span className={`pill ${ROW_STATUS[r.status].pill}`}>{rowLabel(r)}</span></td>
+                      <td className="num">{totalLabel(r.total !== null && r.total_upper !== null && r.total_max !== null ? { total: r.total, total_upper: r.total_upper, total_max: r.total_max } : null)}</td>
+                      <td>
+                        <div className="actions" style={{ justifyContent: "flex-end", flexWrap: "nowrap", alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+                          {r.status === "not_handed_in" && (
+                            <Button variant="secondary" icon={<Upload size={14} aria-hidden />} onClick={() => setUploading(r)} disabled={detail.template_deleted}>Upload pages</Button>
+                          )}
+                          {r.submission_id !== null && <Button variant="ghost" onClick={() => setRemoving(r)} disabled={busy !== null}>Remove hand-in</Button>}
+                          {link && <ArrowRight size={16} aria-hidden className="tertiary" />}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
 
       {releasing && (

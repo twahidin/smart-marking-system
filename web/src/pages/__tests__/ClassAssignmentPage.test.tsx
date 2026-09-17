@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ClassAssignmentDetail, ClassRow } from "../../api/types";
+import type { ClassAssignmentDetail, ClassRow, InsightsPayload } from "../../api/types";
 import { ClassAssignmentPage } from "../ClassAssignmentPage";
 
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
@@ -34,11 +34,19 @@ const detail: ClassAssignmentDetail = { id: 3, class_id: 1, template_id: 7, titl
     { student_id: 4, reg_no: 4, name: "Lim Jun Hao", submission_id: 14, pages: 2, handed_in_at: "2026-09-09T13:02:00Z", late: false, source: "student", status: "marking", total: null, total_upper: null, total_max: null, needs_you_parts: [] },
   ] } };
 
-const app = () => (
-  <MemoryRouter initialEntries={["/classes/1/assignments/3"]}>
+const app = (entry = "/classes/1/assignments/3") => (
+  <MemoryRouter initialEntries={[entry]}>
     <Routes><Route path="/classes/:id/assignments/:caid" element={<ClassAssignmentPage />} /></Routes>
   </MemoryRouter>
 );
+
+const insights: InsightsPayload = {
+  stats: { n_students: 4, n_marked: 2, n_pending: 1, totals: { mean: 18, median: 18, max: 25, buckets: [{ from: 0, to: 4, n: 0 }, { from: 5, to: 9, n: 0 }, { from: 10, to: 14, n: 0 }, { from: 15, to: 19, n: 1 }, { from: 20, to: 25, n: 1 }] },
+    parts: [{ q_id: "3", label: "3", max: 5, attempted: 2, mean_pct: 40, full: 0, zero: 1, allocations: [{ label: "A1", lost: 2 }], not_in_scheme: 0, illegible: 0, pending: 0 }],
+    weakest: ["3"], most_lost: [{ q_id: "3", label: "A1", lost: 2, of: 2 }],
+    students: [{ student_id: 1, reg_no: 1, name: "Tan Wei Ling", total: 15, max: 25, weak_parts: ["3"] }] },
+  report: null, n_marked: 2, provider: null, model: null, generated_at: null, error: null, job: null,
+};
 
 describe("ClassAssignmentPage", () => {
   it("renders the strip, filters the roster, and disables release while parts need you", async () => {
@@ -103,5 +111,34 @@ describe("ClassAssignmentPage", () => {
     await userEvent.upload(input, [new File(["x"], "p1.png", { type: "image/png" })]);
     await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/students/3/upload"))).toBe(true));
+  });
+
+  it("shows the insights panel instead of the roster on ?tab=insights", async () => {
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+      "GET /api/classes/1/assignments/3/insights": () => new Response(JSON.stringify(insights), { status: 200 }),
+    });
+    render(app("/classes/1/assignments/3?tab=insights"));
+    expect(await screen.findByRole("heading", { name: "Marks by part" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Insights" })).toBeChecked();
+    expect(screen.queryByRole("link", { name: "Tan Wei Ling" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Progress" })).not.toBeInTheDocument();
+    // ...and the roster comes back from the same segmented control
+    await userEvent.click(screen.getByRole("radio", { name: "Roster" }));
+    expect(await screen.findByRole("link", { name: "Tan Wei Ling" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Marks by part" })).not.toBeInTheDocument();
+  });
+
+  it("opens the insights tab from the roster and puts it in the URL", async () => {
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+      "GET /api/classes/1/assignments/3/insights": () => new Response(JSON.stringify(insights), { status: 200 }),
+    });
+    render(app());
+    expect(await screen.findByRole("link", { name: "Tan Wei Ling" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "Insights" }));
+    expect(await screen.findByRole("heading", { name: "Marks by part" })).toBeInTheDocument();
   });
 });
