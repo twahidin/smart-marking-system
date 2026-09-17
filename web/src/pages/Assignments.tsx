@@ -7,7 +7,7 @@ import { Dialog } from "../components/Dialog";
 import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
 import { saveBlob } from "../lib/download";
-import { fmtDate, schemeLabel, subjectLabel } from "../lib/format";
+import { fmtDate, providerLabel, schemeLabel, subjectLabel } from "../lib/format";
 
 type Pending = { kind: "rename"; t: AssignmentTemplate; title: string } | { kind: "delete"; t: AssignmentTemplate };
 
@@ -33,7 +33,8 @@ export function Assignments() {
     finally { setBusy(false); }
   };
 
-  const body = (t: AssignmentTemplate, title: string) => ({ title, subject: t.subject, context: t.context, rubric: t.rubric, scheme_kind: t.scheme_kind, questions: t.questions, scheme: t.scheme, delete_pages_after_marking: t.delete_pages_after_marking });
+  // The PUT is the whole template: the model fields go with it, or a rename would silently reset a chosen model to Auto.
+  const body = (t: AssignmentTemplate, title: string) => ({ title, subject: t.subject, context: t.context, rubric: t.rubric, scheme_kind: t.scheme_kind, questions: t.questions, scheme: t.scheme, delete_pages_after_marking: t.delete_pages_after_marking, provider: t.provider, model: t.model, extractor_model: t.extractor_model });
   const duplicate = (t: AssignmentTemplate) => run(() => api.post(`/api/assignments/${t.id}/duplicate`));
   const rename = (t: AssignmentTemplate, title: string) => run(() => api.put(`/api/assignments/${t.id}`, body(t, title)));
   const remove = (t: AssignmentTemplate) => run(() => api.delete(`/api/assignments/${t.id}${inUse(t) ? "?force=true" : ""}`));
@@ -72,7 +73,8 @@ export function Assignments() {
           <tbody>
             {rows.map((t) => (
               <tr key={t.id} className="row-link" onClick={() => nav(`/assignments/${t.id}`)}>
-                <td><strong>{t.title}</strong>{t.context && <div className="help">{t.context}</div>}</td>
+                <td><strong>{t.title}</strong>{t.context && <div className="help">{t.context}</div>}
+                  {t.provider && <div className="help">{providerLabel[t.provider] ?? t.provider} · {t.model}</div>}</td>
                 <td>{subjectLabel[t.subject]}</td>
                 <td>{schemeLabel[t.scheme_kind] ?? t.scheme_kind}{t.paper_page_ids.length > 0 && <div className="help">Paper: {t.paper_page_ids.length} page{t.paper_page_ids.length === 1 ? "" : "s"}</div>}{t.scheme_kind !== "criteria" && t.scheme.length === 0 && <div className="warn-note">Draft — no {t.scheme_kind === "rubric" ? "rubric" : "scheme"} yet</div>}</td>
                 <td className="num">{t.criteria_count}</td>

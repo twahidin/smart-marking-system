@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { AssignmentBody, AssignmentTemplate, ExtractStatus, MarkSchemeEntry, Question, RubricBands, SchemeKind, Settings, Subject } from "../api/types";
+import type { AssignmentBody, AssignmentTemplate, ExtractStatus, MarkSchemeEntry, ProviderSpec, Question, RubricBands, SchemeKind, Settings, Subject } from "../api/types";
 import { Button } from "../components/Button";
 import { CriteriaEditor } from "../components/CriteriaTable";
 import { Dialog } from "../components/Dialog";
@@ -11,20 +11,24 @@ import { MarkSchemeTable } from "../components/MarkSchemeTable";
 import { Notice } from "../components/Notice";
 import { QuestionsTable } from "../components/QuestionsTable";
 import { RubricTable } from "../components/RubricTable";
-import { subjectLabel } from "../lib/format";
+import { providerLabel, subjectLabel } from "../lib/format";
 import { jsonToRows, type Row } from "../lib/rubric";
 import { kindLabel, placeholderRubric, schemeTotal, validateTemplate, type Scheme } from "../lib/scheme";
 
 type Draft = {
   title: string; subject: Subject; kind: SchemeKind | null; context: string;
   questions: Question[]; scheme: Scheme; criteria: Row[]; deletePages: boolean | null;
+  /** null = Auto: the assignment follows Settings, and its model fields go with it. */
+  provider: string | null; model: string; extractorModel: string;
 };
 type Upload = "paper" | "scheme";
 type Busy = null | "save" | Upload | `read-${Upload}`;
 
 const KINDS: SchemeKind[] = ["mark_scheme", "rubric", "criteria"];
 const DEFAULT_SUBJECT: Record<SchemeKind, Subject> = { mark_scheme: "math", rubric: "language", criteria: "math" };
-const EMPTY: Draft = { title: "", subject: "math", kind: null, context: "", questions: [], scheme: [], criteria: [], deletePages: null };
+const EMPTY: Draft = { title: "", subject: "math", kind: null, context: "", questions: [], scheme: [], criteria: [], deletePages: null, provider: null, model: "", extractorModel: "" };
+const CUSTOM = "__custom__";
+const NO_KEY = "No key saved — add one under Settings";
 const isActive = (s: string | null | undefined) => s === "queued" || s === "running";
 
 const clampInt = (v: unknown) => Math.max(0, Math.round(Number(v) || 0));
@@ -51,6 +55,9 @@ function toBody(d: Draft): AssignmentBody {
   return {
     title: trimmed(d.title), subject: d.subject, context: trimmed(d.context), scheme_kind: kind,
     rubric: placeholderRubric(kind, questions, scheme, criteria), questions, scheme, delete_pages_after_marking: d.deletePages,
+    // Auto sends all three as null; the server treats a missing provider as "follow Settings" either way.
+    provider: d.provider, model: d.provider ? trimmed(d.model) : null,
+    extractor_model: d.provider ? trimmed(d.extractorModel) || null : null,
   };
 }
 
@@ -58,6 +65,7 @@ function fromTemplate(t: AssignmentTemplate): Draft {
   return {
     title: t.title, subject: t.subject, kind: t.scheme_kind, context: t.context, questions: t.questions, scheme: t.scheme,
     criteria: t.scheme_kind === "criteria" ? jsonToRows(JSON.stringify(t.rubric)) : [], deletePages: t.delete_pages_after_marking,
+    provider: t.provider, model: t.model ?? "", extractorModel: t.extractor_model ?? "",
   };
 }
 
@@ -74,6 +82,8 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const [loading, setLoading] = useState(!isNew);
   const [notFound, setNotFound] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [providers, setProviders] = useState<ProviderSpec[]>([]);
+  const [customModel, setCustomModel] = useState(false);
   const [pages, setPages] = useState<Record<Upload, number[]>>({ paper: [], scheme: [] });
   const [extract, setExtract] = useState<ExtractStatus | null>(null);
   const [justRead, setJustRead] = useState<Upload | null>(null);
@@ -97,6 +107,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const patch = (p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p }));
 
   useEffect(() => { api.get<Settings>("/api/settings").then(setSettings).catch(() => setSettings(null)); }, []);
+  useEffect(() => { api.get<ProviderSpec[]>("/api/providers").then(setProviders).catch(() => setProviders([])); }, []);
 
   useEffect(() => {
     if (isNew) return;
@@ -151,6 +162,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const problem = useMemo(() => {
     if (!draft.kind) return "Choose the assignment type.";
     if (!draft.title.trim()) return "Give the assignment a title.";
+    if (draft.provider && !draft.model.trim()) return "Give the model an id, or go back to Auto.";
     if (reading) return "Wait for the pages to be read.";
     return validateTemplate(draft.kind, draft.questions, draft.scheme, draft.criteria);
   }, [draft, reading]);
@@ -272,6 +284,22 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const schemeName = kind === "rubric" ? "rubric" : "mark scheme";
   const status = (what: Upload) => extract?.[what] ?? null;
 
+  // Model: Auto (draft.provider === null) follows Settings; a chosen provider must already have a key saved.
+  const keys = settings?.keys ?? (settings?.has_key ? { [settings.provider]: settings.key_hint } : {});
+  const hasKey = (id: string) => !!keys[id];
+  const spec = providers.find((p) => p.id === draft.provider) ?? null;
+  const anyKey = providers.some((p) => hasKey(p.id));
+  const modelName = (providerId: string, modelId: string) => {
+    const p = providers.find((x) => x.id === providerId);
+    return `${p?.label ?? providerLabel[providerId] ?? providerId} · ${p?.models.find((m) => m.id === modelId)?.label ?? modelId}`;
+  };
+  const showCustomModel = draft.provider !== null && (customModel || !spec?.models.some((m) => m.id === draft.model));
+  const pickProvider = (id: string) => { setCustomModel(false); patch({ provider: id, model: providers.find((p) => p.id === id)?.default_model ?? "" }); };
+  const chooseOwnModel = () => {
+    const from = (settings && hasKey(settings.provider) ? settings.provider : providers.find((p) => hasKey(p.id))?.id) ?? null;
+    if (from) pickProvider(from);
+  };
+
   const uploadBlock = (what: Upload, title: string, readLabel: string) => {
     const s = status(what);
     const ids = pages[what];
@@ -380,6 +408,48 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
                 <option value="off">Off</option>
               </select>
               <span className="help">Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark. Change the default under Settings.</span></div>
+          </section>
+
+          <section className="section" aria-label="Model">
+            <div className="section-head"><h2>Model</h2><span className="help">Which model marks this assignment. Auto follows Settings, so changing Settings changes it too.</span></div>
+            <div className="field" style={{ maxWidth: 420 }}>
+              <div className="seg" role="radiogroup" aria-label="Model">
+                <label className={`seg-opt ${draft.provider === null ? "on" : ""}`}>
+                  <input type="radio" name="model-mode" checked={draft.provider === null} onChange={() => { setCustomModel(false); patch({ provider: null }); }} />Auto — follow Settings
+                </label>
+                <label className={`seg-opt ${draft.provider !== null ? "on" : ""}`}>
+                  <input type="radio" name="model-mode" checked={draft.provider !== null} onChange={chooseOwnModel} />Choose a model
+                </label>
+              </div>
+              {draft.provider === null && settings && <span className="help">Using {modelName(settings.provider, settings.model)} from Settings</span>}
+              {draft.provider === null && providers.length > 0 && !anyKey && <span className="help">No keys saved yet — add one under Settings to choose a model here.</span>}
+            </div>
+            {draft.provider !== null && (
+              <>
+                <div className="field"><label>Provider</label>
+                  <div className="seg" role="radiogroup" aria-label="Model provider">
+                    {providers.map((p) => (
+                      <label key={p.id} className={`seg-opt ${draft.provider === p.id ? "on" : ""}${hasKey(p.id) ? "" : " off"}`} title={hasKey(p.id) ? undefined : NO_KEY}>
+                        <input type="radio" name="model-provider" checked={draft.provider === p.id} disabled={!hasKey(p.id)} onChange={() => pickProvider(p.id)} />{p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid-2">
+                  <div className="field"><label>Model</label>
+                    <select className="input" aria-label="Model id" value={showCustomModel ? CUSTOM : draft.model}
+                      onChange={(e) => { if (e.target.value === CUSTOM) setCustomModel(true); else { setCustomModel(false); patch({ model: e.target.value }); } }}>
+                      {(spec?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.label}{m.vision ? " · reads pages" : " · text only"}</option>)}
+                      <option value={CUSTOM}>Custom model id…</option>
+                    </select>
+                    {showCustomModel && <input className="input" aria-label="Custom model id" placeholder="exact model id" value={draft.model} onChange={(e) => patch({ model: e.target.value })} />}
+                  </div>
+                  <div className="field"><label htmlFor="assignment-extractor">Different model for reading pages (optional)</label>
+                    <input id="assignment-extractor" className="input" placeholder="leave blank to use the same model" value={draft.extractorModel} onChange={(e) => patch({ extractorModel: e.target.value })} />
+                    <span className="help">Use a cheap vision model to transcribe, and a stronger one to mark.</span></div>
+                </div>
+              </>
+            )}
           </section>
 
         </>

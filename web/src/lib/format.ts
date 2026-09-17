@@ -15,3 +15,9 @@ export function elapsed(iso: string | null | undefined): string {
 export const subjectLabel: Record<string, string> = { math: "Maths", language: "English", science: "Science" };
 
 export const schemeLabel: Record<string, string> = { criteria: "Criteria", mark_scheme: "Mark scheme", rubric: "Rubric" };
+
+/** Mirrors the labels in sms.providers.registry, for the pages that name a provider without loading /api/providers. */
+export const providerLabel: Record<string, string> = {
+  tokenrouter: "TokenRouter", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Anthropic",
+  moonshot: "Moonshot (Kimi)", qwen: "Qwen (Alibaba Model Studio)", google: "Google Gemini",
+};

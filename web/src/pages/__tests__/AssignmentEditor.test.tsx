@@ -2,16 +2,33 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AssignmentTemplate, ExtractStatus } from "../../api/types";
+import type { AssignmentTemplate, ExtractStatus, ModelSpec, ProviderSpec } from "../../api/types";
 import { AssignmentEditor } from "../AssignmentEditor";
 
-const settings = { provider: "openai", model: "gpt-5-mini", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true, delete_pages_after_marking: true };
+// A key is saved for OpenRouter and OpenAI, none for Anthropic — its tile is offered but disabled.
+const settings = { provider: "openrouter", model: "openrouter/auto", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true, delete_pages_after_marking: true, keys: { openrouter: "0abc", openai: "1def" } };
+const provider = (id: string, label: string, default_model: string, models: ModelSpec[]): ProviderSpec => ({
+  id, label, transport: "openai_compatible", base_url: null, mode: "JSON", default_model, default_rpm: 60,
+  models, key_url: "https://example.test/keys", note: "", base_url_editable: false, custom_models: id === "openrouter",
+});
+const providers: ProviderSpec[] = [
+  provider("openrouter", "OpenRouter", "openrouter/auto", [{ id: "openrouter/auto", label: "Auto Router", vision: false }, { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", vision: true }]),
+  provider("openai", "OpenAI", "gpt-5-mini", [{ id: "gpt-5-mini", label: "GPT-5 mini", vision: true }, { id: "gpt-5.5", label: "GPT-5.5", vision: true }]),
+  provider("anthropic", "Anthropic", "claude-sonnet-5", [{ id: "claude-sonnet-5", label: "Claude Sonnet 5", vision: true }]),
+];
 const noExtract: ExtractStatus = { paper: { status: null, error: null, job_id: null }, scheme: { status: null, error: null, job_id: null } };
 const template = (over: Partial<AssignmentTemplate> = {}): AssignmentTemplate => ({
   id: 7, title: "Quadratics worksheet", subject: "math", context: "", rubric: { criterion_defs: [{ id: "draft", description: "Draft", max_score: 0 }] },
   criteria_count: 1, total_marks: 0, times_used: 0, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
   scheme_kind: "mark_scheme", questions: [], scheme: [], paper_page_ids: [], scheme_page_ids: [],
-  delete_pages_after_marking: null, effective_delete_pages: true, ...over,
+  delete_pages_after_marking: null, effective_delete_pages: true,
+  provider: null, model: null, extractor_model: null,
+  effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null }, ...over,
+});
+/** A template that passes validation, so the Save button is enabled. */
+const savable = (over: Partial<AssignmentTemplate> = {}): AssignmentTemplate => template({
+  questions: [{ q_id: "1a", text: "Solve 2x + 3 = 7", max_marks: 2 }],
+  scheme: [{ q_id: "1a", answer: "", marks: [{ label: "B1", marks: 2 }], notes: "" }], ...over,
 });
 
 type Handler = (init?: RequestInit) => Response | Promise<Response>;
@@ -54,6 +71,7 @@ describe("AssignmentEditor — new", () => {
   it("gates Save with a reason until the type, title, questions and scheme rows are in place", async () => {
     const calls = mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "POST /api/assignments": (init) => json(template({ ...JSON.parse(String(init?.body)), id: 7 }), 201),
     });
     renderAt("/assignments/new");
@@ -98,7 +116,7 @@ describe("AssignmentEditor — new", () => {
   });
 
   it("switching the type swaps the sections: rubric table for essays, criteria table for quick mark", async () => {
-    mockFetch({ "GET /api/settings": () => json(settings) });
+    mockFetch({ "GET /api/settings": () => json(settings), "GET /api/providers": () => json(providers) });
     renderAt("/assignments/new");
     await screen.findByRole("heading", { name: "New assignment" });
     await userEvent.click(screen.getByRole("radio", { name: "Essay — rubric" }));
@@ -144,7 +162,7 @@ describe("AssignmentEditor — new", () => {
   });
 
   it("a new essay assignment defaults to keeping the pages; other types follow the default", async () => {
-    mockFetch({ "GET /api/settings": () => json(settings) });
+    mockFetch({ "GET /api/settings": () => json(settings), "GET /api/providers": () => json(providers) });
     renderAt("/assignments/new");
     await screen.findByRole("heading", { name: "New assignment" });
     await userEvent.click(screen.getByRole("radio", { name: "Maths / Science — mark scheme" }));
@@ -164,6 +182,7 @@ describe("AssignmentEditor — new", () => {
   it("dropping the paper and the scheme back to back creates the draft once", async () => {
     const calls = mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "POST /api/assignments": (init) => delay(40, json(template({ ...JSON.parse(String(init?.body)), id: 7 }), 201)),
       "POST /api/assignments/7/paper": () => json({ pages: [{ id: 31, page_index: 0, width: 1, height: 1 }] }),
       "POST /api/assignments/7/scheme": () => json({ pages: [{ id: 32, page_index: 0, width: 1, height: 1 }, { id: 33, page_index: 1, width: 1, height: 1 }] }),
@@ -190,6 +209,7 @@ describe("AssignmentEditor — existing", () => {
     const read = template({ paper_page_ids: [31, 32], questions: [{ q_id: "1a", text: "Solve 2x + 3 = 7", max_marks: 2 }, { q_id: "1b", text: "Hence find y", max_marks: 3 }] });
     const calls = mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "GET /api/assignments": () => json([stored]),
       "GET /api/assignments/7/extract": () => {
         extractPolls += 1;
@@ -233,6 +253,7 @@ describe("AssignmentEditor — existing", () => {
     const stored = template({ paper_page_ids: [31] });
     mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "GET /api/assignments": () => json([stored]),
       "GET /api/assignments/7/extract": () => {
         polls += 1;
@@ -257,6 +278,7 @@ describe("AssignmentEditor — existing", () => {
     const stored = template({ paper_page_ids: [31] });
     mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "GET /api/assignments": () => json([stored]),
       "GET /api/assignments/7/extract": () => { polls += 1; return json(polls === 1 ? noExtract : { ...noExtract, paper: { status: "running", error: null, job_id: 9 } }); },
       "POST /api/assignments/7/extract/paper": () => json({ job_id: 9 }, 202),
@@ -275,6 +297,7 @@ describe("AssignmentEditor — existing", () => {
     const stored = template({ scheme_kind: "rubric", subject: "language" });
     const calls = mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "GET /api/assignments": () => json([stored]),
       "GET /api/assignments/7/extract": () => json(noExtract),
       "PUT /api/assignments/7": (init) => json({ ...stored, ...JSON.parse(String(init?.body)) }),
@@ -301,6 +324,7 @@ describe("AssignmentEditor — existing", () => {
     let puts = 0;
     const calls = mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "GET /api/assignments": () => json([stored]),
       "GET /api/assignments/7/extract": () => json(noExtract),
       "PUT /api/assignments/7": (init) => {
@@ -325,10 +349,89 @@ describe("AssignmentEditor — existing", () => {
   it("shows a plain message when the assignment is gone", async () => {
     mockFetch({
       "GET /api/settings": () => json(settings),
+      "GET /api/providers": () => json(providers),
       "GET /api/assignments": () => json([]),
       "GET /api/assignments/99/extract": () => json({ error: { code: "not_found", message: "No such assignment" } }, 404),
     });
     renderAt("/assignments/99");
     expect(await screen.findByText("This assignment no longer exists.")).toBeInTheDocument();
+  });
+});
+
+describe("AssignmentEditor — model", () => {
+  const modelMocks = (stored: AssignmentTemplate) => mockFetch({
+    "GET /api/settings": () => json(settings),
+    "GET /api/providers": () => json(providers),
+    "GET /api/assignments": () => json([stored]),
+    "GET /api/assignments/7/extract": () => json(noExtract),
+    "PUT /api/assignments/7": (init) => json({ ...stored, ...JSON.parse(String(init?.body)) }),
+  });
+  const lastPut = (calls: { path: string; method: string; body: any }[]) => calls.filter((c) => c.method === "PUT").pop()!.body;
+
+  it("defaults to Auto and names the model Settings will use", async () => {
+    modelMocks(template());
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    expect(screen.getByRole("radio", { name: "Auto — follow Settings" })).toBeChecked();
+    expect(screen.getByText("Using OpenRouter · Auto Router from Settings")).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Model provider" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Model id")).not.toBeInTheDocument();
+  });
+
+  it("choosing a model saves the provider and the model id; a provider with no key cannot be picked", async () => {
+    const calls = modelMocks(savable());
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    await userEvent.click(screen.getByRole("radio", { name: "Choose a model" }));
+    const tiles = screen.getByRole("radiogroup", { name: "Model provider" });
+    const anthropic = within(tiles).getByRole("radio", { name: "Anthropic" });
+    expect(anthropic).toBeDisabled();
+    expect(anthropic.closest("label")).toHaveAttribute("title", "No key saved — add one under Settings");
+    // It starts on the provider Settings would have used, and that provider's default model.
+    expect(within(tiles).getByRole("radio", { name: "OpenRouter" })).toBeChecked();
+    expect(screen.getByLabelText("Model id")).toHaveValue("openrouter/auto");
+
+    await userEvent.click(within(tiles).getByRole("radio", { name: "OpenAI" }));
+    expect(screen.getByLabelText("Model id")).toHaveValue("gpt-5-mini");
+    await userEvent.selectOptions(screen.getByLabelText("Model id"), "gpt-5.5");
+    await userEvent.click(saveButton());
+    expect(await screen.findByText(/^Saved\./)).toBeInTheDocument();
+    const body = lastPut(calls);
+    expect(body.provider).toBe("openai");
+    expect(body.model).toBe("gpt-5.5");
+    expect(body.extractor_model).toBeNull();
+  });
+
+  it("switching back to Auto clears the assignment's own model", async () => {
+    const calls = modelMocks(savable({ provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini", effective_model: { provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini" } }));
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    expect(screen.getByRole("radio", { name: "Choose a model" })).toBeChecked();
+    expect(screen.getByLabelText("Model id")).toHaveValue("gpt-5.5");
+    expect(screen.getByLabelText("Different model for reading pages (optional)")).toHaveValue("gpt-5-mini");
+    await userEvent.click(screen.getByRole("radio", { name: "Auto — follow Settings" }));
+    await userEvent.click(saveButton());
+    expect(await screen.findByText(/^Saved\./)).toBeInTheDocument();
+    const body = lastPut(calls);
+    expect(body.provider).toBeNull();
+    expect(body.model).toBeNull();
+    expect(body.extractor_model).toBeNull();
+  });
+
+  it("takes a model id that is not on the list, and a separate model for reading pages", async () => {
+    const calls = modelMocks(savable());
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    await userEvent.click(screen.getByRole("radio", { name: "Choose a model" }));
+    await userEvent.selectOptions(screen.getByLabelText("Model id"), "__custom__");
+    await userEvent.clear(screen.getByLabelText("Custom model id"));
+    await userEvent.type(screen.getByLabelText("Custom model id"), "z-ai/glm-5.3");
+    await userEvent.type(screen.getByLabelText("Different model for reading pages (optional)"), "z-ai/glm-5.3-flash");
+    await userEvent.click(saveButton());
+    expect(await screen.findByText(/^Saved\./)).toBeInTheDocument();
+    const body = lastPut(calls);
+    expect(body.provider).toBe("openrouter");
+    expect(body.model).toBe("z-ai/glm-5.3");
+    expect(body.extractor_model).toBe("z-ai/glm-5.3-flash");
   });
 });

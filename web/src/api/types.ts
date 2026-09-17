@@ -35,10 +35,17 @@ export interface AssignmentTemplate {
   scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[];
   paper_page_ids: number[]; scheme_page_ids: number[];
   delete_pages_after_marking: boolean | null; effective_delete_pages: boolean;
+  /** The model this assignment pins itself to; all three null = Auto (it follows Settings). */
+  provider: string | null; model: string | null; extractor_model: string | null;
+  /** What will actually run: the assignment's own model, or the one saved under Settings. */
+  effective_model: EffectiveModel;
 }
+export interface EffectiveModel { provider: string; model: string; extractor_model: string | null }
 export interface AssignmentBody {
   title: string; subject: Subject; context: string; rubric: Rubric; scheme_kind: SchemeKind;
   questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[]; delete_pages_after_marking: boolean | null;
+  /** Omitted or null = Auto. A PUT that leaves these out clears a saved override, so every caller sends them. */
+  provider?: string | null; model?: string | null; extractor_model?: string | null;
 }
 export type ExtractJobStatus = "queued" | "running" | "done" | "failed" | null;
 export interface ExtractState { status: ExtractJobStatus; error: string | null; job_id: number | null }
