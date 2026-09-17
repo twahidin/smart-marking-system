@@ -9,6 +9,7 @@ from sms.web.errors import ApiError
 from sms.web.services.class_assignments import (delete_class_assignment, get_student, hand_in, list_class_assignments,
                                                 marks_csv, release, remove_hand_in, require_class_assignment, roster,
                                                 set_assignment, slug, update_class_assignment)
+from sms.web.services.insights import insights_payload
 from sms.web.uploads import check_content_length, read_upload_files
 
 router = APIRouter(prefix="/api/classes/{class_id}/assignments", tags=["class-assignments"],
@@ -44,6 +45,13 @@ def create(class_id: int, body: SetBody, db=Depends(get_db)):
 def show(class_id: int, caid: int, db=Depends(get_db)):
     ca = require_class_assignment(db, class_id, caid)
     return {**ca, "roster": roster(db, ca)}
+
+
+@router.get("/{caid}/insights")
+def insights(class_id: int, caid: int, db=Depends(get_db), jobs=Depends(get_jobs)):
+    # A sync endpoint runs in the threadpool, so the detail read per script stays off the event loop.
+    ca = require_class_assignment(db, class_id, caid)
+    return insights_payload(db, jobs, ca)
 
 
 @router.post("/{caid}/release")

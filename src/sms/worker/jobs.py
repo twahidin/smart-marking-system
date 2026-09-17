@@ -130,6 +130,13 @@ class JobStore:
                 out.add(payload["subject"])
         return out
 
+    def active_by_dedupe(self, dedupe_key: str) -> Optional[dict]:
+        """The queued or running job with this dedupe key — the one enqueue_unique would refuse to
+        duplicate. None once it has finished or failed."""
+        rows = self.db.query("SELECT * FROM jobs WHERE dedupe_key = :d AND status IN ('queued', 'running') "
+                             "ORDER BY id DESC LIMIT 1", {"d": dedupe_key})
+        return rows[0] if rows else None
+
     def job_for_submission(self, submission_id: int) -> Optional[dict]:
         rows = self.db.query("SELECT * FROM jobs WHERE submission_id = :s ORDER BY id DESC LIMIT 1",
                              {"s": submission_id})
