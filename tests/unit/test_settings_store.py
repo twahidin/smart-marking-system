@@ -147,6 +147,8 @@ def test_telegram_and_timezone_fields_round_trip_and_token_is_hidden(store):
     assert store.load().telegram_daily_last_sent == "2026-09-17"
     store.clear_telegram()
     s = store.load(); assert s.telegram_bot_token is None and s.telegram_chat_id is None and not s.telegram_linked
+    # unlinking forgets the day the last digest went out, so a same-day relink still gets one
+    assert s.telegram_daily_last_sent is None
 
 
 def test_for_template_overlays_provider_model_and_key(store):
@@ -160,3 +162,18 @@ def test_for_template_overlays_provider_model_and_key(store):
     assert s.rpm_limit == 60 and s.base_url is None          # openrouter's default_rpm, not the global 30
     s = store.for_template({"provider": "openai", "model": "gpt-5.5", "extractor_model": None})
     assert s.api_key == "sk-openai" and s.rpm_limit == 30      # same provider as global keeps the global rpm
+
+
+def test_for_template_keeps_the_base_url_only_for_the_global_provider(store):
+    """A workspace-specific Qwen URL is the global provider's: a template pinned to Qwen keeps it,
+    one pinned elsewhere must not be pointed at Alibaba's host."""
+    custom = "https://ws-123.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-openai", rpm_limit=30))
+    store.save(Settings(provider="qwen", model="qwen3-vl-plus", api_key="qw-key", base_url=custom, rpm_limit=30))
+    assert store.load().base_url == custom
+
+    same = store.for_template({"provider": "qwen", "model": "qvq-max", "extractor_model": None})
+    assert same.base_url == custom and same.provider == "qwen" and same.api_key == "qw-key"
+
+    other = store.for_template({"provider": "openai", "model": "gpt-5.5", "extractor_model": None})
+    assert other.base_url is None and other.api_key == "sk-openai"

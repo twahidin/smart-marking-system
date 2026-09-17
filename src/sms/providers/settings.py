@@ -192,11 +192,18 @@ class SettingsStore:
             self.db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", params)
 
     def clear_telegram(self) -> None:
-        self.db.execute("UPDATE settings SET telegram_bot_token_enc = NULL, telegram_chat_id = NULL, telegram_update_offset = 0 WHERE id = 1")
+        """Forget the bot: the token, the linked chat, the update cursor — and the day the last
+        digest went out, so a chat relinked the same day still gets that day's digest."""
+        self.db.execute("UPDATE settings SET telegram_bot_token_enc = NULL, telegram_chat_id = NULL, "
+                        "telegram_update_offset = 0, telegram_daily_last_sent = NULL WHERE id = 1")
 
     def for_template(self, tpl: Optional[dict]) -> Settings:
         """The settings a job for this assignment runs with: the global ones, or the template's own
-        provider/model (with that provider's saved key and default rpm) when it sets one."""
+        provider/model (with that provider's saved key and default rpm) when it sets one.
+
+        The saved `base_url` belongs to the global provider, so it only survives when the template
+        pins that same provider — pointing another provider at it would send the call to the wrong
+        host."""
         s = self.load()
         if not tpl or not tpl.get("provider"):
             return s
@@ -205,7 +212,7 @@ class SettingsStore:
         s.model = tpl.get("model") or spec.default_model
         s.extractor_model = tpl.get("extractor_model") or None
         s.api_key = self.key_for(provider)
-        s.base_url = None
+        s.base_url = None if provider != s.provider else s.base_url
         if provider != s.provider:
             s.rpm_limit = spec.default_rpm
         s.provider = provider

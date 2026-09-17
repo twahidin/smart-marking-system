@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from sms.memory.db import Database
 from sms.providers.registry import get_provider
