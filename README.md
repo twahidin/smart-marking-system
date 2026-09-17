@@ -138,7 +138,10 @@ the link there. Once linked, the bot sends instant messages for new hand-ins and
 (with links straight to Review/Insights), plus a daily digest at a configured local time (default
 `07:00` `Asia/Singapore`) summarising hand-ins, marks and what still needs attention across every class.
 Instant messages can be turned off to keep just the digest. The **App URL** field controls the links
-those messages use, defaulting to the deployment's Railway public domain.
+those messages use, defaulting to the deployment's Railway public domain. Messages are queued in an
+outbox and flushed by the worker, so a slow or blocked bot never delays an upload or a marking job: a
+refused send keeps its reason and is retried after a growing delay (10 s doubling to an hour), given
+up after twenty attempts, and cleared from the outbox thirty days after it went.
 
 **Model per assignment**: an assignment's editor has a **Model** section — **Auto — follow Settings**
 (the default) or **Choose a model**, picking a provider (only providers with a saved key are
