@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 import pytest
@@ -72,6 +73,87 @@ def test_start_from_second_chat_replaces_the_link(tmp_path):
     assert store.load().telegram_chat_id == "111"
     assert poll_updates(store, client_factory=factory) is True
     assert store.load().telegram_chat_id == "222"
+
+
+def test_failed_confirmation_still_links_and_advances_offset(tmp_path, caplog):
+    """A blocked bot makes the "Linked ✓" reply fail. The link and the offset must still stick,
+    or the same /start comes back and fails again on every tick, forever."""
+    _db, store = _store(tmp_path)
+    seen_offsets = []
+
+    def handler(req):
+        if req.url.path.endswith("/getUpdates"):
+            offset = int(req.url.params["offset"])
+            seen_offsets.append(offset)
+            if offset > 11:
+                return httpx.Response(200, json={"ok": True, "result": []})
+            return httpx.Response(200, json={"ok": True, "result": [
+                {"update_id": 11, "message": {"text": "/start", "chat": {"id": 777}}}]})
+        return httpx.Response(403, json={"ok": False, "description": "bot was blocked by the user"})
+
+    factory = lambda token: TelegramClient(token, transport=httpx.MockTransport(handler))
+    with caplog.at_level("WARNING", logger="sms.telegram"):
+        assert poll_updates(store, client_factory=factory) is True
+    assert "bot was blocked by the user" in caplog.text
+    s = store.load()
+    assert s.telegram_chat_id == "777" and s.telegram_update_offset == 12
+    # the next tick is not stuck on the same update
+    assert poll_updates(store, client_factory=factory) is False
+    assert seen_offsets == [0, 12]
+
+
+def test_offset_advances_when_processing_raises(tmp_path):
+    """Even an unexpected error mid-loop must not leave the offset behind the updates fetched."""
+    _db, store = _store(tmp_path)
+
+    def handler(req):
+        if req.url.path.endswith("/getUpdates"):
+            return httpx.Response(200, json={"ok": True, "result": [
+                {"update_id": 41, "message": {"text": "/start", "chat": {"id": 8}}}]})
+        raise RuntimeError("socket exploded")
+
+    factory = lambda token: TelegramClient(token, transport=httpx.MockTransport(handler))
+    with pytest.raises(RuntimeError, match="socket exploded"):
+        poll_updates(store, client_factory=factory)
+    assert store.load().telegram_update_offset == 42
+
+
+def test_update_without_a_chat_id_is_skipped_but_acknowledged(tmp_path):
+    _db, store = _store(tmp_path)
+
+    def handler(req):
+        if req.url.path.endswith("/getUpdates"):
+            return httpx.Response(200, json={"ok": True, "result": [
+                {"update_id": 7, "message": {"text": "/start"}},
+                {"update_id": 8, "message": {"text": "/start", "chat": {}}}]})
+        return pytest.fail("no chat id, so nothing should be sent")
+
+    factory = lambda token: TelegramClient(token, transport=httpx.MockTransport(handler))
+    assert poll_updates(store, client_factory=factory) is False
+    s = store.load()
+    assert s.telegram_chat_id is None and s.telegram_update_offset == 9
+
+
+def test_client_is_closed_after_a_poll(tmp_path):
+    _db, store = _store(tmp_path)
+    built = []
+
+    def handler(req):
+        return httpx.Response(200, json={"ok": True, "result": []})
+
+    def factory(token):
+        client = TelegramClient(token, transport=httpx.MockTransport(handler))
+        built.append(client)
+        return client
+
+    assert poll_updates(store, client_factory=factory) is False
+    assert built and built[0]._http.is_closed
+
+
+def test_httpx_request_logging_is_muted_so_the_token_never_leaks():
+    # The request line contains /bot<TOKEN>/… — it must not reach an INFO-level log.
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
 
 
 def test_poll_without_token_does_nothing(tmp_path):

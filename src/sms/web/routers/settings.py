@@ -88,7 +88,7 @@ def _timezone(raw: str) -> str:
     try:
         ZoneInfo(value)
     except (ZoneInfoNotFoundError, ValueError):
-        raise ApiError(400, "bad_timezone", f"timezone: {raw!r} is not a known time zone")
+        raise ApiError(400, "bad_timezone", f"timezone: {raw!r} is not a known time zone") from None
     return value
 
 
@@ -137,9 +137,10 @@ def test_telegram(store: SettingsStore = Depends(get_settings_store)):
     if not s.telegram_linked:
         raise ApiError(409, "not_linked", "Send /start to the bot from your chat first")
     try:
-        TelegramClient(s.telegram_bot_token).send_message(s.telegram_chat_id, "Smart Marking is connected ✓")
+        with TelegramClient(s.telegram_bot_token) as client:
+            client.send_message(s.telegram_chat_id, "Smart Marking is connected ✓")
     except TelegramError as e:
-        raise ApiError(502, "telegram_error", str(e))
+        raise ApiError(502, "telegram_error", str(e)) from None
     return Response(status_code=204)
 
 

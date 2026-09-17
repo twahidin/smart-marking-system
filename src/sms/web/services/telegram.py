@@ -2,9 +2,9 @@
 
 The teacher pastes a bot token into Settings; the bot then has to learn *which* chat to
 talk to. Telegram will not tell us — the chat has to message the bot first. So the worker
-long-polls `getUpdates` every few seconds and treats the first `/start` it sees as the
-link. Polling (rather than a webhook) keeps the app deployable behind any URL, including
-one that is not publicly reachable yet.
+polls `getUpdates` every few seconds and treats the first `/start` it sees as the link.
+Polling (rather than a webhook) keeps the app deployable behind any URL, including one that
+is not publicly reachable yet.
 """
 
 import html
@@ -16,6 +16,12 @@ import httpx
 
 log = logging.getLogger("sms.telegram")
 
+# httpx logs every request line at INFO, and ours carry the bot token in the path
+# (`/bot<TOKEN>/getUpdates`). Keep those loggers at WARNING so enabling root INFO logging
+# never publishes the token to stdout or a log aggregator.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 LINKED_MESSAGE = "Linked to Smart Marking ✓ — you'll get marking updates here."
 
 
@@ -24,9 +30,23 @@ class TelegramError(RuntimeError):
 
 
 class TelegramClient:
-    def __init__(self, token: str, *, transport: Optional[httpx.BaseTransport] = None, timeout: float = 15.0):
+    """One short-lived connection to the Bot API. Use it as a context manager (or call
+    `close()`): the worker builds one every tick, so a leaked pool would accumulate sockets."""
+
+    def __init__(self, token: str, *, transport: Optional[httpx.BaseTransport] = None, timeout: float = 5.0):
+        # The worker polls inline, before claiming a job, so a slow Telegram must not stall
+        # marking for long: 5 s is generous for an API that answers in milliseconds.
         self._base = f"https://api.telegram.org/bot{token}"
         self._http = httpx.Client(timeout=timeout, transport=transport)
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> "TelegramClient":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
 
     @staticmethod
     def _result(r: httpx.Response) -> Any:
@@ -71,27 +91,42 @@ def app_base_url(settings) -> Optional[str]:
 
 def poll_updates(settings_store, client_factory: Callable[[str], TelegramClient] = TelegramClient) -> bool:
     """Fetch pending updates once: link the chat of any `/start`, then acknowledge everything
-    seen by advancing the stored offset. Returns True when a chat was linked this pass.
+    fetched by advancing the stored offset. Returns True when a chat was linked this pass.
 
-    A `/start` from a second chat replaces the link — that is how a teacher moves the bot to
-    a different chat without clearing anything first.
+    A `/start` from a second chat replaces the link — that is how a teacher moves the bot to a
+    different chat without clearing anything first.
+
+    Everything fetched is acknowledged even when handling it fails, and the confirmation reply
+    is best-effort: a bot the teacher has since blocked would otherwise make the same `/start`
+    come back, re-link and fail again on every tick, forever.
     """
     s = settings_store.load()
     if not s.telegram_bot_token:
         return False
-    client = client_factory(s.telegram_bot_token)
-    updates = client.get_updates(s.telegram_update_offset)
     linked = False
-    last = None
-    for u in updates:
-        last = u["update_id"]
-        msg = u.get("message") or {}
-        if (msg.get("text") or "").strip().startswith("/start"):
-            chat_id = str(msg["chat"]["id"])
-            settings_store.set_telegram(chat_id=chat_id)
-            client.send_message(chat_id, LINKED_MESSAGE)
-            log.info("telegram linked to chat %s", chat_id)
-            linked = True
-    if last is not None:
-        settings_store.set_telegram(offset=last + 1)
+    with client_factory(s.telegram_bot_token) as client:
+        updates = client.get_updates(s.telegram_update_offset)
+        ids = [int(u["update_id"]) for u in updates if isinstance(u.get("update_id"), int)]
+        if not ids:
+            return False
+        last = max(ids)
+        try:
+            for u in updates:
+                msg = u.get("message") or {}
+                if not (msg.get("text") or "").strip().startswith("/start"):
+                    continue
+                raw_chat_id = (msg.get("chat") or {}).get("id")
+                if raw_chat_id is None:
+                    continue
+                chat_id = str(raw_chat_id)
+                settings_store.set_telegram(chat_id=chat_id)
+                linked = True
+                log.info("telegram linked to chat %s", chat_id)
+                try:
+                    client.send_message(chat_id, LINKED_MESSAGE)
+                except (TelegramError, httpx.HTTPError) as e:
+                    # The link itself is saved; only the "you're linked" reply was lost.
+                    log.warning("telegram link confirmation not delivered: %s", e)
+        finally:
+            settings_store.set_telegram(offset=last + 1)
     return linked

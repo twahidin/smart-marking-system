@@ -65,10 +65,19 @@ def test_telegram_test_message_and_unlink(auth, monkeypatch):
     assert auth.post("/api/settings/telegram/test").status_code == 409
 
     sent = []
+    closed = []
 
     class FakeClient:
         def __init__(self, token, **kw):
             self.token = token
+            self.closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.closed = True
+            closed.append(True)
 
         def send_message(self, chat_id, html):
             sent.append((self.token, chat_id, html))
@@ -77,6 +86,7 @@ def test_telegram_test_message_and_unlink(auth, monkeypatch):
     monkeypatch.setattr("sms.web.routers.settings.TelegramClient", FakeClient)
     assert auth.post("/api/settings/telegram/test").status_code == 204
     assert sent == [("123456:ABCDwxyz", "1", "Smart Marking is connected ✓")]
+    assert closed == [True]  # the http client is not leaked per request
 
     assert auth.delete("/api/settings/telegram").status_code == 204
     s = auth.get("/api/settings").json()
@@ -89,9 +99,17 @@ def test_telegram_test_maps_send_failure_to_502(auth, monkeypatch):
                         telegram_bot_token="123456:ABCDwxyz"))
     store.set_telegram(chat_id="1")
 
+    closed = []
+
     class FakeClient:
         def __init__(self, token, **kw):
             pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            closed.append(True)
 
         def send_message(self, chat_id, html):
             raise TelegramError("chat not found")
@@ -100,6 +118,7 @@ def test_telegram_test_maps_send_failure_to_502(auth, monkeypatch):
     r = auth.post("/api/settings/telegram/test")
     assert r.status_code == 502 and r.json()["error"]["code"] == "telegram_error"
     assert r.json()["error"]["message"] == "chat not found"
+    assert closed == [True]  # closed even when the send fails
 
 
 def test_put_unknown_provider_400(auth):
