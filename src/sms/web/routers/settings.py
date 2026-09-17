@@ -2,6 +2,7 @@ import re
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
@@ -9,7 +10,7 @@ from sms.memory.db import Database
 from sms.providers.errors import error_message
 from sms.providers.models import list_models
 from sms.providers.probe import probe
-from sms.providers.registry import providers_with_custom
+from sms.providers.registry import get_provider, providers_with_custom
 from sms.providers.settings import Settings, SettingsStore
 from sms.web.deps import get_db, get_settings_store, require_teacher
 from sms.web.errors import ApiError
@@ -123,11 +124,24 @@ def _saved_key(store: SettingsStore, provider: str) -> Optional[str]:
 
 
 @router.delete("/settings/keys/{provider}", status_code=204)
-def delete_key(provider: str, store: SettingsStore = Depends(get_settings_store)):
+def delete_key(provider: str, force: bool = False, db: Database = Depends(get_db),
+               store: SettingsStore = Depends(get_settings_store)):
+    """Forget a provider's API key. Refused (409 `in_use`, with the count) while assignments are
+    pinned to that provider — they would fail to mark the moment the key went — unless `force`,
+    the same shape as deleting an assignment that is still in use."""
     try:
-        store.delete_key(provider)
+        get_provider(provider)
     except KeyError as e:
         raise ApiError(400, "bad_provider", str(e))
+    if not force:
+        n = int(db.query("SELECT COUNT(*) AS c FROM assignment_templates WHERE provider = :p",
+                         {"p": provider})[0]["c"] or 0)
+        if n:
+            raise ApiError(409, "in_use",
+                           f"{n} assignment{'s' if n != 1 else ''} use{'' if n != 1 else 's'} this provider — "
+                           "they will fail to mark until you pick another model",
+                           extra={"count": n})
+    store.delete_key(provider)
     return Response(status_code=204)
 
 
@@ -139,8 +153,10 @@ def test_telegram(store: SettingsStore = Depends(get_settings_store)):
     try:
         with TelegramClient(s.telegram_bot_token) as client:
             client.send_message(s.telegram_chat_id, "Smart Marking is connected ✓")
-    except TelegramError as e:
-        raise ApiError(502, "telegram_error", str(e)) from None
+    except (TelegramError, httpx.HTTPError) as e:
+        # A refusal and an unreachable api.telegram.org are the same answer to the teacher: the
+        # test message did not arrive, and here is what the bot said about it.
+        raise ApiError(502, "telegram_error", str(e) or type(e).__name__) from None
     return Response(status_code=204)
 
 

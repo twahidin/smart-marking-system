@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -9,17 +10,22 @@ log = logging.getLogger(__name__)
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str):
+    """`extra` puts machine-readable detail beside the error envelope — a count the SPA needs to word
+    its confirmation, say — without every caller having to parse it back out of the message."""
+
+    def __init__(self, status: int, code: str, message: str, extra: Optional[dict] = None):
         super().__init__(message)
         self.status = status
         self.code = code
         self.message = message
+        self.extra = extra or {}
 
 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError):
-        return JSONResponse(status_code=exc.status, content={"error": {"code": exc.code, "message": exc.message}})
+        return JSONResponse(status_code=exc.status,
+                            content={**exc.extra, "error": {"code": exc.code, "message": exc.message}})
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_request: Request, exc: RequestValidationError):

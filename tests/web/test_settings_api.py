@@ -2,7 +2,9 @@ import pytest
 
 from sms.providers.probe import Check, ProbeResult
 from sms.providers.settings import Settings
-from sms.web.services.telegram import TelegramError
+from sms.web.services.telegram import TelegramClient, TelegramError
+
+from tests.web.test_class_assignments_api import _template
 
 
 def test_requires_auth(client):
@@ -206,6 +208,48 @@ def test_keys_are_per_provider_and_can_be_removed(auth):
     assert auth.delete("/api/settings/keys/openai").status_code == 204
     assert auth.get("/api/settings").json()["keys"] == {"tokenrouter": "9999"}
     assert auth.delete("/api/settings/keys/nope").status_code == 400
+
+
+def test_removing_a_key_assignments_are_pinned_to_needs_force(auth):
+    """An assignment pinned to a provider fails to mark the moment its key goes, so removing the
+    key is refused with the count — the same 409 `in_use` / `?force=1` pair as deleting a template."""
+    auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "api_key": "sk-abcd1234",
+                                    "rpm_limit": 60, "confidence_threshold": 0})
+    for title in ("Pinned one", "Pinned two"):
+        t = _template(auth, title=title, provider="openai", model="gpt-5.5")
+        assert t["provider"] == "openai"
+
+    r = auth.delete("/api/settings/keys/openai")
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "in_use" and r.json()["count"] == 2
+    assert "2 assignments use this provider" in r.json()["error"]["message"]
+    assert auth.get("/api/settings").json()["keys"] == {"openai": "1234"}   # nothing removed
+
+    assert auth.delete("/api/settings/keys/openai?force=1").status_code == 204
+    assert auth.get("/api/settings").json()["keys"] == {}
+    # a provider nothing is pinned to needs no force
+    auth.put("/api/settings", json={"provider": "tokenrouter", "model": "z-ai/glm-5.3-flash", "api_key": "tr-9999",
+                                    "rpm_limit": 60, "confidence_threshold": 0})
+    assert auth.delete("/api/settings/keys/tokenrouter").status_code == 204
+
+
+def test_telegram_test_maps_a_transport_failure_to_502(auth, monkeypatch):
+    """api.telegram.org being unreachable is the same answer as a refusal: the message did not go."""
+    import httpx
+
+    store = auth.app.state.settings_store
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-abcd1234", rpm_limit=60,
+                        telegram_bot_token="123456:ABCDwxyz"))
+    store.set_telegram(chat_id="1")
+
+    def boom(_request):
+        raise httpx.ConnectError("[Errno 8] nodename nor servname provided")
+
+    monkeypatch.setattr("sms.web.routers.settings.TelegramClient",
+                        lambda token, **kw: TelegramClient(token, transport=httpx.MockTransport(boom)))
+    r = auth.post("/api/settings/telegram/test")
+    assert r.status_code == 502 and r.json()["error"]["code"] == "telegram_error"
+    assert "nodename" in r.json()["error"]["message"]
 
 
 def test_custom_models_for_aggregators_appear_in_providers(auth):
