@@ -4,7 +4,9 @@ Writing the row is a single insert on the path of whatever just happened (a hand
 marking) — it never talks to the network, so a slow or blocked bot can neither delay an upload nor
 fail a marking job. The worker flushes the unsent rows every few seconds, batching same-kind rows
 for one assignment into one message: 30 hand-ins in a lesson are one "30 new hand-ins", not 30
-buzzes. A refused send leaves the row unsent with the reason on it and is tried again next tick.
+buzzes. A refused send leaves the row unsent with the reason on it and comes back after a growing
+delay (10 s doubling to an hour), and is abandoned after twenty refusals rather than retried for
+ever; sent rows are deleted thirty days later.
 
 Everything a person typed (names, titles, class names) goes through `escape` — messages are sent
 with Telegram's HTML parse mode, where a student called "Tan <b>" would otherwise break the message.
@@ -15,10 +17,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-import httpx
-
 from sms.memory.db import Database
-from sms.web.services.telegram import TelegramClient, TelegramError, app_base_url, escape
+from sms.web.services.telegram import TelegramClient, app_base_url, escape
 
 log = logging.getLogger("sms.notify")
 
@@ -30,6 +30,20 @@ SETTLED = ("done", "needs_you")
 NAMES_SHOWN = 10        # hand-ins listed by name in one message before the rest become "…"
 DIGEST_WINDOW_H = 24
 DEFAULT_DAILY_TIME = (7, 0)
+GROUPS_PER_TICK = 10    # messages one flush will try, so a backlog drains over ticks
+BACKOFF_BASE_S = 10     # first retry delay; it doubles per attempt...
+BACKOFF_MAX_S = 3600    # ...up to an hour
+MAX_ATTEMPTS = 20       # after this many refusals the row is abandoned rather than retried forever
+RETENTION_DAYS = 30     # sent rows older than this are deleted on the daily tick
+SQL_TIME = "%Y-%m-%d %H:%M:%S"
+
+
+def _stamp(when: datetime) -> str:
+    """UTC in the same 'YYYY-MM-DD HH:MM:SS' shape SQL's CURRENT_TIMESTAMP writes, so the stored
+    text sorts and compares correctly against it."""
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.astimezone(timezone.utc).strftime(SQL_TIME)
 
 
 # --- settings helpers -------------------------------------------------------------------------
@@ -76,13 +90,15 @@ def _insert(db: Database, kind: str, caid: Optional[int], payload: Dict[str, Any
     )
 
 
-def _student(db: Database, student_id: Optional[int]) -> Dict[str, Any]:
-    """A snapshot of who handed in, so the message still reads right if the class list changes."""
+def _student(db: Database, student_id: Optional[int]) -> Optional[Dict[str, Any]]:
+    """A snapshot of who handed in, so the message still reads right if the class list changes.
+    None when there is nobody to name — no student id, no row, or a register number that is
+    somehow NULL — and then the hand-in is simply not announced rather than crashing the flush."""
     if student_id is None:
-        return {"student_id": None, "reg_no": None, "name": ""}
+        return None
     rows = db.query("SELECT id, reg_no, name FROM students WHERE id = :s", {"s": student_id})
-    if not rows:
-        return {"student_id": student_id, "reg_no": None, "name": ""}
+    if not rows or rows[0]["reg_no"] is None:
+        return None
     return {"student_id": student_id, "reg_no": int(rows[0]["reg_no"]), "name": rows[0]["name"]}
 
 
@@ -99,7 +115,11 @@ def record_hand_in(db: Database, submission_row: Dict[str, Any]) -> Optional[int
     db.execute("UPDATE class_assignments SET last_done_notified_at = NULL WHERE id = :a", {"a": caid})
     if submission_row.get("source") != "student" or not _instant(db):
         return None
-    return _insert(db, HAND_IN, int(caid), _student(db, submission_row.get("student_id")))
+    who = _student(db, submission_row.get("student_id"))
+    if who is None:
+        log.warning("hand-in on assignment %s has no nameable student — not announcing it", caid)
+        return None
+    return _insert(db, HAND_IN, int(caid), who)
 
 
 def _drain_counts(db: Database, caid: int) -> Dict[str, int]:
@@ -139,9 +159,13 @@ def on_mark_settled(db: Database, jobs, submission_id: int) -> None:
     # local import: insights_job -> insights -> submissions -> this module
     from sms.worker.insights_job import enqueue_insights
     enqueue_insights(jobs, caid)
-    if guard[0]["last_done_notified_at"] is not None:
+    # Claiming the drain and announcing it are one step. Two mark jobs settling the last two scripts
+    # within the same moment both see an empty in-flight count, so the read-then-write version wrote
+    # two messages; only the caller whose conditional UPDATE actually stamped the row — rowcount 1 —
+    # gets to announce.
+    if db.execute("UPDATE class_assignments SET last_done_notified_at = CURRENT_TIMESTAMP "
+                  "WHERE id = :a AND last_done_notified_at IS NULL", {"a": caid}) != 1:
         return
-    db.execute("UPDATE class_assignments SET last_done_notified_at = CURRENT_TIMESTAMP WHERE id = :a", {"a": caid})
     if not _instant(db):
         return
     _insert(db, MARKING_DONE, caid, {"marked": counts["marked"], "needs_you": counts["needs_you"],
@@ -202,9 +226,30 @@ def _mark_sent(db: Database, items: List[dict]) -> None:
     db.execute(f"UPDATE notifications SET sent_at = CURRENT_TIMESTAMP, error = NULL WHERE id IN ({clause})", params)
 
 
-def _mark_error(db: Database, items: List[dict], error: str) -> None:
-    clause, params = _ids(items)
-    db.execute(f"UPDATE notifications SET error = :e WHERE id IN ({clause})", {**params, "e": error[:500]})
+def _backoff_s(attempts: int) -> int:
+    """How long to wait after `attempts` failures: 10 s doubling per attempt, capped at an hour."""
+    return min(BACKOFF_BASE_S * 2 ** attempts, BACKOFF_MAX_S)
+
+
+def _mark_error(db: Database, items: List[dict], error: str, now: datetime) -> None:
+    """Record the refusal and schedule the retry. Rows in one group can be on different attempt
+    counts (a hand-in that arrived after the group first failed), so each count is stamped with its
+    own delay; a row that has been refused MAX_ATTEMPTS times is stamped sent — the error stays on
+    it — so an unreachable chat cannot keep the outbox spinning forever."""
+    by_attempts: Dict[int, List[dict]] = {}
+    for r in items:
+        by_attempts.setdefault(int(r.get("attempts") or 0) + 1, []).append(r)
+    for attempts, rows in by_attempts.items():
+        clause, params = _ids(rows)
+        params = {**params, "e": error[:500], "n": attempts}
+        if attempts >= MAX_ATTEMPTS:
+            log.warning("abandoned %d notification(s) after %d attempts: %s", len(rows), attempts, error[:200])
+            db.execute(f"UPDATE notifications SET attempts = :n, error = :e, sent_at = CURRENT_TIMESTAMP "
+                       f"WHERE id IN ({clause})", params)
+            continue
+        params["nx"] = _stamp(now + timedelta(seconds=_backoff_s(attempts)))
+        db.execute(f"UPDATE notifications SET attempts = :n, error = :e, next_attempt_at = :nx "
+                   f"WHERE id IN ({clause})", params)
 
 
 def _format_group(db: Database, kind: str, caid: Optional[int], items: List[dict],
@@ -223,17 +268,28 @@ def _format_group(db: Database, kind: str, caid: Optional[int], items: List[dict
 
 
 def flush_notifications(settings_store, db: Database,
-                        client_factory: Callable[[str], TelegramClient] = TelegramClient) -> int:
-    """Send every unsent notification, batched by (kind, class assignment). Returns the number of
-    messages sent. A no-op until the teacher has linked a chat — the rows simply wait.
+                        client_factory: Callable[[str], TelegramClient] = TelegramClient,
+                        now: Optional[datetime] = None) -> int:
+    """Send the notifications that are due, batched by (kind, class assignment). Returns the number
+    of messages sent. A no-op until the teacher has linked a chat — the rows simply wait.
 
     A row whose assignment has gone (or whose kind nothing formats) is marked sent rather than left
-    to be retried forever; a row the Bot API refused keeps the reason and is tried again next tick.
+    to be retried forever; a row the Bot API refused keeps the reason and comes back after a growing
+    delay, and is abandoned once it has been refused MAX_ATTEMPTS times. At most GROUPS_PER_TICK
+    messages go out per call, so a morning's backlog drains over several ticks instead of hammering
+    the Bot API in one burst.
+
+    Every failure a group can raise is caught, not just the ones Telegram is supposed to raise: a
+    gateway that answers an HTML 502 makes the JSON decode blow up, and one such group must not take
+    the rest of the flush down with it.
     """
+    now = now or datetime.now(timezone.utc)
     settings = settings_store.load()
     if not settings.telegram_linked:
         return 0
-    rows = db.query("SELECT * FROM notifications WHERE sent_at IS NULL ORDER BY created_at, id")
+    rows = db.query("SELECT * FROM notifications WHERE sent_at IS NULL "
+                    "AND (next_attempt_at IS NULL OR next_attempt_at <= :now) ORDER BY created_at, id",
+                    {"now": _stamp(now)})
     if not rows:
         return 0
     groups: Dict[Tuple[str, Any], List[dict]] = {}
@@ -242,20 +298,28 @@ def flush_notifications(settings_store, db: Database,
     base = app_base_url(settings)
     sent = 0
     with client_factory(settings.telegram_bot_token) as client:
-        for (kind, caid), items in groups.items():
+        for (kind, caid), items in list(groups.items())[:GROUPS_PER_TICK]:
             text = _format_group(db, kind, caid, items, base)
             if text is None:
                 _mark_sent(db, items)
                 continue
             try:
                 client.send_message(settings.telegram_chat_id, text)
-            except (TelegramError, httpx.HTTPError) as e:
+            except Exception as e:  # noqa: BLE001 - recorded on the rows; the other groups still go
                 log.warning("telegram send failed for %s: %s", kind, e)
-                _mark_error(db, items, str(e))
+                _mark_error(db, items, str(e) or type(e).__name__, now)
                 continue
             _mark_sent(db, items)
             sent += 1
     return sent
+
+
+def purge_sent_notifications(db: Database, now: datetime, days: int = RETENTION_DAYS) -> int:
+    """Delete sent rows older than `days`. The outbox is a queue, not a log: once a message has gone
+    (or been abandoned) the row is only taking up space. Returns the number deleted."""
+    cutoff = _stamp(now - timedelta(days=days))
+    return db.execute("DELETE FROM notifications WHERE sent_at IS NOT NULL AND sent_at < :cutoff",
+                      {"cutoff": cutoff})
 
 
 # --- the daily digest -------------------------------------------------------------------------
@@ -341,6 +405,10 @@ def maybe_send_daily(settings_store, db: Database, now: datetime,
         return False
     if (local.hour, local.minute) < _daily_time(s.telegram_daily_time):
         return False
+    # Past the send time and today's digest still owed: the once-a-day housekeeping slot.
+    purged = purge_sent_notifications(db, now)
+    if purged:
+        log.info("deleted %d notification(s) sent more than %d days ago", purged, RETENTION_DAYS)
     text = build_daily_digest(db, s, now=now)
     if text is None:
         settings_store.set_telegram(daily_last_sent=today)
@@ -348,7 +416,7 @@ def maybe_send_daily(settings_store, db: Database, now: datetime,
     try:
         with client_factory(s.telegram_bot_token) as client:
             client.send_message(s.telegram_chat_id, text)
-    except (TelegramError, httpx.HTTPError) as e:
+    except Exception as e:  # noqa: BLE001 - a bad gateway's HTML body fails to decode, too
         log.warning("daily digest not delivered: %s", e)
         return False
     settings_store.set_telegram(daily_last_sent=today)
