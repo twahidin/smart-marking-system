@@ -164,6 +164,27 @@ describe("InsightsPanel", () => {
     expect(screen.queryByRole("table", { name: "Students to support" })).not.toBeInTheDocument();
   });
 
+  it("keeps the stored narrative and still says a later regenerate failed", async () => {
+    // The job keeps the previous report_json and records the error, so both have to reach the teacher.
+    mockFetch({ [`GET ${INSIGHTS}`]: json({ ...payload, error: "No API key saved for openai — add one under Settings." }) });
+    render(panel());
+    expect(await screen.findByText(/The last regenerate attempt didn't finish/)).toBeInTheDocument();
+    expect(screen.getByText(/No API key saved for openai/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recommended next steps" })).toBeInTheDocument();
+    expect(screen.getByText(/the follow-through into 9\(b\) is where the marks went/)).toBeInTheDocument();
+  });
+
+  it("shows a register number the roster no longer has without inventing a name", async () => {
+    const orphan: InsightsPayload = { ...payload, report: { ...report, students_to_support: [{ reg_nos: [1, 99], focus: "follow-through from a previous part" }] } };
+    mockFetch({ [`GET ${INSIGHTS}`]: json(orphan) });
+    render(panel());
+    const rows = within(await screen.findByRole("table", { name: "Students to support" })).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    expect(rows[2]).toHaveTextContent("99");
+    expect(rows[2]).toHaveTextContent("—");
+    expect(rows[2]).toHaveTextContent("follow-through from a previous part");
+  });
+
   it("says nothing is marked yet instead of drawing an empty chart", async () => {
     const empty: InsightsPayload = {
       ...payload, report: null, generated_at: null,

@@ -102,11 +102,13 @@ export function InsightsPanel({ classId, caId }: { classId: number; caId: number
       {nothing && <p className="help">Nothing marked yet — the insights appear as soon as the first script has been marked.</p>}
       {!nothing && (
         <>
-          {!report && (
-            <>
-              <p className="help">The AI summary hasn't been generated yet — the numbers below are live.</p>
-              {data.error && <Notice>The last attempt didn't finish: {data.error}</Notice>}
-            </>
+          {!report && <p className="help">The AI summary hasn't been generated yet — the numbers below are live.</p>}
+          {/* A failed generate keeps whatever narrative was there before, so say so either way rather
+              than leaving the teacher to wonder why nothing changed. */}
+          {data.error && (
+            report
+              ? <Notice>The last regenerate attempt didn't finish: {data.error} — the summary below is the one from before.</Notice>
+              : <Notice>The last attempt didn't finish: {data.error}</Notice>
           )}
 
           <section className="section">
