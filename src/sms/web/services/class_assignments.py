@@ -222,6 +222,10 @@ def release(db: Database, class_id: int, caid: int) -> Dict[str, Any]:
         raise ApiError(409, "nothing_marked", "Nothing has been marked yet")
     db.execute("UPDATE class_assignments SET status = 'released', released_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
                "WHERE id = :id", {"id": caid})
+    # Releasing is the moment the class set is final, so the teacher's insights are generated then.
+    # Imported here: the job module reads assignments through this one, so a top-level import cycles.
+    from sms.worker.insights_job import enqueue_insights
+    enqueue_insights(JobStore(db), caid)
     return get_class_assignment(db, class_id, caid)  # type: ignore[return-value]
 
 

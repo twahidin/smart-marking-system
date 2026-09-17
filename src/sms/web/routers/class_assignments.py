@@ -2,8 +2,10 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from sms.records.insights_pdf import render_insights_pdf
 from sms.web.deps import get_db, get_jobs, get_settings_store, get_storage, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.class_assignments import (delete_class_assignment, get_student, hand_in, list_class_assignments,
@@ -11,6 +13,7 @@ from sms.web.services.class_assignments import (delete_class_assignment, get_stu
                                                 set_assignment, slug, update_class_assignment)
 from sms.web.services.insights import insights_payload
 from sms.web.uploads import check_content_length, read_upload_files
+from sms.worker.insights_job import enqueue_insights
 
 router = APIRouter(prefix="/api/classes/{class_id}/assignments", tags=["class-assignments"],
                    dependencies=[Depends(require_teacher)])
@@ -52,6 +55,32 @@ def insights(class_id: int, caid: int, db=Depends(get_db), jobs=Depends(get_jobs
     # A sync endpoint runs in the threadpool, so the detail read per script stays off the event loop.
     ca = require_class_assignment(db, class_id, caid)
     return insights_payload(db, jobs, ca)
+
+
+@router.post("/{caid}/insights/regenerate", status_code=202)
+def regenerate_insights(class_id: int, caid: int, db=Depends(get_db), jobs=Depends(get_jobs)):
+    require_class_assignment(db, class_id, caid)
+    if not db.query("SELECT 1 FROM submissions WHERE class_assignment_id = :a AND run_id IS NOT NULL", {"a": caid}):
+        raise ApiError(409, "nothing_marked", "Nothing has been marked yet")
+    job_id = enqueue_insights(jobs, caid)
+    if job_id is None:
+        raise ApiError(409, "already_running", "Insights are already being generated")
+    return JSONResponse(status_code=202, content={"job_id": job_id})
+
+
+@router.get("/{caid}/insights.pdf")
+async def insights_pdf(class_id: int, caid: int, db=Depends(get_db), jobs=Depends(get_jobs)):
+    ca = require_class_assignment(db, class_id, caid)
+
+    def build():
+        # One detail read per script plus the PDF itself; keep both off the event loop.
+        p = insights_payload(db, jobs, ca)
+        names = {s["reg_no"]: s["name"] for s in p["stats"]["students"]}
+        return render_insights_pdf(ca, p["stats"], p["report"], names)
+
+    data = await run_in_threadpool(build)
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{slug(ca["title"])}-insights.pdf"'})
 
 
 @router.post("/{caid}/release")

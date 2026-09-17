@@ -13,6 +13,7 @@ from sms.providers.settings import SettingsStore
 from sms.storage import PageStorage
 from sms.web.services.pages_cleanup import sweep_done_submissions
 from sms.worker.extract_jobs import PAPER_KIND, SCHEME_KIND, run_paper_extract_job, run_scheme_extract_job
+from sms.worker.insights_job import INSIGHTS_KIND, run_insights_job
 from sms.worker.jobs import MAX_ATTEMPTS, JobStore
 from sms.worker.mark_job import run_mark_job
 from sms.worker.reflect_job import open_reflection_run, run_reflect_job
@@ -22,6 +23,7 @@ log = logging.getLogger("sms.worker")
 Runner = Callable[..., None]
 ReflectRunner = Callable[..., int]
 ExtractRunner = Callable[..., int]
+InsightsRunner = Callable[..., dict]
 
 REFLECT_CHECK_INTERVAL_S = 600.0
 REFLECT_WINDOW_H = 24
@@ -35,7 +37,8 @@ class Worker:
                  runner: Runner = run_mark_job, poll_s: float = 2.0, max_attempts: int = MAX_ATTEMPTS,
                  base_backoff_s: float = 30.0, reflect_runner: ReflectRunner = run_reflect_job,
                  paper_runner: ExtractRunner = run_paper_extract_job,
-                 scheme_runner: ExtractRunner = run_scheme_extract_job):
+                 scheme_runner: ExtractRunner = run_scheme_extract_job,
+                 insights_runner: InsightsRunner = run_insights_job):
         self.db = db
         self.storage = storage
         self.settings_store = settings_store
@@ -43,6 +46,7 @@ class Worker:
         self.reflect_runner = reflect_runner
         self.paper_runner = paper_runner
         self.scheme_runner = scheme_runner
+        self.insights_runner = insights_runner
         self.poll_s = poll_s
         self.max_attempts = max_attempts
         self.base_backoff_s = base_backoff_s
@@ -78,6 +82,10 @@ class Worker:
                 payload = json.loads(job["payload_json"] or "{}")
                 runner = self.paper_runner if job["kind"] == PAPER_KIND else self.scheme_runner
                 runner(self.db, self.storage, self.settings_store, int(payload["template_id"]), bucket_pool=self.pool)
+            elif job["kind"] == INSIGHTS_KIND:
+                payload = json.loads(job["payload_json"] or "{}")
+                self.insights_runner(self.db, self.jobs, self.settings_store, int(payload["class_assignment_id"]),
+                                     bucket_pool=self.pool)
             else:
                 raise ValueError(f"unknown job kind {job['kind']!r}")
             self.jobs.finish(job["id"])

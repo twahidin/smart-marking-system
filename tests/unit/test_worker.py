@@ -233,6 +233,37 @@ def test_worker_reflect_failure_is_recorded_without_touching_submissions(env):
     assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
 
 
+def test_worker_dispatches_insights_jobs_with_the_bucket_pool(env):
+    db, store, storage, sid = env
+    js = JobStore(db)
+    assert js.enqueue_unique("insights", {"class_assignment_id": 12}, dedupe_key="insights:12") is not None
+    assert js.enqueue_unique("insights", {"class_assignment_id": 12}, dedupe_key="insights:12") is None
+    calls = []
+
+    def insights_runner(db_, jobs_, store_, caid, bucket=None, bucket_pool=None):
+        calls.append((caid, jobs_, bucket_pool))
+        return {}
+
+    w = Worker(db, storage, store, runner=lambda *a, **k: pytest.fail("mark runner must not run"),
+               insights_runner=insights_runner)
+    assert w.run_once() is True and w.run_once() is False
+    assert calls == [(12, w.jobs, w.pool)]
+    assert db.query("SELECT status FROM jobs")[0]["status"] == "done"
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
+
+
+def test_worker_records_insights_errors_on_the_job(env):
+    db, store, storage, sid = env
+    JobStore(db).enqueue_unique("insights", {"class_assignment_id": 3}, dedupe_key="insights:3")
+
+    def boom(*a, **k):
+        raise ValueError("class assignment 3 not found")
+
+    Worker(db, storage, store, insights_runner=boom).run_once()
+    row = db.query("SELECT status, error FROM jobs")[0]
+    assert row["status"] == "failed" and "not found" in row["error"]
+
+
 def test_worker_reflect_retry_reuses_the_same_run_row(env):
     db, store, storage, sid = env
     JobStore(db).enqueue("reflect", payload={"subject": "math", "lookback_days": 7})
