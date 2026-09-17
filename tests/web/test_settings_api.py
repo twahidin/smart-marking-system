@@ -126,3 +126,22 @@ def test_keys_are_per_provider_and_can_be_removed(auth):
     assert auth.delete("/api/settings/keys/openai").status_code == 204
     assert auth.get("/api/settings").json()["keys"] == {"tokenrouter": "9999"}
     assert auth.delete("/api/settings/keys/nope").status_code == 400
+
+
+def test_custom_models_for_aggregators_appear_in_providers(auth):
+    r = auth.post("/api/settings/models/openrouter", json={"model_id": "google/gemini-3.8-flash", "label": "Gemini 3.8 Flash", "vision": True})
+    assert r.status_code == 201 and r.json() == {"id": "google/gemini-3.8-flash", "label": "Gemini 3.8 Flash", "vision": True, "custom": True}
+    r = auth.post("/api/settings/models/openrouter", json={"model_id": "meta/llama-5-text"})   # label defaults to the id
+    assert r.json()["label"] == "meta/llama-5-text"
+    assert auth.post("/api/settings/models/openai", json={"model_id": "x"}).json()["error"]["code"] == "not_supported"
+    assert auth.post("/api/settings/models/openrouter", json={"model_id": "  "}).json()["error"]["code"] == "bad_model"
+    prov = {p["id"]: p for p in auth.get("/api/providers").json()}
+    ids = [m["id"] for m in prov["openrouter"]["models"]]
+    assert ids[-2:] == ["google/gemini-3.8-flash", "meta/llama-5-text"] and prov["openrouter"]["custom_models"] is True
+    assert prov["openai"]["custom_models"] is False and not any(m.get("custom") for m in prov["openai"]["models"])
+    assert auth.delete("/api/settings/models/openrouter/google/gemini-3.8-flash").status_code == 204
+    assert "google/gemini-3.8-flash" not in [m["id"] for m in {p["id"]: p for p in auth.get("/api/providers").json()}["openrouter"]["models"]]
+    # adding the same id again replaces the label instead of failing
+    auth.post("/api/settings/models/openrouter", json={"model_id": "meta/llama-5-text", "label": "Llama 5", "vision": False})
+    m = [m for m in {p["id"]: p for p in auth.get("/api/providers").json()}["openrouter"]["models"] if m["id"] == "meta/llama-5-text"][0]
+    assert m["label"] == "Llama 5" and m["vision"] is False

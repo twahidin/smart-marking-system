@@ -140,3 +140,11 @@ def registry_as_dicts() -> list:
     for d in dicts:
         d["models"] = list(d["models"])
     return dicts
+
+
+def providers_with_custom(custom: dict) -> list:
+    """`registry_as_dicts()` with each provider's saved custom models appended to `models`."""
+    dicts = registry_as_dicts()
+    for d in dicts:
+        d["models"] = d["models"] + custom.get(d["id"], [])
+    return dicts

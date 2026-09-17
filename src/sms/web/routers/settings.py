@@ -3,13 +3,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
+from sms.memory.db import Database
 from sms.providers.errors import error_message
 from sms.providers.models import list_models
 from sms.providers.probe import probe
-from sms.providers.registry import registry_as_dicts
+from sms.providers.registry import providers_with_custom
 from sms.providers.settings import Settings, SettingsStore
-from sms.web.deps import get_settings_store, require_teacher
+from sms.web.deps import get_db, get_settings_store, require_teacher
 from sms.web.errors import ApiError
+from sms.web.services.custom_models import add_custom_model, list_custom_models, remove_custom_model
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_teacher)])
 
@@ -40,9 +42,15 @@ class TestBody(BaseModel):
     extractor_model: Optional[str] = None
 
 
+class CustomModelBody(BaseModel):
+    model_id: str
+    label: str = ""
+    vision: bool = True
+
+
 @router.get("/providers")
-def providers():
-    return registry_as_dicts()
+def providers(db: Database = Depends(get_db)):
+    return providers_with_custom(list_custom_models(db))
 
 
 @router.get("/settings")
@@ -122,3 +130,14 @@ def models_for_provider(body: ModelsBody, store: SettingsStore = Depends(get_set
     except Exception as e:  # noqa: BLE001 - the provider's own message is the useful part
         raise ApiError(502, "provider_error", error_message(e))
     return {"models": ids}
+
+
+@router.post("/settings/models/{provider}", status_code=201)
+def add_model(provider: str, body: CustomModelBody, db: Database = Depends(get_db)):
+    return add_custom_model(db, provider, body.model_id, body.label, body.vision)
+
+
+@router.delete("/settings/models/{provider}/{model_id:path}", status_code=204)
+def delete_model(provider: str, model_id: str, db: Database = Depends(get_db)):
+    remove_custom_model(db, provider, model_id)
+    return Response(status_code=204)
