@@ -1,6 +1,6 @@
 # Railway marketplace listing — copy-paste kit
 
-**Published:** https://railway.com/deploy/smart-marking (template code `wPXn5q`). Category: AI/ML (there is no Education category).
+**Published:** https://railway.com/deploy/smart-marking-1 (template code `smart-marking-1` — it was `wPXn5q`/`smart-marking` before the first republish; republishing changes the slug, so prefer `railway templates update` for edits). Category: AI/ML (there is no Education category).
 
 Everything the **Publish template** form asks for. Create the template with
 *Project → Settings → Generate Template from Project* (see the steps at the bottom), then paste these in.

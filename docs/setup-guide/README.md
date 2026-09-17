@@ -10,7 +10,7 @@ Everything — scripts, marks, classes, your key — lives inside your own Railw
 
 ## 2. Deploy on Railway
 
-Open [railway.com/deploy/smart-marking](https://railway.com/deploy/smart-marking) and click **Deploy Smart Marking**. Railway creates two services — `web` (the app) and `Postgres` (the database) — plus a small disk for page images. The first build takes two to three minutes.
+Open [railway.com/deploy/smart-marking-1](https://railway.com/deploy/smart-marking-1) and click **Deploy Smart Marking**. Railway creates two services — `web` (the app) and `Postgres` (the database) — plus a small disk for page images. The first build takes two to three minutes.
 
 Your sign-in password is generated for you. To read it: open the `web` service in Railway → **Variables** → `TEACHER_PASSWORD`. You can change it there at any time (the service restarts). To open the app, click the `web` service → **Settings** → **Networking** and follow the public domain (it looks like `web-production-xxxx.up.railway.app`).
 

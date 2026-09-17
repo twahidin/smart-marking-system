@@ -1,6 +1,6 @@
 # Smart Marking System
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/smart-marking?utm_medium=integration&utm_source=button&utm_campaign=smart-marking)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/smart-marking-1?utm_medium=integration&utm_source=button&utm_campaign=smart-marking)
 
 **New here?** Read the [step-by-step setup guide](docs/setup-guide/README.md) (also as a [PDF](docs/setup-guide/Smart-Marking-Setup-Guide.pdf)) — every screen is the real app, from deploying on Railway to students reading feedback on their phones.
 
@@ -141,7 +141,7 @@ Frontend development with hot reload: `cd web && npm run dev` (proxies `/api` to
 
 ### Deploy on Railway
 
-The quickest way is the marketplace template — https://railway.com/deploy/smart-marking — which creates
+The quickest way is the marketplace template — https://railway.com/deploy/smart-marking-1 — which creates
 the web service, a Postgres database and the `/data` volume, generates `SECRET_KEY` and
 `TEACHER_PASSWORD` for you (read the password from the service's Variables, or set your own before
 deploying), and leaves the model key for the Settings page. To set it up by hand instead:
