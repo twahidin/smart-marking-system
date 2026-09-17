@@ -5,6 +5,21 @@
 Everything the **Publish template** form asks for. Create the template with
 *Project → Settings → Generate Template from Project* (see the steps at the bottom), then paste these in.
 
+## Updating the published listing
+
+The marketplace page serves the *published* overview; edits in the dashboard composer do not reach it
+on their own. `overview.md` in this folder is the source of truth — edit it, then push it with the
+Railway CLI (5.57+):
+
+```bash
+railway templates update ebe2b845-a462-4ef4-989e-b02375fc4bc2 --category AI/ML \
+  --description "AI marking for handwritten scripts, with teacher review before release" \
+  --readme-file docs/railway-template/overview.md
+```
+
+The CLI requires the sections `## About Hosting …`, `## Common Use Cases`, `## Dependencies for … Hosting`,
+`### Deployment Dependencies` and `## Why Deploy … on Railway?` to be present.
+
 ## Listing
 
 **Name:** Smart Marking
