@@ -88,6 +88,26 @@ def test_insights_job_needs_a_key_and_a_real_assignment(auth, app):
         run_insights_job(app.state.db, app.state.jobs, app.state.settings_store, 9999)
 
 
+def test_keyless_job_records_the_reason_on_the_row_and_keeps_the_report(auth, app):
+    """A missing key is a failure the teacher should see on the panel, not a silent nothing: the
+    row is written with the reason, the statistics are refreshed and any previous report stays."""
+    _with_key(auth)
+    _t, _c, ca, _qids = _seed_class(auth, app)
+    ca_id = ca["id"]
+    run_insights_job(app.state.db, app.state.jobs, app.state.settings_store, ca_id,
+                     agent_factory=lambda **kw: type("A", (), {"run": lambda self, inp: REPORT})())
+    assert _row(app, ca_id)["error"] is None
+
+    app.state.db.execute("DELETE FROM provider_keys")
+    with pytest.raises(RuntimeError, match="API key"):
+        run_insights_job(app.state.db, app.state.jobs, app.state.settings_store, ca_id,
+                         agent_factory=lambda **kw: pytest.fail("no key, so no model call"))
+    row = _row(app, ca_id)
+    assert "API key" in row["error"]
+    assert json.loads(row["report_json"])["summary"].startswith("Class did well")
+    assert row["n_marked"] == 2
+
+
 def test_enqueue_insights_is_one_at_a_time_per_assignment(app):
     jobs = app.state.jobs
     first = enqueue_insights(jobs, 7)

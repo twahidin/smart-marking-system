@@ -62,14 +62,16 @@ def run_insights_job(db: Database, jobs: JobStore, settings_store: SettingsStore
         return stats
     tpl = get_template(db, ca["template_id"])
     settings = settings_store.for_template(tpl)
-    if not settings.has_key:
-        raise RuntimeError("No API key configured — add one under Settings")
-    if bucket_pool is not None:
-        bucket = bucket_pool.get(settings.provider, settings.rpm_limit)
-    inp = InsightsInput(assignment_title=ca["title"], subject=ca["subject"] or "math",
-                        scheme_kind=ca["scheme_kind"] or "criteria", stats=_anonymous(stats),
-                        samples=[Sample(**s) for s in select_samples(db, jobs, ca, stats)])
+    # Everything that can go wrong from here on — a missing key included — is worth showing on the
+    # panel, so it all runs inside the handler that records `error` on the row.
     try:
+        if not settings.has_key:
+            raise RuntimeError("No API key configured — add one under Settings")
+        if bucket_pool is not None:
+            bucket = bucket_pool.get(settings.provider, settings.rpm_limit)
+        inp = InsightsInput(assignment_title=ca["title"], subject=ca["subject"] or "math",
+                            scheme_kind=ca["scheme_kind"] or "criteria", stats=_anonymous(stats),
+                            samples=[Sample(**s) for s in select_samples(db, jobs, ca, stats)])
         agent = (agent_factory or _default_agent_factory)(db=db, settings=settings,
                                                           bucket=bucket or TokenBucket(settings.rpm_limit))
         report = agent.run(inp)
