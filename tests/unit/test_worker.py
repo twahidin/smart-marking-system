@@ -604,3 +604,74 @@ def test_mark_job_uses_the_assignments_own_model_and_bucket(env):
     assert (seen["settings"].provider, seen["settings"].model, seen["settings"].api_key) == ("openrouter", "openrouter/auto", "or-key")
     assert seen["bucket"] is pool.get("openrouter", 60)
     assert db.query("SELECT provider, model FROM marking_runs WHERE run_id = 'r1'")[0]["model"] == "openrouter/auto"
+
+
+# --- the notification outbox --------------------------------------------------------------------
+
+def test_worker_settles_notifications_after_a_mark_job(env, monkeypatch):
+    db, store, storage, sid = env
+    JobStore(db).enqueue("mark", sid)
+    calls = []
+    monkeypatch.setattr("sms.worker.worker.on_mark_settled", lambda d, j, s: calls.append(s))
+    w = Worker(db, storage, store, runner=lambda *a, **k: None)
+    assert w.run_once() is True
+    assert calls == [sid] and db.query("SELECT status FROM jobs")[0]["status"] == "done"
+
+
+def test_worker_settles_notifications_even_when_the_mark_job_failed(env, monkeypatch):
+    """The drain is over however the script ended — a failed one must not leave the class silent."""
+    db, store, storage, sid = env
+    JobStore(db).enqueue("mark", sid)
+    calls = []
+    monkeypatch.setattr("sms.worker.worker.on_mark_settled", lambda d, j, s: calls.append(s))
+
+    def runner(*a, **k):
+        raise ValueError("bad rubric")
+
+    assert Worker(db, storage, store, runner=runner).run_once() is True
+    assert calls == [sid] and db.query("SELECT status FROM jobs")[0]["status"] == "failed"
+
+
+def test_notification_failure_never_fails_a_marked_job(env, monkeypatch, caplog):
+    db, store, storage, sid = env
+    JobStore(db).enqueue("mark", sid)
+
+    def boom(*a, **k):
+        raise RuntimeError("outbox down")
+
+    monkeypatch.setattr("sms.worker.worker.on_mark_settled", boom)
+    w = Worker(db, storage, store, runner=lambda *a, **k: None)
+    with caplog.at_level("ERROR", logger="sms.worker"):
+        assert w.run_once() is True
+    assert db.query("SELECT status FROM jobs")[0]["status"] == "done"
+    assert db.query("SELECT error FROM jobs")[0]["error"] is None
+    assert "outbox down" in caplog.text
+
+
+def test_telegram_tick_polls_flushes_and_digests_independently(env, monkeypatch, caplog):
+    db, store, storage, _sid = env
+    w = Worker(db, storage, store)
+    calls = []
+
+    def poll(settings_store):
+        calls.append("poll")
+        raise RuntimeError("poll down")       # must not stop the other two
+
+    def flush(settings_store, database, **kw):
+        calls.append("flush")
+        return 1
+
+    def daily(settings_store, database, now=None, **kw):
+        calls.append(("daily", now))
+        return False
+
+    monkeypatch.setattr("sms.worker.worker.poll_updates", poll)
+    monkeypatch.setattr("sms.worker.worker.flush_notifications", flush)
+    monkeypatch.setattr("sms.worker.worker.maybe_send_daily", daily)
+    with caplog.at_level("ERROR", logger="sms.worker"):
+        w._maybe_telegram()
+    assert [c[0] if isinstance(c, tuple) else c for c in calls] == ["poll", "flush", "daily"]
+    assert calls[2][1].tzinfo is timezone.utc
+    assert "poll down" in caplog.text
+    w._maybe_telegram()      # inside the 10 s gate: nothing runs again
+    assert len(calls) == 3

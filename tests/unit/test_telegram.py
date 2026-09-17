@@ -208,7 +208,7 @@ def test_worker_polls_telegram_and_survives_errors(tmp_path, monkeypatch):
         raise RuntimeError("telegram down")
 
     monkeypatch.setattr("sms.worker.worker.poll_updates", boom)
-    worker._maybe_poll_telegram()  # the error is logged, never raised
+    worker._maybe_telegram()  # the error is logged, never raised
     assert len(calls) == 1
-    worker._maybe_poll_telegram()  # inside the 10 s gate: no second call
+    worker._maybe_telegram()  # inside the 10 s gate: no second call
     assert len(calls) == 1

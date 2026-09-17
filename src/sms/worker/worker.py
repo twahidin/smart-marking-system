@@ -11,6 +11,7 @@ from sms.providers.errors import error_message, is_retryable
 from sms.providers.ratelimit import BucketPool
 from sms.providers.settings import SettingsStore
 from sms.storage import PageStorage
+from sms.web.services.notify import flush_notifications, maybe_send_daily, on_mark_settled
 from sms.web.services.pages_cleanup import sweep_done_submissions
 from sms.web.services.telegram import poll_updates
 from sms.worker.extract_jobs import PAPER_KIND, SCHEME_KIND, run_paper_extract_job, run_scheme_extract_job
@@ -101,6 +102,14 @@ class Worker:
             else:
                 log.error("job %s failed: %s", job["id"], msg)
                 self.jobs.fail(job["id"], msg)
+        # After the job is settled either way: a script that failed still ends the class's drain.
+        # Deliberately outside the handler above — notifying must never turn a marked job into a
+        # failed one, so anything that goes wrong here is logged and forgotten.
+        if job["kind"] == "mark" and job.get("submission_id") is not None:
+            try:
+                on_mark_settled(self.db, self.jobs, job["submission_id"])
+            except Exception:  # noqa: BLE001
+                log.exception("post-mark notification failed for submission %s", job["submission_id"])
         return True
 
     def run_forever(self, stop: threading.Event) -> None:
@@ -115,7 +124,7 @@ class Worker:
                 self.jobs.heartbeat()
                 self._maybe_schedule_reflection()
                 self._maybe_sweep_pages()
-                self._maybe_poll_telegram()
+                self._maybe_telegram()
                 worked = self.run_once()
             except Exception:  # noqa: BLE001
                 log.exception("worker loop error")
@@ -162,18 +171,27 @@ class Worker:
         self._last_page_sweep = now
         sweep_done_submissions(self.db, self.storage, older_than_hours=PAGE_SWEEP_WINDOW_H)
 
-    def _maybe_poll_telegram(self) -> None:
-        """Every 10 s, ask Telegram for new messages so a `/start` links the teacher's chat.
-        The bot is optional and the API is remote, so a failure here is logged and retried on
-        the next tick — it must never take the worker down."""
+    def _maybe_telegram(self) -> None:
+        """Every 10 s: ask Telegram for new messages so a `/start` links the teacher's chat, flush
+        the notification outbox, and send the daily digest once its time has come.
+
+        The bot is optional and the API is remote, so each step is guarded on its own: a failure is
+        logged and retried on the next tick, and one failing step never skips the other two."""
         now = time.monotonic()
         if self._last_telegram_tick is not None and now - self._last_telegram_tick < TELEGRAM_TICK_S:
             return
         self._last_telegram_tick = now
-        try:
-            poll_updates(self.settings_store)
-        except Exception:  # noqa: BLE001 - the bot is a side channel, never a reason to stop marking
-            log.exception("telegram poll failed")
+        steps = (
+            ("poll", lambda: poll_updates(self.settings_store)),
+            ("flush", lambda: flush_notifications(self.settings_store, self.db)),
+            ("daily digest", lambda: maybe_send_daily(self.settings_store, self.db,
+                                                      now=datetime.now(timezone.utc))),
+        )
+        for name, step in steps:
+            try:
+                step()
+            except Exception:  # noqa: BLE001 - the bot is a side channel, never a reason to stop marking
+                log.exception("telegram %s failed", name)
 
     def start_thread(self, stop: threading.Event) -> threading.Thread:
         t = threading.Thread(target=self.run_forever, args=(stop,), name="sms-worker", daemon=True)
