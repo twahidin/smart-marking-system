@@ -2,6 +2,7 @@ import pytest
 
 from sms.providers.probe import Check, ProbeResult
 from sms.providers.settings import Settings
+from sms.web.services.telegram import TelegramError
 
 
 def test_requires_auth(client):
@@ -28,17 +29,77 @@ def test_put_saves_and_blank_key_keeps(auth):
     assert r.json()["model"] == "gpt-5.5" and r.json()["key_hint"] == "1234"
 
 
-def test_put_does_not_reset_telegram_and_timezone_fields(auth):
+def test_put_saves_telegram_fields_and_never_returns_the_token(auth):
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60,
+                                        "confidence_threshold": 0.5, "telegram_bot_token": "123456:ABCDwxyz",
+                                        "telegram_instant": False, "telegram_daily_time": "06:45",
+                                        "timezone": "Asia/Singapore", "app_url": "https://x.example/"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "telegram_bot_token" not in body and body["telegram_bot_hint"] == "wxyz"
+    assert body["telegram_daily_time"] == "06:45" and body["timezone"] == "Asia/Singapore"
+    assert body["telegram_instant"] is False and body["app_url"] == "https://x.example/"
+    # a blank token keeps the stored one
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60,
+                                        "confidence_threshold": 0.5, "telegram_bot_token": "",
+                                        "telegram_daily_time": "06:45", "timezone": "Asia/Singapore"})
+    assert r.json()["telegram_bot_hint"] == "wxyz"
+    s = auth.get("/api/settings").json()
+    assert "telegram_bot_token" not in s and s["telegram_bot_hint"] == "wxyz"
+
+
+def test_put_rejects_bad_timezone_and_bad_time(auth):
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60,
+                                        "confidence_threshold": 0.5, "timezone": "Mars/Olympus"})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_timezone"
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 60,
+                                        "confidence_threshold": 0.5, "telegram_daily_time": "25:00"})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_time"
+
+
+def test_telegram_test_message_and_unlink(auth, monkeypatch):
     store = auth.app.state.settings_store
     store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-abcd1234", rpm_limit=60,
-                        telegram_daily_time="18:30", timezone="Europe/London", telegram_instant=False,
-                        app_url="https://x.example"))
-    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5.5", "rpm_limit": 60,
-                                        "confidence_threshold": 0.5})
-    assert r.status_code == 200
+                        telegram_bot_token="123456:ABCDwxyz"))
+    assert auth.post("/api/settings/telegram/test").json()["error"]["code"] == "not_linked"
+    assert auth.post("/api/settings/telegram/test").status_code == 409
+
+    sent = []
+
+    class FakeClient:
+        def __init__(self, token, **kw):
+            self.token = token
+
+        def send_message(self, chat_id, html):
+            sent.append((self.token, chat_id, html))
+
+    store.set_telegram(chat_id="1")
+    monkeypatch.setattr("sms.web.routers.settings.TelegramClient", FakeClient)
+    assert auth.post("/api/settings/telegram/test").status_code == 204
+    assert sent == [("123456:ABCDwxyz", "1", "Smart Marking is connected ✓")]
+
+    assert auth.delete("/api/settings/telegram").status_code == 204
     s = auth.get("/api/settings").json()
-    assert s["telegram_daily_time"] == "18:30" and s["timezone"] == "Europe/London"
-    assert s["telegram_instant"] is False and s["app_url"] == "https://x.example"
+    assert s["telegram_linked"] is False and s["telegram_bot_hint"] == ""
+
+
+def test_telegram_test_maps_send_failure_to_502(auth, monkeypatch):
+    store = auth.app.state.settings_store
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-abcd1234", rpm_limit=60,
+                        telegram_bot_token="123456:ABCDwxyz"))
+    store.set_telegram(chat_id="1")
+
+    class FakeClient:
+        def __init__(self, token, **kw):
+            pass
+
+        def send_message(self, chat_id, html):
+            raise TelegramError("chat not found")
+
+    monkeypatch.setattr("sms.web.routers.settings.TelegramClient", FakeClient)
+    r = auth.post("/api/settings/telegram/test")
+    assert r.status_code == 502 and r.json()["error"]["code"] == "telegram_error"
+    assert r.json()["error"]["message"] == "chat not found"
 
 
 def test_put_unknown_provider_400(auth):
