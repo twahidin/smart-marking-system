@@ -1,6 +1,6 @@
 """compute_stats / select_samples over seeded v2 runs (web fixtures: `app` builds the schema)."""
 from sms.web.services.class_assignments import get_class_assignment
-from sms.web.services.insights import compute_stats, select_samples
+from sms.web.services.insights import WEAKEST, compute_stats, select_samples
 
 from tests.web.seed_v2 import QUESTIONS as V2_QUESTIONS, SCHEME as V2_SCHEME, _alloc, part, seed_v2
 from tests.web.test_class_assignments_api import _class_with_students, _link, _seed_v1, _template, _v1_mark
@@ -89,6 +89,22 @@ def test_compute_stats_for_a_criteria_template_uses_the_marked_questions(auth, a
     s = {x["reg_no"]: x for x in st["students"]}
     assert (s[1]["total"], s[2]["total"]) == (3, 2) and s[2]["weak_parts"] == ["q2"]
     assert all(x["total"] <= x["max"] for x in st["students"])
+
+
+def test_weakest_is_a_shortlist_not_the_whole_paper_ranked(auth, app):
+    """`weakest` is what the panel highlights and what the narrative reads samples from, so a long
+    paper lists only its worst WEAKEST parts — every part below every other part is not a finding."""
+    t = _template(auth, scheme_kind="criteria", questions=[], scheme=[])   # RUBRIC: one criterion, max 2
+    c = _class_with_students(auth, names=("Tan Wei Ling", "Muhammad Danish"))
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    qs = [f"q{i:02d}" for i in range(1, 13)]
+    scores = [0] * 8 + [1, 1, 2, 2]                                  # 0%, then 50%, then full marks
+    sid = _seed_v1(app, label="#1 Tan Wei Ling", assignment_id=t["id"], run_id="v1-long",
+                   marks=[_v1_mark(q, s) for q, s in zip(qs, scores)])
+    _link(app, sid, ca["id"], c["students"][0]["id"])
+    _row, st = _stats(app, c, ca)
+    assert len(st["parts"]) == 12                                    # every part still has its row
+    assert st["weakest"] == qs[:WEAKEST] and len(st["weakest"]) == 8
 
 
 def test_select_samples_is_anonymous(auth, app):

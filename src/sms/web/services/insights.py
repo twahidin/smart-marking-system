@@ -17,6 +17,7 @@ SAMPLE_CHARS = 300      # a sample answer is trimmed to this
 WEAK_PART = 0.5         # a student's part below this fraction of its marks is a weak part
 FULL_CLASS = 5          # from this many marked scripts the min-attempts rule below applies
 MIN_ATTEMPTS = 5        # ...and a part needs this many settled marks before it can rank as weakest
+WEAKEST = 8             # parts listed in `weakest`: a shortlist to act on, not the whole paper ranked
 # A hand-in whose marks are not final yet: still queued, being marked, or waiting in the review queue.
 PENDING_STATUSES = ("handed_in", "marking", "needs_you")
 
@@ -158,11 +159,13 @@ def compute_stats(db: Database, jobs: JobStore, ca: dict) -> Dict[str, Any]:
                 and pm[p["q_id"]]["total"] / p["max"] < WEAK_PART]
         students.append({"student_id": r["student_id"], "reg_no": r["reg_no"], "name": r["name"],
                          "total": total, "max": max_total, "weak_parts": weak})
-    # Weakest first by mean, ties in scheme order. In a class-sized set a part only a handful of
-    # scripts reached is too thin to call the class's weakest; below that every marked part ranks.
+    # Weakest first by mean, ties in scheme order, and only the worst WEAKEST of them: "the class's
+    # weakest parts" is a shortlist to act on, not every part on the paper in ascending order. In a
+    # class-sized set a part only a handful of scripts reached is too thin to call the class's
+    # weakest; below that every marked part ranks.
     min_attempts = MIN_ATTEMPTS if len(marked) >= FULL_CLASS else 1
     ranked = [p for p in per_part if p["mean_pct"] is not None and p["attempted"] >= min_attempts]
-    weakest = [p["q_id"] for p in sorted(ranked, key=lambda p: (p["mean_pct"], order[p["q_id"]]))]
+    weakest = [p["q_id"] for p in sorted(ranked, key=lambda p: (p["mean_pct"], order[p["q_id"]]))][:WEAKEST]
     most_lost = sorted(({"q_id": p["q_id"], "label": a["label"], "lost": a["lost"], "of": p["attempted"]}
                         for p in per_part for a in p["allocations"] if a["lost"]),
                        key=lambda a: -a["lost"])[:MOST_LOST]

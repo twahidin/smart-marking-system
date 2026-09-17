@@ -132,8 +132,29 @@ def hand_in(db: Database, storage: PageStorage, jobs: JobStore, *, ca: Dict[str,
                              max_pages=max_pages)
 
 
+def _unsent_hand_in_ids(tx, ca_id: int, student_id: int) -> List[int]:
+    """The outbox rows still waiting to announce this student's hand-in on this assignment.
+
+    The student id lives inside `payload_json`, and SQLite and Postgres spell reaching into JSON
+    differently, so the (few, unsent, single-assignment) rows are filtered here instead."""
+    rows = tx.query("SELECT id, payload_json FROM notifications WHERE kind = 'hand_in' "
+                    "AND sent_at IS NULL AND class_assignment_id = :a", {"a": ca_id})
+    out = []
+    for r in rows:
+        try:
+            payload = json.loads(r["payload_json"] or "{}")
+        except ValueError:
+            continue
+        if isinstance(payload, dict) and payload.get("student_id") == student_id:
+            out.append(int(r["id"]))
+    return out
+
+
 def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: int) -> None:
-    """Delete the student's submission (pages, jobs, queue items, marking runs) so they can hand in again."""
+    """Delete the student's submission (pages, jobs, queue items, marking runs) so they can hand in again.
+
+    An announcement that has not gone out yet goes with it: a hand-in the teacher has already undone
+    is not news, and the message would name a script that no longer exists."""
     rows = db.query("SELECT id FROM submissions WHERE class_assignment_id = :a AND student_id = :s", {"a": ca_id, "s": student_id})
     if not rows:
         raise ApiError(404, "not_found", "This student has not handed in")
@@ -147,6 +168,11 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
         tx.execute("DELETE FROM jobs WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM submissions WHERE id = :s", {"s": sid})
+        stale = _unsent_hand_in_ids(tx, ca_id, student_id)
+        if stale:
+            clause = ", ".join(f":n{i}" for i in range(len(stale)))
+            tx.execute(f"DELETE FROM notifications WHERE id IN ({clause})",
+                       {f"n{i}": n for i, n in enumerate(stale)})
         # Files are content-addressed: only unlink what no other undeleted page still references
         # (another script with the same page, a question paper) — same rule as pages_cleanup.
         orphaned = [p for p in dict.fromkeys(paths)

@@ -1,5 +1,5 @@
 """The insights PDF renders from statistics alone, and with the narrative when there is one."""
-from sms.records.insights_pdf import render_insights_pdf
+from sms.records.insights_pdf import _labels, _narrative, _styles, render_insights_pdf
 
 STATS_FIXTURE = {
     "n_students": 3, "n_marked": 2, "n_pending": 1,
@@ -50,6 +50,43 @@ def test_insights_pdf_survives_an_empty_assignment():
              "parts": [], "weakest": [], "most_lost": [], "students": []}
     data = render_insights_pdf({"id": 2, "title": "Worksheet 4"}, empty, None, {})
     assert data[:4] == b"%PDF" and len(data) > 1000
+
+
+def _texts(flowables):
+    """Every piece of text in a story, in order — ReportLab keeps the source string on Paragraph."""
+    for f in flowables:
+        text = getattr(f, "text", None)
+        if text:
+            yield text
+        nested = getattr(f, "_content", None) or getattr(f, "_flowables", None)
+        if nested:
+            yield from _texts(nested)
+        rows = getattr(f, "_cellvalues", None)
+        if rows:
+            yield from _texts([cell for row in rows for cell in row])
+
+
+def test_the_narrative_names_parts_and_students_the_way_the_tables_do():
+    """A gap about "9b" and a table row about part "9(b)" are the same part, so the narrative uses
+    the labels; and a named student is "#1 Tan Wei Ling", the same "#" the fallback prints."""
+    report = {**REPORT_FIXTURE,
+              "gaps": [{"part_ids": ["1b", "1a"], "title": "Hence questions",
+                        "what_went_wrong": "Did not reuse 1(a)", "students_affected": 1}],
+              "recommendations": [{"title": "Reteach", "detail": "Use it", "part_ids": ["1b"]}],
+              "students_to_support": [{"reg_nos": [1, 9], "focus": "follow-through"}]}
+    out = list(_texts(_narrative(report, NAMES, _labels(STATS_FIXTURE), _styles())))
+    assert "Hence questions (1(b), 1(a))" in out
+    assert "Reteach (1(b)): Use it" in out
+    assert "#1 Tan Wei Ling, #9" in out            # the '#' is on both the named and the unknown
+    assert not any("1b" in t for t in out)         # never the raw part id
+
+
+def test_the_narrative_falls_back_to_the_raw_part_id_when_it_is_not_a_known_part():
+    out = list(_texts(_narrative(
+        {"gaps": [{"part_ids": ["7c"], "title": "T", "what_went_wrong": "w", "students_affected": 0}],
+         "recommendations": [{"title": "R", "detail": "d", "part_ids": []}]},
+        {}, _labels(STATS_FIXTURE), _styles())))
+    assert "T (7c)" in out and "R (—): d" in out
 
 
 def test_insights_pdf_escapes_markup_in_text():

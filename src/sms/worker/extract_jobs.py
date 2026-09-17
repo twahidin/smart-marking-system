@@ -67,8 +67,9 @@ def _settings(settings_store: SettingsStore, tpl: dict):
 
 
 def _bucket_for(settings, bucket: Optional[TokenBucket], bucket_pool: Optional[BucketPool]) -> TokenBucket:
-    """The assignment's provider gets its own bucket from the pool; a bucket passed in wins for
-    callers (and tests) that manage their own."""
+    """The assignment's provider gets its own bucket from the pool, so two assignments on different
+    providers do not share one provider's rate limit. Only without a pool does an explicitly passed
+    bucket apply — the callers (and tests) that manage their own."""
     if bucket_pool is not None:
         return bucket_pool.get(settings.provider, settings.rpm_limit)
     return bucket or TokenBucket(settings.rpm_limit)

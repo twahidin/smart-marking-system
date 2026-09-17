@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from sms.web.services.class_assignments import remove_hand_in
 from sms.web.services.insights import dedupe_key
 from sms.web.services.notify import (
     MAX_ATTEMPTS,
@@ -94,6 +95,30 @@ def test_hand_in_rows_are_batched_into_one_message(auth, client, app):
     assert all(r["sent_at"] is not None and r["error"] is None for r in _notifications(app, "hand_in"))
     # nothing left to send
     assert flush_notifications(app.state.settings_store, app.state.db, client_factory=_factory(sent)) == 0
+
+
+def test_removing_a_hand_in_drops_its_unsent_announcement(auth, client, app):
+    """Undoing a hand-in before the flush ran should not still buzz the teacher about a script that
+    no longer exists — but only that student's row goes, and only while it is unsent."""
+    t, c, ca, _draft = _setup(auth)
+    _settings(app)
+    for reg_no in (1, 2):
+        client.cookies.clear()
+        client.post("/api/student/session", json={"code": c["code"], "reg_no": reg_no})
+        assert client.post(f"/api/student/assignments/{ca['id']}/hand-in",
+                           files=[("files", ("p1.png", _png(), "image/png"))]).status_code == 202
+    tan, danish = c["students"]
+    assert len(_notifications(app, "hand_in")) == 2
+
+    remove_hand_in(app.state.db, app.state.storage, ca["id"], tan["id"])
+    left = _notifications(app, "hand_in")
+    assert [json.loads(r["payload_json"])["student_id"] for r in left] == [danish["id"]]
+
+    # a row that has already gone out is history, not a pending buzz: it stays
+    sent = []
+    assert flush_notifications(app.state.settings_store, app.state.db, client_factory=_factory(sent)) == 1
+    remove_hand_in(app.state.db, app.state.storage, ca["id"], danish["id"])
+    assert [r["id"] for r in _notifications(app, "hand_in")] == [left[0]["id"]]
 
 
 def test_marking_done_fires_once_per_drain(auth, app):

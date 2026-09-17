@@ -112,7 +112,7 @@ def _parts_table(parts: List[dict], st: Dict[str, ParagraphStyle]) -> Table:
 def _support_table(support: List[dict], names: Dict[int, str], st: Dict[str, ParagraphStyle]) -> Table:
     rows = [[_p("Students", st["cell"]), _p("Focus", st["cell"])]]
     for s in support:
-        who = ", ".join(f"{n} {names[n]}" if n in names else f"#{n}" for n in (s.get("reg_nos") or []))
+        who = ", ".join(f"#{n} {names[n]}" if n in names else f"#{n}" for n in (s.get("reg_nos") or []))
         rows.append([_p(who, st["cell"]), _p(s.get("focus"), st["cell"])])
     table = Table(rows, colWidths=[7 * cm, 9.4 * cm], repeatRows=1)
     table.setStyle(TableStyle([
@@ -122,6 +122,17 @@ def _support_table(support: List[dict], names: Dict[int, str], st: Dict[str, Par
         ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
+
+
+def _labels(stats: Dict[str, Any]) -> Dict[str, str]:
+    """part id -> the label the tables and the chart use ("9b" -> "9(b)"), so the narrative names a
+    part the same way the numbers above it do."""
+    return {p["q_id"]: p.get("label") or p["q_id"] for p in (stats.get("parts") or [])}
+
+
+def _named(part_ids: Any, labels: Dict[str, str]) -> str:
+    ids = list(part_ids or [])
+    return ", ".join(labels.get(q, q) for q in ids) or "—"
 
 
 def _numbers(stats: Dict[str, Any], st: Dict[str, ParagraphStyle]) -> List[Any]:
@@ -136,14 +147,15 @@ def _numbers(stats: Dict[str, Any], st: Dict[str, ParagraphStyle]) -> List[Any]:
         out.append(_parts_table(parts, st))
     most_lost = stats.get("most_lost") or []
     if most_lost:
-        labels = {p["q_id"]: p.get("label") or p["q_id"] for p in parts}
+        labels = _labels(stats)
         out.append(Paragraph("Most-lost allocations", st["h2"]))
         out.append(_bullets([f"{labels.get(a['q_id'], a['q_id'])} — {a['label']}: lost by {a['lost']} of "
                              f"{a['of']} marked" for a in most_lost], st["body"]))
     return out
 
 
-def _narrative(report: Dict[str, Any], names: Dict[int, str], st: Dict[str, ParagraphStyle]) -> List[Any]:
+def _narrative(report: Dict[str, Any], names: Dict[int, str], labels: Dict[str, str],
+               st: Dict[str, ParagraphStyle]) -> List[Any]:
     out: List[Any] = []
     if report.get("strengths"):
         out.append(Paragraph("Strengths", st["h2"]))
@@ -151,14 +163,14 @@ def _narrative(report: Dict[str, Any], names: Dict[int, str], st: Dict[str, Para
     if report.get("gaps"):
         out.append(Paragraph("Gaps", st["h2"]))
         for g in report["gaps"]:
-            parts = ", ".join(g.get("part_ids") or []) or "—"
+            parts = _named(g.get("part_ids"), labels)
             out.append(KeepTogether([
                 _p(f"{g.get('title')} ({parts})", st["bold"]),
                 _p(f"{g.get('what_went_wrong')} — {g.get('students_affected', 0)} script(s) affected", st["body"]),
                 Spacer(1, 2)]))
     if report.get("recommendations"):
         out.append(Paragraph("Recommendations", st["h2"]))
-        out.append(_bullets([f"{r.get('title')} ({', '.join(r.get('part_ids') or []) or '—'}): {r.get('detail')}"
+        out.append(_bullets([f"{r.get('title')} ({_named(r.get('part_ids'), labels)}): {r.get('detail')}"
                              for r in report["recommendations"]], st["body"]))
     if report.get("students_to_support"):
         out.append(Paragraph("Students to support", st["h2"]))
@@ -185,6 +197,6 @@ def render_insights_pdf(ca: dict, stats: Dict[str, Any], report: Optional[Dict[s
         story.append(Paragraph(escape(NO_REPORT), st["note"]))
     story.extend(_numbers(stats, st))
     if report:
-        story.extend(_narrative(report, students_by_reg, st))
+        story.extend(_narrative(report, students_by_reg, _labels(stats), st))
     doc.build(story)
     return buf.getvalue()
