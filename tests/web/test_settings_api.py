@@ -1,6 +1,7 @@
 import pytest
 
 from sms.providers.probe import Check, ProbeResult
+from sms.providers.settings import Settings
 
 
 def test_requires_auth(client):
@@ -25,6 +26,19 @@ def test_put_saves_and_blank_key_keeps(auth):
     r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5.5", "api_key": "", "rpm_limit": 60,
                                         "confidence_threshold": 0.5})
     assert r.json()["model"] == "gpt-5.5" and r.json()["key_hint"] == "1234"
+
+
+def test_put_does_not_reset_telegram_and_timezone_fields(auth):
+    store = auth.app.state.settings_store
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-abcd1234", rpm_limit=60,
+                        telegram_daily_time="18:30", timezone="Europe/London", telegram_instant=False,
+                        app_url="https://x.example"))
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5.5", "rpm_limit": 60,
+                                        "confidence_threshold": 0.5})
+    assert r.status_code == 200
+    s = auth.get("/api/settings").json()
+    assert s["telegram_daily_time"] == "18:30" and s["timezone"] == "Europe/London"
+    assert s["telegram_instant"] is False and s["app_url"] == "https://x.example"
 
 
 def test_put_unknown_provider_400(auth):

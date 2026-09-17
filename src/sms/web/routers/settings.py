@@ -60,6 +60,7 @@ def _model_name(raw: str) -> str:
 @router.put("/settings")
 def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings_store)):
     model = _model_name(body.model)
+    current = store.load()
     try:
         saved = store.save(Settings(
             provider=body.provider, model=model, api_key=(body.api_key or "").strip() or None,
@@ -67,6 +68,10 @@ def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings
             extractor_model=(body.extractor_model or "").strip() or None,
             rpm_limit=body.rpm_limit, confidence_threshold=body.confidence_threshold,
             auto_reflect=body.auto_reflect, delete_pages_after_marking=body.delete_pages_after_marking,
+            # SettingsBody has no telegram/timezone/app_url fields yet (Task 6 adds them) — carry
+            # the stored values over so an ordinary settings save doesn't reset them to defaults.
+            telegram_instant=current.telegram_instant, telegram_daily_time=current.telegram_daily_time,
+            timezone=current.timezone, app_url=current.app_url,
         ))
     except KeyError as e:
         raise ApiError(400, "bad_provider", str(e))
