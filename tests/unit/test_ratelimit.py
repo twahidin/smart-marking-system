@@ -1,4 +1,4 @@
-from sms.providers.ratelimit import RateLimitedAgent, TokenBucket
+from sms.providers.ratelimit import BucketPool, RateLimitedAgent, TokenBucket
 
 
 class FakeClock:
@@ -41,3 +41,10 @@ def test_rate_limited_agent_delegates_and_exposes_client_model():
     wrapped = RateLimitedAgent(Agent(), Bucket())
     assert wrapped.run(1) == 2 and calls == [1]
     assert wrapped.model == "m" and wrapped.client is Agent.client
+
+
+def test_bucket_pool_one_bucket_per_provider_replaced_when_rpm_changes():
+    pool = BucketPool()
+    a = pool.get("openai", 60); b = pool.get("openrouter", 60)
+    assert a is not b and pool.get("openai", 60) is a
+    assert pool.get("openai", 8) is not a and pool.get("openai", 8).rpm == 8

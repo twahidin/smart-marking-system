@@ -111,17 +111,52 @@ def test_delete_key(store):
 
 
 def test_migration_copies_the_legacy_single_key_to_its_provider(tmp_path):
-    from sqlalchemy import create_engine, text
+    from sms.memory.migrate import upgrade
     path = tmp_path / "legacy.db"
-    db = Database(path=str(path))  # runs every migration; then simulate a pre-0008 row
+    db = Database(path=str(path), migrate=False)
+    upgrade(db.engine, revision="0007")  # the actual pre-0008 schema: no provider_keys, no telegram/insights columns
     cipher = KeyCipher("secret")
-    db.execute("DROP TABLE provider_keys")
     db.execute("INSERT INTO settings (id, provider, model, api_key_enc, rpm_limit, confidence_threshold) "
                "VALUES (1, 'openai', 'gpt-5-mini', :k, 60, 0)", {"k": cipher.encrypt("sk-legacy-1234")})
     db.dispose()
-    with create_engine(f"sqlite:///{path}").begin() as conn:
-        conn.execute(text("DELETE FROM alembic_version"))
-        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0007')"))
-    store = SettingsStore(Database(path=str(path)), cipher)  # re-runs 0008
+    store = SettingsStore(Database(path=str(path)), cipher)  # re-runs 0008, 0009, ... to head
     assert store.load().api_key == "sk-legacy-1234" and store.load().keys == {"openai": "1234"}
     assert store.db.query("SELECT api_key_enc FROM settings")[0]["api_key_enc"] is None
+
+
+def test_telegram_and_timezone_fields_round_trip_and_token_is_hidden(store):
+    s = store.load()
+    assert s.telegram_daily_time == "07:00" and s.timezone == "Asia/Singapore" and s.telegram_instant is True
+    assert not s.telegram_linked
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=60,
+                        telegram_bot_token="123456:ABCDEF", telegram_daily_time="18:30", timezone="Europe/London",
+                        telegram_instant=False, app_url="https://marking.example.sg"))
+    s = store.load()
+    assert s.telegram_bot_token == "123456:ABCDEF" and s.telegram_bot_hint == "CDEF" and s.telegram_daily_time == "18:30"
+    assert s.timezone == "Europe/London" and s.telegram_instant is False and s.app_url == "https://marking.example.sg"
+    raw = store.db.query("SELECT telegram_bot_token_enc FROM settings")[0]["telegram_bot_token_enc"]
+    assert "ABCDEF" not in raw
+    d = s.public_dict()
+    assert "telegram_bot_token" not in d and d["telegram_bot_hint"] == "CDEF" and d["telegram_linked"] is False
+    # blank token keeps the saved one; linking sets the chat id
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=60, telegram_bot_token=""))
+    assert store.load().telegram_bot_token == "123456:ABCDEF"
+    store.set_telegram(chat_id="99887", offset=42)
+    s = store.load(); assert s.telegram_linked and s.telegram_chat_id == "99887" and s.telegram_update_offset == 42
+    store.set_telegram(daily_last_sent="2026-09-17")
+    assert store.load().telegram_daily_last_sent == "2026-09-17"
+    store.clear_telegram()
+    s = store.load(); assert s.telegram_bot_token is None and s.telegram_chat_id is None and not s.telegram_linked
+
+
+def test_for_template_overlays_provider_model_and_key(store):
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-openai", rpm_limit=30))
+    store.save(Settings(provider="openrouter", model="z-ai/glm-5.3-flash", api_key="or-key", rpm_limit=30))
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=30))
+    assert store.for_template(None).provider == "openai"
+    assert store.for_template({"provider": None, "model": None, "extractor_model": None}).model == "gpt-5-mini"
+    s = store.for_template({"provider": "openrouter", "model": "openrouter/auto", "extractor_model": "qwen/qwen3-vl-plus"})
+    assert (s.provider, s.model, s.extractor_model, s.api_key) == ("openrouter", "openrouter/auto", "qwen/qwen3-vl-plus", "or-key")
+    assert s.rpm_limit == 60 and s.base_url is None          # openrouter's default_rpm, not the global 30
+    s = store.for_template({"provider": "openai", "model": "gpt-5.5", "extractor_model": None})
+    assert s.api_key == "sk-openai" and s.rpm_limit == 30      # same provider as global keeps the global rpm

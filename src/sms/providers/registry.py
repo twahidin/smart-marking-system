@@ -25,6 +25,7 @@ class ProviderSpec:
     note: str = ""
     base_url_editable: bool = False
     api_params: Optional[dict] = None   # extra kwargs every agent call needs (Anthropic: max_tokens)
+    custom_models: bool = False         # provider lets the user save their own model ids
 
 
 PROVIDERS: Tuple[ProviderSpec, ...] = (
@@ -40,6 +41,7 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         note="Use “Load models from provider” to see exactly what your key can use. Some keys "
              "include the free z-ai/glm-5.3-free model (8 requests a minute — set Requests per "
              "minute to 8 if you pick it).",
+        custom_models=True,
     ),
     ProviderSpec(
         id="openrouter", label="OpenRouter", transport="openai_compatible",
@@ -59,6 +61,7 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
              "vision model under “Different model for reading pages”. OpenRouter's :free models "
              "cost nothing (≈50 requests/day until you've bought $10 of credits, then 1,000/day) — "
              "load models and look for the :free suffix.",
+        custom_models=True,
     ),
     ProviderSpec(
         id="openai", label="OpenAI", transport="openai", base_url=None, mode="TOOLS",

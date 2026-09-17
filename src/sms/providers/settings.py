@@ -1,12 +1,14 @@
 import logging
 from dataclasses import dataclass, asdict, field
-from typing import Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from sms.memory.db import Database
 from sms.providers.crypto import KeyCipher
 from sms.providers.registry import DEFAULT_PROVIDER, get_provider
 
 logger = logging.getLogger("sms.settings")
+
+_UNSET = object()
 
 
 @dataclass
@@ -22,6 +24,22 @@ class Settings:
     delete_pages_after_marking: bool = True
     # provider id -> last 4 characters of the key saved for it (every provider with a key, not just the active one)
     keys: Dict[str, str] = field(default_factory=dict)
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_instant: bool = True
+    telegram_daily_time: str = "07:00"
+    timezone: str = "Asia/Singapore"
+    app_url: Optional[str] = None
+    telegram_daily_last_sent: Optional[str] = None
+    telegram_update_offset: int = 0
+
+    @property
+    def telegram_linked(self) -> bool:
+        return bool(self.telegram_bot_token and self.telegram_chat_id)
+
+    @property
+    def telegram_bot_hint(self) -> str:
+        return self.telegram_bot_token[-4:] if self.telegram_bot_token else ""
 
     @property
     def has_key(self) -> bool:
@@ -42,8 +60,11 @@ class Settings:
     def public_dict(self) -> dict:
         d = asdict(self)
         d.pop("api_key")
+        d.pop("telegram_bot_token")
         d["has_key"] = self.has_key
         d["key_hint"] = self.key_hint
+        d["telegram_linked"] = self.telegram_linked
+        d["telegram_bot_hint"] = self.telegram_bot_hint
         return d
 
 
@@ -99,6 +120,14 @@ class SettingsStore:
             extractor_model=r["extractor_model"] or None, rpm_limit=int(r["rpm_limit"]),
             confidence_threshold=float(r["confidence_threshold"]), auto_reflect=bool(r["auto_reflect"]),
             delete_pages_after_marking=bool(r["delete_pages_after_marking"]), keys=hints,
+            telegram_bot_token=self._decrypt(r.get("telegram_bot_token_enc")),
+            telegram_chat_id=r.get("telegram_chat_id"),
+            telegram_instant=bool(r.get("telegram_instant", True)),
+            telegram_daily_time=r.get("telegram_daily_time") or "07:00",
+            timezone=r.get("timezone") or "Asia/Singapore",
+            app_url=r.get("app_url"),
+            telegram_daily_last_sent=r.get("telegram_daily_last_sent"),
+            telegram_update_offset=int(r.get("telegram_update_offset") or 0),
         )
 
     def save(self, settings: Settings) -> Settings:
@@ -112,6 +141,10 @@ class SettingsStore:
             "rpm": int(settings.rpm_limit), "thr": float(settings.confidence_threshold),
             "auto_reflect": bool(settings.auto_reflect),
             "delete_pages": bool(settings.delete_pages_after_marking),
+            "tg_instant": bool(settings.telegram_instant),
+            "tg_time": settings.telegram_daily_time or "07:00",
+            "tz": settings.timezone or "Asia/Singapore",
+            "app_url": (settings.app_url or "").strip() or None,
         }
         with self.db.transaction() as tx:
             if tx.query("SELECT id FROM settings WHERE id = 1"):
@@ -119,14 +152,17 @@ class SettingsStore:
                     "UPDATE settings SET provider = :provider, model = :model, base_url = :base_url, "
                     "extractor_model = :extractor_model, rpm_limit = :rpm, "
                     "confidence_threshold = :thr, auto_reflect = :auto_reflect, delete_pages_after_marking = :delete_pages, "
+                    "telegram_instant = :tg_instant, telegram_daily_time = :tg_time, timezone = :tz, app_url = :app_url, "
                     "updated_at = CURRENT_TIMESTAMP WHERE id = 1",
                     params,
                 )
             else:
                 tx.execute(
                     "INSERT INTO settings (id, provider, model, base_url, extractor_model, "
-                    "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking) VALUES (1, :provider, :model, "
-                    ":base_url, :extractor_model, :rpm, :thr, :auto_reflect, :delete_pages)",
+                    "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking, "
+                    "telegram_instant, telegram_daily_time, timezone, app_url) VALUES (1, :provider, :model, "
+                    ":base_url, :extractor_model, :rpm, :thr, :auto_reflect, :delete_pages, "
+                    ":tg_instant, :tg_time, :tz, :app_url)",
                     params,
                 )
             if stripped_key:
@@ -135,7 +171,39 @@ class SettingsStore:
                               {"k": enc, "p": settings.provider}) == 0:
                     tx.execute("INSERT INTO provider_keys (provider, api_key_enc) VALUES (:p, :k)",
                                {"p": settings.provider, "k": enc})
+            stripped_token = (settings.telegram_bot_token or "").strip()
+            if stripped_token:
+                tx.execute("UPDATE settings SET telegram_bot_token_enc = :t WHERE id = 1",
+                           {"t": self.cipher.encrypt(stripped_token)})
         return self.load()
+
+    def set_telegram(self, *, chat_id: Any = _UNSET, offset: Any = _UNSET, daily_last_sent: Any = _UNSET) -> None:
+        sets, params = [], {}
+        if chat_id is not _UNSET: sets.append("telegram_chat_id = :c"); params["c"] = chat_id
+        if offset is not _UNSET: sets.append("telegram_update_offset = :o"); params["o"] = int(offset)
+        if daily_last_sent is not _UNSET: sets.append("telegram_daily_last_sent = :d"); params["d"] = daily_last_sent
+        if sets:
+            self.db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", params)
+
+    def clear_telegram(self) -> None:
+        self.db.execute("UPDATE settings SET telegram_bot_token_enc = NULL, telegram_chat_id = NULL, telegram_update_offset = 0 WHERE id = 1")
+
+    def for_template(self, tpl: Optional[dict]) -> Settings:
+        """The settings a job for this assignment runs with: the global ones, or the template's own
+        provider/model (with that provider's saved key and default rpm) when it sets one."""
+        s = self.load()
+        if not tpl or not tpl.get("provider"):
+            return s
+        provider = tpl["provider"]
+        spec = get_provider(provider)
+        s.model = tpl.get("model") or spec.default_model
+        s.extractor_model = tpl.get("extractor_model") or None
+        s.api_key = self.key_for(provider)
+        s.base_url = None
+        if provider != s.provider:
+            s.rpm_limit = spec.default_rpm
+        s.provider = provider
+        return s
 
     def ensure_seeded(self, env: Mapping[str, str]) -> None:
         if self.db.query("SELECT id FROM settings WHERE id = 1"):

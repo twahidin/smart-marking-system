@@ -1,7 +1,7 @@
 import threading
 import time
 from collections import deque
-from typing import Any, Callable, Deque
+from typing import Any, Callable, Deque, Dict
 
 
 class TokenBucket:
@@ -51,3 +51,15 @@ class RateLimitedAgent:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._agent, name)
+
+
+class BucketPool:
+    """One TokenBucket per provider for the worker's lifetime (replaced only when its rpm changes)."""
+    def __init__(self) -> None:
+        self._buckets: Dict[str, TokenBucket] = {}
+
+    def get(self, provider: str, rpm: int) -> TokenBucket:
+        b = self._buckets.get(provider)
+        if b is None or b.rpm != rpm:
+            b = TokenBucket(rpm); self._buckets[provider] = b
+        return b
