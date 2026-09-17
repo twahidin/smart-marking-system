@@ -43,6 +43,8 @@ The CLI requires the sections `## About Hosting …`, `## Common Use Cases`, `##
 - **Per-part marking with a second opinion.** An extractor reads the pages, a marker awards each allocation (M1/A1/B1…) or band, an independent reviewer checks it. Illegible, out-of-scheme or disputed parts land in **Review** for you.
 - **Classes and student hand-in.** Upload a classlist CSV, paste one link into Google Classroom; students type their register number, photograph their pages and hand in from their phone — no accounts, no passwords.
 - **Release when you're ready.** Students see marks and feedback only after you release; download a marks CSV or a `.docx` marking record per student (with a blank "Teacher's mark" column for moderation).
+- **Insights.** Once a class set is marked, get a chart of marks by part, an AI narrative (strengths, gaps, what to teach next) and a downloadable PDF — student names never reach the model.
+- **Telegram notifications.** Paste a bot token, press `/start` in your bot (no webhook needed) and get instant hand-in / marking-finished messages plus a daily digest.
 - **Learns from your corrections.** A nightly reflection distils rubric notes and exemplar cases from what you changed — approved notes shape the next run.
 
 ### What's in the template

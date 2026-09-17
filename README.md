@@ -121,12 +121,44 @@ who handed in the wrong pages asks their teacher, who clicks **Remove hand-in** 
 can redo it (a second hand-in is refused while the first stands); the teacher can also **Upload
 pages** for a student who has no phone.
 
+A class assignment page has **Roster** and **Insights** tabs. **Insights** turns a marked class set
+into a class-level report: a marks-by-part chart (weakest parts highlighted), a most-lost-allocations
+list, an AI narrative (summary, strengths, gaps, recommended next steps) and a students-to-support
+table, plus score distribution. It (re)generates automatically when a class set's marking queue drains
+and again on **Release feedback**, or on demand via **Regenerate**; **Download PDF** exports the same
+report. The narrative is a single model call over anonymised samples — only register numbers reach the
+model, never student names — and the app joins names back in for display. Before anything is marked the
+tab shows "Nothing marked yet"; while a report is generating it polls and shows "Generating…".
+
+**Telegram notifications** keep a teacher's phone in sync without checking back on the app. Create a
+bot with [@BotFather](https://t.me/BotFather), paste its token under **Settings → Notifications** and
+save, then open that bot in Telegram and press **/start** — the app polls Telegram for updates, so
+nothing needs a webhook or a public URL, and pressing /start from a different chat later simply moves
+the link there. Once linked, the bot sends instant messages for new hand-ins and for marking finishing
+(with links straight to Review/Insights), plus a daily digest at a configured local time (default
+`07:00` `Asia/Singapore`) summarising hand-ins, marks and what still needs attention across every class.
+Instant messages can be turned off to keep just the digest. The **App URL** field controls the links
+those messages use, defaulting to the deployment's Railway public domain.
+
+**Model per assignment**: an assignment's editor has a **Model** section — **Auto — follow Settings**
+(the default) or **Choose a model**, picking a provider (only providers with a saved key are
+selectable; others show "No key saved") and a model, with an optional separate page-reading model. This
+overrides the global provider/key for marking that assignment (and generating its Insights narrative);
+the assignments list shows the chosen model as a caption. **My models**, on the Settings page, lets you
+add custom model ids for OpenRouter and TokenRouter (with a label and whether the model reads pages) —
+each one then appears in every model picker across the app, next to the curated list and whatever
+**Load models from provider** returns.
+
 ### Settings
 
 - **Delete pages after marking** — global default for the page-deletion behaviour above; an assignment
   can override it per-assignment.
 - **Auto reflect** — whether the nightly reflection job (rubric notes / exemplar cases distilled from
   teacher corrections) runs automatically.
+- **Notifications** — the Telegram bot token, linked-chat status with **Send test message** / **Unlink**,
+  an instant-messages toggle, the daily digest time and timezone, and the App URL used in message links.
+- **My models** — custom model ids for OpenRouter and TokenRouter, each shown with a label and whether
+  it reads pages; they appear in every model picker (Settings, assignment editor) alongside the curated list.
 
 ### Run locally
 
@@ -230,6 +262,12 @@ Done since the original MVP:
   marks CSV, feedback released per assignment)
 - Student phone flow (students open the class link, type their register number, photograph and hand
   in their own pages, and see their feedback once released)
+- Insights: per-class-assignment statistics, an AI narrative and a downloadable PDF, generated when a
+  class set finishes marking, on release, or on demand
+- Telegram notifications: own bot via `/start` linking (no webhook), instant hand-in/marking-finished
+  messages and a daily digest
+- Per-assignment model choice (provider, model, optional page-reading model) and "My models" — custom
+  OpenRouter/TokenRouter model ids available in every picker
 
 Roadmap:
 

@@ -14,6 +14,8 @@ The template deploys two services: `web` (FastAPI + React, built from the Docker
 - Grading essays against a band rubric and giving students structured feedback (strengths, question by question, what to work on next)
 - Letting students hand in photographed work from their phones and receiving marks and feedback once the teacher releases them
 - Producing per-student `.docx` marking records and a marks CSV for moderation and departmental records
+- Getting an Insights report — marks by part, an AI narrative, a PDF — as soon as a class set finishes marking
+- Getting Telegram messages for hand-ins, marking finished and a daily digest, linked with a `/start` (no webhook to expose)
 
 ## Dependencies for Smart Marking Hosting
 
