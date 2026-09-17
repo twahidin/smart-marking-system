@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy.exc import IntegrityError
@@ -12,8 +13,11 @@ from sms.storage import PageStorage, UploadError, process_uploads
 from sms.timeutil import iso_utc  # noqa: F401 - re-exported for existing importers
 from sms.web.errors import ApiError
 from sms.web.services.assignments import get_template, mark_template_used
+from sms.web.services.notify import record_hand_in
 from sms.web.services.rubric import parse_rubric
 from sms.worker.jobs import JobStore
+
+log = logging.getLogger("sms.submissions")
 
 
 def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, label: str, subject: str,
@@ -70,6 +74,14 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
         raise ApiError(409, "already_handed_in", "This student has already handed in — remove the hand-in first to redo it")
     if assignment_id is not None:
         mark_template_used(db, assignment_id)
+    if class_assignment_id is not None:
+        # Outside the transaction, and best-effort: a side channel must never fail an upload the
+        # student has already made — the hand-in itself is saved either way.
+        try:
+            record_hand_in(db, {"class_assignment_id": class_assignment_id, "student_id": student_id,
+                                "source": source})
+        except Exception:  # noqa: BLE001
+            log.exception("could not record the hand-in notification for submission %s", sid)
     jobs.enqueue("mark", sid)
     return {"id": sid, "status": "queued", "pages": page_rows}
 
