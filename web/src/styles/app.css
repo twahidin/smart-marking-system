@@ -199,6 +199,17 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
   .strip-cell:last-child { border-bottom: 0; }
 }
 
+/* insights: mean-% bars (weakest amber), the most-lost list and the score spread.
+   Every row carries its number as text — the amber fill is never the only thing that says "weak". */
+.bars { list-style: none; margin: 8px 0 0; padding: 0; }
+.bars li { display: grid; grid-template-columns: 90px 1fr 60px; gap: 12px; align-items: center; min-height: 32px; }
+.bar { display: block; height: 14px; background: var(--ink); }
+.weak .bar { background: var(--amber-stripe); }
+.bars .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.points { margin: 8px 0 0; padding-left: 20px; }
+.points li { margin: 6px 0; }
+@media (max-width: 640px) { .bars li { grid-template-columns: 64px 1fr 48px; gap: 8px; } }
+
 /* student side — phone-first: 480px column, 17px body, full-width 48px buttons */
 .student { max-width: 480px; margin: 0 auto; padding: 16px 16px 48px; font-size: 17px; }
 .student h1 { font-size: 28px; margin: 8px 0 16px; }

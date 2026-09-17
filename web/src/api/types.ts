@@ -127,6 +127,39 @@ export interface RosterRow { student_id: number; reg_no: number; name: string; s
 export interface Roster { rows: RosterRow[]; counts: Record<"not_handed_in" | "handed_in" | "marking" | "needs_you" | "ready", number> }
 export interface ClassAssignmentDetail extends ClassAssignment { roster: Roster }
 
+/* ---- insights (slice 3): the numbers computed from the marks, plus the AI narrative over them ---- */
+export interface InsightsBucket { from: number; to: number; n: number }
+/** A mark-scheme allocation (M1 / A1 …) or a rubric band, and how many marked scripts lost it. */
+export interface InsightsAllocation { label: string; lost: number }
+export interface InsightsPart {
+  q_id: string; label: string; max: number; /** scripts with a settled mark for this part */ attempted: number;
+  mean_pct: number | null; full: number; zero: number; allocations: InsightsAllocation[];
+  not_in_scheme: number; illegible: number; pending: number;
+}
+/** One allocation the class lost most often: `lost` of the `of` scripts with a settled mark for the part. */
+export interface InsightsMostLost { q_id: string; label: string; lost: number; of: number }
+export interface InsightsStudent { student_id: number; reg_no: number; name: string; total: number; max: number; weak_parts: string[] }
+export interface InsightsStats {
+  n_students: number; n_marked: number; n_pending: number;
+  totals: { mean: number | null; median: number | null; max: number; buckets: InsightsBucket[] };
+  /** scheme order */ parts: InsightsPart[]; /** weakest first */ weakest: string[];
+  most_lost: InsightsMostLost[]; students: InsightsStudent[];
+}
+export interface InsightsGap { part_ids: string[]; title: string; what_went_wrong: string; students_affected: number }
+export interface InsightsRecommendation { title: string; detail: string; part_ids: string[] }
+/** Who to follow up, by register number — the model never sees a name, so the app joins them back. */
+export interface InsightsSupport { reg_nos: number[]; focus: string }
+export interface InsightsReport {
+  summary: string; strengths: string[]; gaps: InsightsGap[];
+  recommendations: InsightsRecommendation[]; students_to_support: InsightsSupport[];
+}
+export interface InsightsPayload {
+  stats: InsightsStats; /** null until a narrative has been generated */ report: InsightsReport | null;
+  n_marked: number; provider: string | null; model: string | null; generated_at: string | null;
+  /** why the last generate failed (typically no API key saved) — the numbers are still there */ error: string | null;
+  job: { status: Job["status"] } | null;
+}
+
 /* ---- student-facing (class code + register number session) ---- */
 export type StudentAssignmentStatus = "to_hand_in" | "handed_in" | "checking" | "feedback_ready";
 export interface StudentMe { class_name: string; code: string; student_name: string; reg_no: number }
