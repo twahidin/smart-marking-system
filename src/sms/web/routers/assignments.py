@@ -26,12 +26,17 @@ class TemplateBody(BaseModel):
     questions: Optional[Any] = None
     scheme: Optional[Any] = None
     delete_pages_after_marking: Optional[bool] = None
+    # blank / absent provider = Auto (follow Settings); the model fields are ignored without one
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    extractor_model: Optional[str] = None
 
 
 def _kwargs(body: TemplateBody) -> dict:
     return dict(title=body.title, subject=body.subject, context=body.context, rubric_json=json.dumps(body.rubric),
                 scheme_kind=body.scheme_kind, questions=body.questions, scheme=body.scheme,
-                delete_pages_after_marking=body.delete_pages_after_marking)
+                delete_pages_after_marking=body.delete_pages_after_marking, provider=body.provider,
+                model=body.model, extractor_model=body.extractor_model)
 
 
 @router.get("")

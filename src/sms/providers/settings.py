@@ -90,6 +90,12 @@ class SettingsStore:
     def _key_rows(self) -> Dict[str, str]:
         return {r["provider"]: r["api_key_enc"] for r in self.db.query("SELECT provider, api_key_enc FROM provider_keys")}
 
+    @staticmethod
+    def has_key_for(db: Database, provider: str) -> bool:
+        """Whether a key is saved for `provider` — the check the API makes before letting an
+        assignment pick it. No cipher needed, so it works anywhere a Database does."""
+        return bool(db.query("SELECT 1 FROM provider_keys WHERE provider = :p", {"p": provider}))
+
     def key_for(self, provider: str) -> Optional[str]:
         """The key saved for `provider` (any provider, not just the active one), or None."""
         return self._decrypt(self._key_rows().get(provider))

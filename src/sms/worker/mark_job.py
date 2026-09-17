@@ -13,11 +13,12 @@ from sms.memory.metrics_hook import wire_metrics
 from sms.pipeline.marking_pipeline import MarkingPipeline
 from sms.pipeline.marking_pipeline_v2 import MarkingPipelineV2
 from sms.providers.client import build_client
-from sms.providers.ratelimit import RateLimitedAgent, TokenBucket
+from sms.providers.ratelimit import BucketPool, RateLimitedAgent, TokenBucket
 from sms.providers.registry import get_provider
 from sms.providers.settings import SettingsStore
 from sms.schemas.marking import Rubric
 from sms.storage import PageStorage
+from sms.web.services.assignments import get_template
 from sms.web.services.pages_cleanup import delete_submission_pages
 
 log = logging.getLogger("sms.worker")
@@ -94,12 +95,16 @@ def _v2_template(db: Database, assignment_id: Optional[int], uploaded_kind: Opti
 
 def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsStore, submission_id: int,
                  pipeline_factory: Optional[Callable[..., Any]] = None,
-                 bucket: Optional[TokenBucket] = None) -> None:
+                 bucket: Optional[TokenBucket] = None, bucket_pool: Optional[BucketPool] = None) -> None:
     rows = db.query("SELECT * FROM submissions WHERE id = :id", {"id": submission_id})
     if not rows:
         raise ValueError(f"submission {submission_id} not found")
     sub = rows[0]
-    settings = settings_store.load()
+    # The assignment may pick its own provider/model; the rate-limit bucket follows that provider.
+    tpl = get_template(db, sub["assignment_id"]) if sub.get("assignment_id") is not None else None
+    settings = settings_store.for_template(tpl)
+    if bucket_pool is not None:
+        bucket = bucket_pool.get(settings.provider, settings.rpm_limit)
     if not settings.has_key:
         raise RuntimeError("No API key configured — add one under Settings")
     pages = db.query("SELECT storage_path, deleted_at FROM pages WHERE submission_id = :id AND kind = 'student' "

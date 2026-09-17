@@ -5,6 +5,8 @@ from pydantic import BaseModel, ValidationError
 
 from sms.memory.db import Database
 from sms.pipeline.router import SubjectRouter
+from sms.providers.registry import DEFAULT_PROVIDER, get_provider
+from sms.providers.settings import SettingsStore
 from sms.schemas.marking import Rubric
 # Canonical models live in sms.schemas.scheme; re-exported here for existing importers.
 from sms.schemas.scheme import Band, MarkPoint, MarkSchemeEntry, Question, RubricCriterionBands  # noqa: F401
@@ -64,7 +66,9 @@ def _validate_scheme(scheme_kind: str, scheme: Any) -> List[dict]:
 
 
 def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_kind: str, questions: Any,
-              scheme: Any, delete_pages_after_marking: Optional[bool] = None) -> Dict[str, Any]:
+              scheme: Any, delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
+              model: Optional[str] = None, extractor_model: Optional[str] = None, *,
+              db: Optional[Database] = None) -> Dict[str, Any]:
     title = title.strip()
     if not title:
         raise ApiError(400, "bad_title", "Give the assignment a title")
@@ -75,12 +79,37 @@ def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_k
     rubric = parse_rubric(rubric_json)
     qs = _validate_questions(questions)
     sc = _validate_scheme(scheme_kind, scheme)
+    # A blank provider means Auto: the assignment follows whatever Settings says, so its model and
+    # extractor model go with it. A chosen one must be known and already have a key saved.
+    provider = (provider or "").strip() or None
+    if provider:
+        try:
+            spec = get_provider(provider)
+        except KeyError:
+            raise ApiError(400, "bad_provider", f"Unknown provider {provider!r}")
+        if db is not None and SettingsStore.has_key_for(db, provider) is False:
+            raise ApiError(400, "no_key_for_provider", f"Save a {spec.label} key under Settings before choosing it here")
+        model = (model or "").strip() or spec.default_model
+        extractor_model = (extractor_model or "").strip() or None
+    else:
+        model = extractor_model = None
     return {
         "title": title, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
         "scheme_kind": scheme_kind, "questions": json.dumps(qs) if qs else None,
         "scheme": json.dumps(sc) if sc else None,
         "delete_pages": None if delete_pages_after_marking is None else bool(delete_pages_after_marking),
+        "provider": provider, "model": model, "extractor_model": extractor_model,
     }
+
+
+def _global_model(db: Database) -> Dict[str, Optional[str]]:
+    """The Settings provider/model an assignment falls back to when it does not pick its own."""
+    rows = db.query("SELECT provider, model, extractor_model FROM settings WHERE id = 1")
+    if not rows:
+        spec = get_provider(DEFAULT_PROVIDER)
+        return {"provider": spec.id, "model": spec.default_model, "extractor_model": None}
+    r = rows[0]
+    return {"provider": r["provider"], "model": r["model"], "extractor_model": r["extractor_model"] or None}
 
 
 def global_delete_pages_default(db: Database) -> bool:
@@ -107,10 +136,14 @@ def _template_pages(db: Database, template_ids: List[int]) -> Dict[int, Dict[str
     return out
 
 
-def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool) -> Dict[str, Any]:
+def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool,
+                 global_model: Dict[str, Optional[str]]) -> Dict[str, Any]:
     rubric = Rubric.model_validate_json(r["rubric_json"])
     flag = r["delete_pages_after_marking"]
     flag = None if flag is None else bool(flag)
+    provider = r["provider"] or None
+    effective = ({"provider": provider, "model": r["model"] or None, "extractor_model": r["extractor_model"] or None}
+                 if provider else dict(global_model))
     return {
         "id": r["id"], "title": r["title"], "subject": r["subject"], "context": r["context"],
         "rubric": rubric.model_dump(),
@@ -123,6 +156,10 @@ def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool) -> 
         "scheme_page_ids": pages["scheme"],
         "delete_pages_after_marking": flag,
         "effective_delete_pages": delete_default if flag is None else flag,
+        "provider": provider,
+        "model": r["model"] or None,
+        "extractor_model": r["extractor_model"] or None,
+        "effective_model": effective,
         "times_used": int(r["times_used"]),
         "submission_count": int(r.get("submission_count") or 0),
         "pending_count": int(r.get("pending_count") or 0),
@@ -138,45 +175,53 @@ _COUNTS = ("(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id) AS
            "(SELECT COUNT(*) FROM class_assignments c WHERE c.template_id = t.id) AS class_assignment_count")
 
 _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, "
-           "scheme_json, delete_pages_after_marking) VALUES (:title, :subject, :context, :rubric, :scheme_kind, "
-           ":questions, :scheme, :delete_pages) RETURNING id")
+           "scheme_json, delete_pages_after_marking, provider, model, extractor_model) VALUES (:title, :subject, "
+           ":context, :rubric, :scheme_kind, :questions, :scheme, :delete_pages, :provider, :model, :extractor_model) "
+           "RETURNING id")
 
 
 def list_templates(db: Database) -> List[Dict[str, Any]]:
     rows = db.query(f"SELECT t.*, {_COUNTS} FROM assignment_templates t ORDER BY times_used DESC, updated_at DESC, id DESC")
     pages = _template_pages(db, [r["id"] for r in rows])
     default = global_delete_pages_default(db)
-    return [_row_to_dict(r, pages[r["id"]], default) for r in rows]
+    gm = _global_model(db)
+    return [_row_to_dict(r, pages[r["id"]], default, gm) for r in rows]
 
 
 def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
     rows = db.query(f"SELECT t.*, {_COUNTS} FROM assignment_templates t WHERE t.id = :id", {"id": template_id})
     if not rows:
         return None
-    return _row_to_dict(rows[0], _template_pages(db, [template_id])[template_id], global_delete_pages_default(db))
+    return _row_to_dict(rows[0], _template_pages(db, [template_id])[template_id],
+                        global_delete_pages_default(db), _global_model(db))
 
 
 def create_template(db: Database, *, title: str, subject: str, context: str, rubric_json: str,
                     scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
-                    delete_pages_after_marking: Optional[bool] = None) -> Dict[str, Any]:
-    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking)
+                    delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
+                    model: Optional[str] = None, extractor_model: Optional[str] = None) -> Dict[str, Any]:
+    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking,
+                       provider, model, extractor_model, db=db)
     tid = db.insert(_INSERT, fields)
     return get_template(db, tid)  # type: ignore[return-value]
 
 
 def update_template(db: Database, template_id: int, *, title: str, subject: str, context: str, rubric_json: str,
                     scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
-                    delete_pages_after_marking: Optional[bool] = None) -> Dict[str, Any]:
+                    delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
+                    model: Optional[str] = None, extractor_model: Optional[str] = None) -> Dict[str, Any]:
     """Update the template's fields. The paper (pages with this template_id) is owned by
     attach_paper and is never touched here."""
     if get_template(db, template_id) is None:
         raise ApiError(404, "not_found", "No such assignment")
-    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking)
+    fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking,
+                       provider, model, extractor_model, db=db)
     fields["id"] = template_id
     db.execute(
         "UPDATE assignment_templates SET title = :title, subject = :subject, context = :context, "
         "rubric_json = :rubric, scheme_kind = :scheme_kind, questions_json = :questions, scheme_json = :scheme, "
-        "delete_pages_after_marking = :delete_pages, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+        "delete_pages_after_marking = :delete_pages, provider = :provider, model = :model, "
+        "extractor_model = :extractor_model, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
         fields,
     )
     return get_template(db, template_id)  # type: ignore[return-value]
@@ -193,7 +238,8 @@ def duplicate_template(db: Database, template_id: int) -> Dict[str, Any]:
         new_id = tx.insert(_INSERT, {
             "title": f"{r['title']} (copy)", "subject": r["subject"], "context": r["context"], "rubric": r["rubric_json"],
             "scheme_kind": r["scheme_kind"], "questions": r["questions_json"], "scheme": r["scheme_json"],
-            "delete_pages": r["delete_pages_after_marking"],
+            "delete_pages": r["delete_pages_after_marking"], "provider": r["provider"], "model": r["model"],
+            "extractor_model": r["extractor_model"],
         })
         tx.execute(
             "INSERT INTO pages (template_id, kind, page_index, sha256, storage_path, source_filename, width, height) "
@@ -339,7 +385,7 @@ def import_templates(db: Database, payload: Any) -> int:
         validated.append(_validate(str(item["title"]), str(item["subject"]), str(item.get("context") or ""),
                                    json.dumps(item["rubric"]), str(item.get("scheme_kind") or "criteria"),
                                    item.get("questions"), item.get("scheme"),
-                                   _optional_bool(item.get("delete_pages_after_marking"), i)))
+                                   _optional_bool(item.get("delete_pages_after_marking"), i), db=db))
     existing = {(t["title"], t["subject"]) for t in list_templates(db)}
     created = 0
     with db.transaction() as tx:

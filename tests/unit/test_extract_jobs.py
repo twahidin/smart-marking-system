@@ -69,6 +69,26 @@ def test_paper_extract_job_writes_questions_json(env):
     assert json.loads(row["questions_json"]) == [q.model_dump() for q in QUESTIONS]
 
 
+def test_paper_extract_job_uses_the_assignments_own_provider_and_bucket(env):
+    db, store, storage, tid = env
+    _add_pages(db, storage, tid, "paper", n=2)
+    store.save(Settings(provider="openrouter", model="z-ai/glm-5.3-flash", api_key="or-key", rpm_limit=60))
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=60))
+    db.execute("UPDATE assignment_templates SET provider = 'openrouter', model = 'openrouter/auto' WHERE id = :t",
+               {"t": tid})
+    seen = {}
+
+    def factory(**kw):
+        seen.update(kw)
+        return FakeAgent(PaperExtract(questions=QUESTIONS))
+
+    from sms.providers.ratelimit import BucketPool
+    pool = BucketPool()
+    assert run_paper_extract_job(db, storage, store, tid, agent_factory=factory, bucket_pool=pool) == 2
+    assert (seen["settings"].provider, seen["settings"].model, seen["settings"].api_key) == ("openrouter", "openrouter/auto", "or-key")
+    assert seen["bucket"] is pool.get("openrouter", 60)
+
+
 def test_paper_extract_job_requires_paper_pages_and_key(env):
     db, store, storage, tid = env
     with pytest.raises(ValueError, match="question paper"):
@@ -144,12 +164,12 @@ def test_worker_dispatches_extract_jobs_by_payload(env):
     js = JobStore(db)
     calls = []
 
-    def paper_runner(db_, storage_, store_, template_id, bucket=None):
-        calls.append(("paper", template_id))
+    def paper_runner(db_, storage_, store_, template_id, bucket=None, bucket_pool=None):
+        calls.append(("paper", template_id, bucket_pool))
         return 1
 
-    def scheme_runner(db_, storage_, store_, template_id, bucket=None):
-        calls.append(("scheme", template_id))
+    def scheme_runner(db_, storage_, store_, template_id, bucket=None, bucket_pool=None):
+        calls.append(("scheme", template_id, bucket_pool))
         return 1
 
     w = Worker(db, storage, store, runner=lambda *a, **k: None, paper_runner=paper_runner, scheme_runner=scheme_runner)
@@ -157,7 +177,7 @@ def test_worker_dispatches_extract_jobs_by_payload(env):
     assert js.enqueue_unique("paper_extract", {"template_id": tid}, dedupe_key=f"paper:{tid}") is None
     js.enqueue_unique("scheme_extract", {"template_id": tid}, dedupe_key=f"scheme:{tid}")
     assert w.run_once() and w.run_once() and not w.run_once()
-    assert calls == [("paper", tid), ("scheme", tid)]
+    assert calls == [("paper", tid, w.pool), ("scheme", tid, w.pool)]
     assert {r["status"] for r in db.query("SELECT status FROM jobs")} == {"done"}
 
 

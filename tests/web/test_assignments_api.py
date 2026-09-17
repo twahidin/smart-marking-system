@@ -13,8 +13,12 @@ def _png():
     return buf.getvalue()
 
 
+def _body():
+    return {"title": "Worksheet 3", "subject": "math", "context": "Sec 4 · Quadratics", "rubric": RUBRIC}
+
+
 def _create(auth, **over):
-    body = {"title": "Worksheet 3", "subject": "math", "context": "Sec 4 · Quadratics", "rubric": RUBRIC}
+    body = _body()
     body.update(over)
     return auth.post("/api/assignments", json=body)
 
@@ -394,3 +398,18 @@ def test_extract_status_reports_latest_jobs(auth, app):
     pj2 = auth.post(f"/api/assignments/{t['id']}/extract/paper").json()["job_id"]
     assert pj2 != pj and auth.get(f"/api/assignments/{t['id']}/extract").json()["paper"]["job_id"] == pj2
     assert auth.get("/api/assignments/9999/extract").status_code == 404
+
+
+def test_template_model_override_requires_a_saved_key(auth):
+    t = _create(auth).json()
+    assert t["provider"] is None and t["effective_model"]["provider"] == "tokenrouter"
+    r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": "gpt-5.5"})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "no_key_for_provider"
+    _with_key(auth)   # saves an OpenAI key
+    r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": "gpt-5.5", "extractor_model": "gpt-5-mini"})
+    assert r.status_code == 200 and r.json()["effective_model"] == {"provider": "openai", "model": "gpt-5.5", "extractor_model": "gpt-5-mini"}
+    r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": ""})
+    assert r.json()["model"] == "gpt-5-mini"                      # blank model -> provider default
+    r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": ""})
+    assert r.json()["provider"] is None and r.json()["model"] is None
+    assert auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "nope", "model": "x"}).json()["error"]["code"] == "bad_provider"

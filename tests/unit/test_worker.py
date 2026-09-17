@@ -168,28 +168,25 @@ def test_worker_retries_reset_running_on_db_outage_then_recovers(env):
     assert js.last_heartbeat()
 
 
-def test_worker_reuses_rate_limit_bucket_across_jobs_until_rpm_changes(env):
+def test_worker_hands_every_job_the_same_bucket_pool(env):
     db, store, storage, sid = env
     js = JobStore(db)
     js.enqueue("mark", sid)
     js.enqueue("mark", sid)
 
-    seen_buckets = []
+    seen_pools = []
 
     def runner(*a, **k):
-        seen_buckets.append(k["bucket"])
+        seen_pools.append(k["bucket_pool"])
 
     w = Worker(db, storage, store, runner=runner)
     w.run_once()
     w.run_once()
-    assert seen_buckets[0] is seen_buckets[1]
-    assert seen_buckets[0].rpm == 0
-
-    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=5))
-    js.enqueue("mark", sid)
-    w.run_once()
-    assert seen_buckets[2] is not seen_buckets[0]
-    assert seen_buckets[2].rpm == 5
+    # one pool for the worker's lifetime, so back-to-back jobs share a provider's sliding window
+    assert seen_pools[0] is seen_pools[1] is w.pool
+    zero = w.pool.get("openai", 0)
+    assert zero is w.pool.get("openai", 0) and zero.rpm == 0
+    assert w.pool.get("openai", 5) is not zero and w.pool.get("openrouter", 0) is not zero
 
 
 # --- reflect jobs and the nightly scheduler ------------------------------------------------------
@@ -218,7 +215,7 @@ def test_worker_dispatches_reflect_job_with_payload(env):
     # the worker opens the reflection_runs row up front and hands its id to the runner
     run = db.query("SELECT id, subject, lookback_days FROM reflection_runs")[0]
     assert run["subject"] == "science" and run["lookback_days"] == 3
-    assert seen == [("science", 3, w._bucket, run["id"])]
+    assert seen == [("science", 3, w.pool.get("openai", 0), run["id"])]
     assert db.query("SELECT status FROM jobs WHERE id = ?", (jid,))[0]["status"] == "done"
     # the submission row is untouched by a job without a submission_id
     assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "uploaded"
@@ -556,3 +553,23 @@ def test_run_mark_job_stamps_provider_and_model_on_the_run(env):
     run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: RunRowPipeline(db))
     row = db.query("SELECT provider, model FROM marking_runs WHERE run_id = 'r1'")[0]
     assert (row["provider"], row["model"]) == ("openai", "gpt-5-mini")
+
+
+def test_mark_job_uses_the_assignments_own_model_and_bucket(env):
+    db, store, storage, sid = env
+    store.save(Settings(provider="openrouter", model="z-ai/glm-5.3-flash", api_key="or-key", rpm_limit=60))
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key=None, rpm_limit=60))
+    tid = db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json, provider, model) VALUES "
+                    "('T', 'math', '', '{\"criterion_defs\": [{\"id\": \"c1\", \"description\": \"d\", \"max_score\": 2}]}', 'openrouter', 'openrouter/auto') RETURNING id")
+    db.execute("UPDATE submissions SET assignment_id = ?, scheme_kind = 'criteria' WHERE id = ?", (tid, sid))
+    seen = {}
+
+    def factory(**kw):
+        seen["settings"] = kw["settings"]; seen["bucket"] = kw["bucket"]; return RunRowPipeline(db)
+
+    from sms.providers.ratelimit import BucketPool
+    pool = BucketPool()
+    run_mark_job(db, storage, store, sid, pipeline_factory=factory, bucket_pool=pool)
+    assert (seen["settings"].provider, seen["settings"].model, seen["settings"].api_key) == ("openrouter", "openrouter/auto", "or-key")
+    assert seen["bucket"] is pool.get("openrouter", 60)
+    assert db.query("SELECT provider, model FROM marking_runs WHERE run_id = 'r1'")[0]["model"] == "openrouter/auto"

@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from sms.memory.db import Database
 from sms.pipeline.router import SubjectRouter
 from sms.providers.errors import error_message, is_retryable
-from sms.providers.ratelimit import TokenBucket
+from sms.providers.ratelimit import BucketPool
 from sms.providers.settings import SettingsStore
 from sms.storage import PageStorage
 from sms.web.services.pages_cleanup import sweep_done_submissions
@@ -47,31 +47,26 @@ class Worker:
         self.max_attempts = max_attempts
         self.base_backoff_s = base_backoff_s
         self.jobs = JobStore(db)
-        self._bucket: Optional[TokenBucket] = None
+        # One bucket per provider for the worker's lifetime: a job whose assignment picks its own
+        # provider is limited separately, and back-to-back jobs on one provider share its sliding
+        # window (a fresh bucket per job would never cap the aggregate rpm_limit).
+        self.pool = BucketPool()
         self._last_reflect_check: Optional[float] = None  # time.monotonic() of the last scheduler pass
         self._last_page_sweep: Optional[float] = None  # time.monotonic() of the last page sweep
-
-    def _bucket_for(self, rpm: int) -> TokenBucket:
-        """One TokenBucket for the worker's lifetime; replaced only when rpm changes.
-
-        Recreating it per job would reset the sliding window each time, so back-to-back
-        jobs would never actually be capped at the aggregate rpm_limit.
-        """
-        if self._bucket is None or self._bucket.rpm != rpm:
-            self._bucket = TokenBucket(rpm)
-        return self._bucket
 
     def run_once(self) -> bool:
         job = self.jobs.claim()
         if job is None:
             return False
         try:
-            bucket = self._bucket_for(self.settings_store.load().rpm_limit)
             if job["kind"] == "mark":
-                self.runner(self.db, self.storage, self.settings_store, job["submission_id"], bucket=bucket)
+                self.runner(self.db, self.storage, self.settings_store, job["submission_id"], bucket_pool=self.pool)
             elif job["kind"] == "reflect":
                 payload = json.loads(job["payload_json"] or "{}")
                 lookback = int(payload.get("lookback_days", REFLECT_LOOKBACK_DAYS))
+                # reflection is not tied to an assignment, so it runs on the global provider
+                settings = self.settings_store.load()
+                bucket = self.pool.get(settings.provider, settings.rpm_limit)
                 if payload.get("run_id") is None:
                     # One reflection_runs row per job: created on the first attempt and remembered
                     # in the payload so a retried attempt updates it instead of adding another.
@@ -82,7 +77,7 @@ class Worker:
             elif job["kind"] in (PAPER_KIND, SCHEME_KIND):
                 payload = json.loads(job["payload_json"] or "{}")
                 runner = self.paper_runner if job["kind"] == PAPER_KIND else self.scheme_runner
-                runner(self.db, self.storage, self.settings_store, int(payload["template_id"]), bucket=bucket)
+                runner(self.db, self.storage, self.settings_store, int(payload["template_id"]), bucket_pool=self.pool)
             else:
                 raise ValueError(f"unknown job kind {job['kind']!r}")
             self.jobs.finish(job["id"])
