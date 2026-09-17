@@ -32,9 +32,15 @@ Go to **Settings**. Pick a provider, paste its key, then click **Load models fro
 
 Keys are kept per provider (a ✓ on the tile means a key is saved), so you can switch between providers without re-entering them. **Requests per minute** protects free keys with low rate limits — set it to 8 for TokenRouter's free model, 10 for Gemini's free tier.
 
+**My models.** OpenRouter and TokenRouter host hundreds of models beyond the curated list. Under those two providers a *My models* list lets you add any model id (with a label and whether it reads pages); it then appears in every model picker, here and in the assignment editor. Each id returned by *Load models from provider* gets a **+ Add** button.
+
 ![Settings: provider, model, key. Test connection makes one small text call and one image call.](images/02-settings.jpg)
 
 *Settings: provider, model, key. Test connection makes one small text call and one image call.*
+
+![My models: your own OpenRouter or TokenRouter model ids, available everywhere a model is picked.](images/40-my-models.jpg)
+
+*My models: your own OpenRouter or TokenRouter model ids, available everywhere a model is picked.*
 
 ## 5. Create an assignment
 
@@ -52,7 +58,17 @@ Saved assignments go into a bank you can reuse across classes and years.
 
 *The assignment bank.*
 
-## 6. Create a class and load the classlist
+## 6. Choose the model per assignment
+
+Every assignment follows Settings by default (*Auto — follow Settings*): change the model in Settings and every assignment changes with it. For one assignment that deserves something different — a hard paper for a stronger model, a quick quiz for a cheap one — open it, go to **Model** and pick *Choose a model*. Only providers with a saved key can be selected; choose the model, optionally a different one for reading pages, and **Save**. The assignment bank shows the choice as a small caption.
+
+Removing a provider's key while assignments still use it asks you to confirm first — those assignments would fail to mark until you point them at another model.
+
+![The Model section of an assignment: Auto, or a provider and model of your own.](images/41-assignment-model.jpg)
+
+*The Model section of an assignment: Auto, or a provider and model of your own.*
+
+## 7. Create a class and load the classlist
 
 Go to **Classes → New class** and name it the way your school does ("4E2 Mathematics"). Every class gets a 4-character code — this one is `4KEF` — that students will type.
 
@@ -72,7 +88,7 @@ Then click **Copy link** and paste it into Google Classroom (or wherever your st
 
 *The classlist, the class code and the Copy link button.*
 
-## 7. Set the assignment for the class
+## 8. Set the assignment for the class
 
 On the class's **Assignments** tab click **Set assignment**, pick one from the bank, add a due date and click **Set for this class**. It starts as a *Draft*, invisible to students. Click **Open** when you want students to hand in.
 
@@ -84,7 +100,7 @@ On the class's **Assignments** tab click **Set assignment**, pick one from the b
 
 *Opened — students can now see it.*
 
-## 8. Students hand in from their phones
+## 9. Students hand in from their phones
 
 A student opens the class link, types their register number and confirms their name. No account, no password: anyone with the class code and a number can see that student's work — the same trade-off as a paper script left on a desk.
 
@@ -97,7 +113,7 @@ A student opens the class link, types their register number and confirms their n
 ![Done.](images/25-student-handed-in.jpg) 
 ![Waiting for the teacher.](images/26-student-waiting.jpg) 
 
-## 9. Marking, and the parts that need you
+## 10. Marking, and the parts that need you
 
 The assignment page shows the roster: who has handed in, what is being marked, and what is ready. You can also **Upload pages** for a student yourself (scanned booklets) and **Remove hand-in** so a student can redo it.
 
@@ -113,7 +129,7 @@ Click a student's name to see the per-part marks, the transcription and the just
 
 *A marked script, part by part.*
 
-## 10. Release feedback
+## 11. Release feedback
 
 Until you release, students see "Marked — your teacher is checking". **Release feedback** is one action for the whole class and needs every "Needs you" part cleared first. After release students see their total, a short summary, what they did well, each question with a comment and a "Try next", and what to work on.
 
@@ -126,17 +142,39 @@ Releasing closes student hand-ins for that assignment; pages you upload for a st
 ![What the student sees.](images/36-student-feedback.jpg) 
 ![A question expanded.](images/37-student-feedback-expanded.jpg) 
 
-## 11. Marks and records
+## 12. Insights: where the class lost marks
+
+Once the first script is marked, the assignment's **Insights** tab shows the class as a whole: marks by part with the weakest highlighted, the allocations most often lost, a score distribution, and which students are struggling on which parts.
+
+When the whole set has been marked, and again when you release, the app asks the model for a short narrative written for you, not for students — a summary, strengths, gaps and recommended next steps. Student names never reach the model: it sees register numbers and the app joins the names back. **Regenerate** refreshes the narrative after more scripts come in; **Download PDF** gives a one-file report for a department meeting.
+
+![The Insights tab: numbers first, then the narrative and the students to support.](images/42-insights.jpg)
+
+*The Insights tab: numbers first, then the narrative and the students to support.*
+
+## 13. Telegram notifications (optional)
+
+Get a message when scripts come in and when marking finishes, plus a daily report. In Telegram, message **@BotFather**, send `/newbot`, and copy the token it gives you. In **Settings → Notifications** paste the token and **Save**, then open your new bot in Telegram and press **Start** — within a few seconds the status changes to *Linked ✓*. **Test connection** sends a test message.
+
+You get an instant message for new hand-ins (batched) and one when a class set finishes marking, each with links back to the app. The daily report arrives at the time you set — 07:00 Singapore time by default — and only on days something happened. Turn instant messages off to keep just the daily report. One chat per deployment: a department group works well — add the bot to the group and press `/start` there.
+
+![Settings → Notifications: token, link status, instant messages, daily report time and time zone.](images/43-notifications.jpg)
+
+*Settings → Notifications: token, link status, instant messages, daily report time and time zone.*
+
+## 14. Marks and records
 
 From the assignment page, **Download marks CSV** gives one row per student with a column per question part, and **Download marking records** gives a Word document per student — mark scheme row by row, the student's answer, the awarded mark and a blank "Teacher's mark" column for moderation — plus a markbook spreadsheet.
 
-## 12. Good to know
+## 15. Good to know
 
 **Student pages are deleted as soon as a script is done** (marked with nothing to check, or the last part resolved); the marking record keeps the transcription and every mark. Turn this off under Settings or per assignment if you want to keep the images.
 
 **Cost.** A script needs about four model calls. On a paid provider that is typically well under one cent per script for a small model; on a free tier it is free within the daily limit.
 
 **Changing the password or the secret.** The password is the `TEACHER_PASSWORD` variable on Railway. Leave `SECRET_KEY` alone — it encrypts the stored API keys; changing it means re-entering them.
+
+**Telegram and Insights are optional.** Nothing is sent to Telegram until you link a bot, and Insights only use the model you already configured — no extra keys.
 
 **Updates.** Redeploying the `web` service picks up the latest version from GitHub; the database and stored keys are kept.
 
