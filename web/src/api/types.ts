@@ -1,15 +1,20 @@
 export type Subject = "math" | "language" | "science";
 export type SubmissionStatus = "uploaded" | "queued" | "marking" | "needs_you" | "done" | "failed";
 
-export interface ModelSpec { id: string; label: string; vision: boolean }
+export interface ModelSpec { id: string; label: string; vision: boolean; /** saved by the teacher under “My models”, not part of the curated list */ custom?: boolean }
 export interface ProviderSpec {
   id: string; label: string; transport: string; base_url: string | null; mode: string;
   default_model: string; default_rpm: number; models: ModelSpec[]; key_url: string; note: string; base_url_editable: boolean;
+  /** the provider lets the teacher save their own model ids (TokenRouter, OpenRouter) */
+  custom_models: boolean;
 }
 export interface Settings {
   provider: string; model: string; base_url: string | null; extractor_model: string | null;
   rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string; keys?: Record<string, string>; auto_reflect: boolean;
   delete_pages_after_marking: boolean;
+  /** Telegram: linked once a bot token is saved *and* the teacher has pressed /start in the chat. */
+  telegram_linked: boolean; telegram_bot_hint: string; telegram_chat_id: string | null;
+  telegram_instant: boolean; /** "HH:MM" in `timezone` */ telegram_daily_time: string; timezone: string; app_url: string | null;
 }
 export interface Check { ok: boolean; latency_ms: number; error: string | null }
 export interface ProbeResult { text: Check; vision: Check }
