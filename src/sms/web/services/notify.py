@@ -5,7 +5,7 @@ marking) — it never talks to the network, so a slow or blocked bot can neither
 fail a marking job. The worker flushes the unsent rows every few seconds, batching same-kind rows
 for one assignment into one message: 30 hand-ins in a lesson are one "30 new hand-ins", not 30
 buzzes. A refused send leaves the row unsent with the reason on it and comes back after a growing
-delay (10 s doubling to an hour), and is abandoned after twenty refusals rather than retried for
+delay (20 s doubling to an hour), and is abandoned after twenty refusals rather than retried for
 ever; sent rows are deleted thirty days later.
 
 Everything a person typed (names, titles, class names) goes through `escape` — messages are sent
@@ -227,7 +227,7 @@ def _mark_sent(db: Database, items: List[dict]) -> None:
 
 
 def _backoff_s(attempts: int) -> int:
-    """How long to wait after `attempts` failures: 10 s doubling per attempt, capped at an hour."""
+    """How long to wait after `attempts` failures: 20 s after the first failure, doubling per attempt, capped at an hour."""
     return min(BACKOFF_BASE_S * 2 ** attempts, BACKOFF_MAX_S)
 
 

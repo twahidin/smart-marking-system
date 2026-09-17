@@ -140,7 +140,7 @@ the link there. Once linked, the bot sends instant messages for new hand-ins and
 Instant messages can be turned off to keep just the digest. The **App URL** field controls the links
 those messages use, defaulting to the deployment's Railway public domain. Messages are queued in an
 outbox and flushed by the worker, so a slow or blocked bot never delays an upload or a marking job: a
-refused send keeps its reason and is retried after a growing delay (10 s doubling to an hour), given
+refused send keeps its reason and is retried after a growing delay (20 s doubling to an hour), given
 up after twenty attempts, and cleared from the outbox thirty days after it went.
 
 **Model per assignment**: an assignment's editor has a **Model** section — **Auto — follow Settings**
