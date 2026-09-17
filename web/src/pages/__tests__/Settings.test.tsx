@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,35 +8,75 @@ const providers = [
   {
     id: "tokenrouter", label: "TokenRouter", transport: "openai_compatible", base_url: "https://api.tokenrouter.com/v1", mode: "JSON",
     default_model: "z-ai/glm-5.3-flash", default_rpm: 60, key_url: "https://www.tokenrouter.com/", note: "", base_url_editable: false, api_params: null,
-    models: [{ id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", vision: true }],
+    custom_models: false, models: [{ id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", vision: true }],
   },
   {
     id: "google", label: "Google Gemini", transport: "openai_compatible", base_url: "https://generativelanguage.googleapis.com/v1beta/openai/", mode: "JSON",
     default_model: "gemini-3.8-flash", default_rpm: 10, key_url: "https://aistudio.google.com/apikey", base_url_editable: false, api_params: null,
     note: "Free tier: no card needed; roughly 10–30 requests a minute.",
-    models: [{ id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", vision: true }],
+    custom_models: false, models: [{ id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", vision: true }],
   },
 ];
-const settings = { provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", keys: { tokenrouter: "abcd" }, auto_reflect: true };
+const settings = {
+  provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0,
+  has_key: true, key_hint: "abcd", keys: { tokenrouter: "abcd" }, auto_reflect: true,
+  telegram_linked: false, telegram_bot_hint: "", telegram_chat_id: null, telegram_instant: true, telegram_daily_time: "07:00",
+  timezone: "Asia/Singapore", app_url: null,
+};
+
+/** What the mock server currently holds; a test can swap it before rendering with `serve()`. */
+let served: { providers: any[]; settings: any } = { providers, settings };
+const serve = (p: any[], s: any) => { served = { providers: p, settings: s }; };
+const calls: { path: string; method: string; body: any }[] = [];
+const saved: any[] = [];
+const deleted: string[] = [];
+
+const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+const noContent = () => Promise.resolve(new Response(null, { status: 204 }));
 
 function mockFetch(onModels: () => Response) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path === "/api/providers") return Promise.resolve(new Response(JSON.stringify(providers), { status: 200 }));
-      if (path === "/api/settings" && init?.method !== "PUT") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
-      if (path === "/api/settings" && init?.method === "PUT") { saved.push(JSON.parse(String(init.body))); return Promise.resolve(new Response(JSON.stringify({ ...settings, ...saved[saved.length - 1] }), { status: 200 })); }
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      calls.push({ path, method, body });
+      if (path === "/api/providers") return json(served.providers);
+      if (path === "/api/settings" && method !== "PUT") return json(served.settings);
+      if (path === "/api/settings" && method === "PUT") {
+        saved.push(body);
+        const { telegram_bot_token: token, ...rest } = body;
+        // The server echoes what it stored; a token that arrives links the chat, as /start would have.
+        served.settings = { ...served.settings, ...rest,
+          ...(token ? { telegram_linked: true, telegram_bot_hint: String(token).slice(-4), telegram_chat_id: "998877665544" } : {}) };
+        return json(served.settings);
+      }
       if (path === "/api/settings/models") return Promise.resolve(onModels());
-      if (path.startsWith("/api/settings/keys/") && init?.method === "DELETE") { deleted.push(path.slice("/api/settings/keys/".length)); return Promise.resolve(new Response(null, { status: 204 })); }
+      if (path === "/api/settings/telegram/test" && method === "POST") return noContent();
+      if (path === "/api/settings/telegram" && method === "DELETE") {
+        served.settings = { ...served.settings, telegram_linked: false, telegram_bot_hint: "", telegram_chat_id: null };
+        return noContent();
+      }
+      if (path.startsWith("/api/settings/models/") && method === "POST") {
+        const provider = path.slice("/api/settings/models/".length);
+        const model = { id: body.model_id, label: body.label || body.model_id, vision: body.vision, custom: true };
+        served.providers = served.providers.map((p) => (p.id === provider ? { ...p, models: [...p.models, model] } : p));
+        return json(model, 201);
+      }
+      if (path.startsWith("/api/settings/models/") && method === "DELETE") {
+        const [provider, ...idParts] = path.slice("/api/settings/models/".length).split("/");
+        const id = idParts.join("/");
+        served.providers = served.providers.map((p) => (p.id === provider ? { ...p, models: p.models.filter((m: any) => m.id !== id) } : p));
+        return noContent();
+      }
+      if (path.startsWith("/api/settings/keys/") && method === "DELETE") { deleted.push(path.slice("/api/settings/keys/".length)); return noContent(); }
       return Promise.reject(new Error(`Unexpected fetch to ${path}`));
     }),
   );
 }
-const saved: any[] = [];
-const deleted: string[] = [];
 
-afterEach(() => { vi.unstubAllGlobals(); saved.length = 0; deleted.length = 0; });
+afterEach(() => { vi.unstubAllGlobals(); served = { providers, settings }; calls.length = 0; saved.length = 0; deleted.length = 0; });
 
 describe("Settings — one key per provider", () => {
   it("shows the saved key for the selected provider only, and removes it on request", async () => {
@@ -115,5 +155,80 @@ describe("Settings — delete pages after marking", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
     expect(saved[0].delete_pages_after_marking).toBe(false);
+  });
+});
+
+describe("Settings — notifications", () => {
+  it("shows link status, saves the token and daily time, tests and unlinks", async () => {
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    expect(await screen.findByText(/Not linked/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Telegram bot token")).toHaveAttribute("placeholder", "Paste the token from @BotFather");
+    expect(screen.queryByRole("button", { name: "Send test message" })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Telegram bot token"), "123:abc");
+    await userEvent.clear(screen.getByLabelText("Daily report at"));
+    await userEvent.type(screen.getByLabelText("Daily report at"), "18:00");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    const put = saved[saved.length - 1];
+    expect(put.telegram_bot_token).toBe("123:abc");
+    expect(put.telegram_daily_time).toBe("18:00");
+    expect(put.timezone).toBe("Asia/Singapore");
+    // Once the server reports the chat as linked, the status line and the buttons change.
+    expect(await screen.findByText("Linked \u2713 (chat \u20265544)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Telegram bot token")).toHaveAttribute("placeholder", "Saved token ending \u2026:abc \u2014 leave blank to keep");
+    await userEvent.click(screen.getByRole("button", { name: "Send test message" }));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/settings/telegram/test")).toBe(true));
+    await userEvent.click(screen.getByRole("button", { name: "Unlink" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/settings/telegram")).toBe(true));
+    expect(await screen.findByText(/Not linked/)).toBeInTheDocument();
+  });
+
+  it("submits the notification fields on every save, including from other sections", async () => {
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    await userEvent.click(await screen.findByRole("checkbox", { name: "Run reflection nightly on new corrections" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    const put = saved[saved.length - 1];
+    expect(Object.keys(put)).toEqual(expect.arrayContaining(["telegram_instant", "telegram_daily_time", "timezone", "app_url"]));
+    expect(put.telegram_instant).toBe(true);
+    expect(put.telegram_daily_time).toBe("07:00");
+    expect(put.timezone).toBe("Asia/Singapore");
+    expect(put.app_url).toBeNull();
+  });
+});
+
+describe("Settings \u2014 my models", () => {
+  const customProviders = [
+    {
+      id: "openai", label: "OpenAI", transport: "openai", base_url: null, mode: "TOOLS", default_model: "gpt-5.2-mini", default_rpm: 60,
+      key_url: "https://platform.openai.com/api-keys", note: "", base_url_editable: false, api_params: null, custom_models: false,
+      models: [{ id: "gpt-5.2-mini", label: "GPT-5.2 mini", vision: true }],
+    },
+    {
+      id: "openrouter", label: "OpenRouter", transport: "openai_compatible", base_url: "https://openrouter.ai/api/v1", mode: "JSON",
+      default_model: "z-ai/glm-5.3-free", default_rpm: 20, key_url: "https://openrouter.ai/keys", note: "", base_url_editable: false, api_params: null,
+      custom_models: true, models: [{ id: "z-ai/glm-5.3-free", label: "GLM 5.3 Free", vision: true }],
+    },
+  ];
+
+  it("adds and removes a custom model for OpenRouter and hides the list for OpenAI", async () => {
+    serve(customProviders, { ...settings, provider: "openai", model: "gpt-5.2-mini", keys: { openai: "abcd" } });
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    expect(await screen.findByRole("radio", { name: /OpenAI/ })).toBeChecked();
+    expect(screen.queryByLabelText("Model id")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: /OpenRouter/ }));
+    await userEvent.type(screen.getByLabelText("Model id"), "google/gemini-3.8-flash");
+    await userEvent.click(screen.getByRole("button", { name: "Add model" }));
+    expect(await screen.findByRole("option", { name: /Gemini 3.8 Flash|google\/gemini-3.8-flash/ })).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/settings/models/openrouter"
+      && c.body.model_id === "google/gemini-3.8-flash" && c.body.vision === true)).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: /Remove google\/gemini-3.8-flash/ }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/settings/models/openrouter/google/gemini-3.8-flash")).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("option", { name: /google\/gemini-3.8-flash/ })).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole("radio", { name: /OpenAI/ }));
+    expect(screen.queryByLabelText("Model id")).not.toBeInTheDocument();
   });
 });
