@@ -1,5 +1,7 @@
 # Smart Marking System
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/smart-marking?utm_medium=integration&utm_source=button&utm_campaign=smart-marking)
+
 AI agents that mark, review, and give feedback on student scripts from images, built on [atomic-agents](https://github.com/eigenwise/atomic-agents). Agents get smarter and faster with every teacher correction.
 
 ## How it works
@@ -136,6 +138,11 @@ SECRET_KEY=dev TEACHER_PASSWORD=dev uv run sms serve
 Frontend development with hot reload: `cd web && npm run dev` (proxies `/api` to :8000).
 
 ### Deploy on Railway
+
+The quickest way is the marketplace template — https://railway.com/deploy/smart-marking — which creates
+the web service, a Postgres database and the `/data` volume, generates `SECRET_KEY` and
+`TEACHER_PASSWORD` for you (read the password from the service's Variables, or set your own before
+deploying), and leaves the model key for the Settings page. To set it up by hand instead:
 
 One service (this repo, Dockerfile) + a Postgres database + a volume mounted at `/data`.
 
