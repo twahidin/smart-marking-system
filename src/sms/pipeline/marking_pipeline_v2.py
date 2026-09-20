@@ -288,7 +288,7 @@ class MarkingPipelineV2:
             if m is None:
                 # The marker returned nothing for this part: 0 marks with no confidence at all. An illegible
                 # part keeps its own reason; otherwise it is escalated as "low confidence" because that is
-                # the queue reason that means "the marker could not mark this" — the five reason strings are
+                # the queue reason that means "the marker could not mark this" — the reason strings are
                 # fixed for the record and the review queue.
                 final.append(_missing_mark(row))
                 escalations[key] = ILLEGIBLE if key in illegible else LOW_CONFIDENCE
