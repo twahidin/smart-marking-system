@@ -30,20 +30,28 @@ OPCODES: Dict[str, str] = {
 SUBSTACKS = ("SUBSTACK", "SUBSTACK2")
 
 
-def _value(blocks, v) -> str:
+def _value(blocks, v, visited) -> str:
     """An input is [shadow, value]; value is a block id (string) or a literal array [type, text, ...]."""
     if isinstance(v, list) and len(v) >= 2:
         inner = v[1]
         if isinstance(inner, list) and len(inner) >= 2:
             return str(inner[1])
         if isinstance(inner, str) and inner in blocks:
-            return _render_block(blocks, inner, 0, inline=True).strip()
+            if inner in visited:
+                return "[cycle]"
+            return _render_block(blocks, inner, 0, visited, inline=True).strip()
     return "?"
 
 
-def _render_block(blocks, bid, depth, inline=False) -> str:
+def _render_block(blocks, bid, depth, visited, inline=False) -> str:
+    # Guarded by callers (they check `bid in visited` before recursing in), but
+    # checked again here too so this function is never the one thing standing
+    # between a malformed project and infinite recursion.
+    if bid in visited:
+        return "[cycle]" if inline else "  " * depth + "[cycle]"
+    visited.add(bid)
     b = blocks[bid]
-    vals = {k: _value(blocks, v) for k, v in (b.get("inputs") or {}).items() if k not in SUBSTACKS}
+    vals = {k: _value(blocks, v, visited) for k, v in (b.get("inputs") or {}).items() if k not in SUBSTACKS}
     vals.update({k: (v[0] if isinstance(v, list) and v else str(v)) for k, v in (b.get("fields") or {}).items()})
     if b.get("opcode") in ("procedures_definition", "procedures_call"):
         vals["custom_block"] = (b.get("mutation") or {}).get("proccode", "?")
@@ -60,7 +68,7 @@ def _render_block(blocks, bid, depth, inline=False) -> str:
         if sub and isinstance(sub, list) and len(sub) >= 2 and isinstance(sub[1], str) and sub[1] in blocks:
             if key == "SUBSTACK2":
                 out.append("  " * depth + "else")
-            out.extend(_render_chain(blocks, sub[1], depth + 1))
+            out.extend(_render_chain(blocks, sub[1], depth + 1, visited))
     return "\n".join(out)
 
 
@@ -69,11 +77,17 @@ def _names(tmpl: str) -> List[str]:
     return [f for _, f, _, _ in string.Formatter().parse(tmpl) if f]
 
 
-def _render_chain(blocks, bid, depth) -> List[str]:
-    out, seen = [], set()
-    while bid and bid in blocks and bid not in seen:
-        seen.add(bid)
-        out.append(_render_block(blocks, bid, depth))
+def _render_chain(blocks, bid, depth, visited) -> List[str]:
+    """visited is shared across the whole current script's traversal (the top-level
+    `next` chain, every substack, and every inline reporter block it embeds) so a
+    block whose SUBSTACK/SUBSTACK2 points back at itself or an ancestor is rendered
+    once and then prints a single `[cycle]` line instead of recursing forever."""
+    out = []
+    while bid and bid in blocks:
+        if bid in visited:
+            out.append("  " * depth + "[cycle]")
+            break
+        out.append(_render_block(blocks, bid, depth, visited))
         bid = blocks[bid].get("next")
     return out
 
@@ -100,7 +114,8 @@ def render(data: bytes):
         for bid in tops:
             scripts += 1
             lines.append("")
-            for l in _render_chain(blocks, bid, 0):
+            visited: set = set()
+            for l in _render_chain(blocks, bid, 0, visited):
                 # A rendered block can itself be multi-line (a substack), so indent
                 # every line it produced, not just the first.
                 lines.extend("  " + x for x in l.split("\n"))

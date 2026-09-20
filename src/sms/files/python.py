@@ -11,6 +11,9 @@ def render(data: bytes):
         ast.parse(src)  # parse only; never compiled or executed
         head, ok = "syntax: ok", "syntax ok"
     except SyntaxError as e:
-        head, ok = f"syntax: error at line {e.lineno}: {e.msg}", f"syntax error at line {e.lineno}"
+        if e.lineno is None:
+            head, ok = f"syntax: error: {e.msg}", "syntax error"
+        else:
+            head, ok = f"syntax: error at line {e.lineno}: {e.msg}", f"syntax error at line {e.lineno}"
     body = "\n".join(f"{i:4d} | {l}" for i, l in enumerate(lines, 1))
     return head + "\n" + body + "\n", f"{len(lines)} lines, {ok}"
