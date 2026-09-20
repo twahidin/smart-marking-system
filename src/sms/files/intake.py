@@ -6,18 +6,20 @@ usual shape of "my whole folder"), drops the junk a Mac or Windows zip carries, 
 limits. The renderers in `sms.files.render` are deliberately cap-free — every cap lives here, so
 nothing oversized ever reaches storage or a model.
 
-Four caps, all checked before a byte is written: 12 program files per submission, 2 MB per entry,
-20 MB decompressed per zip, and `MAX_UPLOAD_BYTES` (50 MB) over the whole upload once unpacked —
-the last one because everything extracted from a zip is held in memory until `process_uploads`
-runs, and a handful of individually legal zips could otherwise add up to far more than the request
-body the 50 MB body cap let through.
+Four caps, all checked before a byte is written: 12 program files per submission, 2 MB per program
+file, 20 MB decompressed per zip, and `MAX_UPLOAD_BYTES` (50 MB) over the whole upload once
+unpacked — the last one because everything extracted from a zip is held in memory until
+`process_uploads` runs, and a handful of individually legal zips could otherwise add up to far more
+than the 50 MB body cap let through. Pages are deliberately not subject to the 2 MB per-file cap,
+zipped or loose: a phone scan or a PDF is routinely bigger, and `process_uploads` applies the page
+limits that do belong to them.
 """
 import io
 import zipfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import List, Optional, Set, Tuple
+from typing import List, Set, Tuple
 
 from sms.files.render import KIND_BY_EXT
 from sms.storage import IMAGE_EXTS, MAX_UPLOAD_BYTES, PDF_EXTS
@@ -100,13 +102,11 @@ def _charge(name: str, size: int, into: Intake, max_total_bytes: int) -> None:
         raise IntakeError("too_large", name, f"upload is over {max_total_bytes // (1024 * 1024)} MB once unpacked")
 
 
-def _add_page(name: str, data: bytes, into: Intake, max_total_bytes: int,
-              max_file_bytes: Optional[int] = None) -> None:
-    """A page. `max_file_bytes` is passed for a page extracted from a zip — a loose photo or PDF is
-    capped only by the request body, but a zip entry is decompressed here and must not be a bomb
-    that slipped under the per-archive budget."""
-    if max_file_bytes is not None and len(data) > max_file_bytes:
-        raise IntakeError("too_large", name, f"{name} is over {max_file_bytes // (1024 * 1024)} MB")
+def _add_page(name: str, data: bytes, into: Intake, max_total_bytes: int) -> None:
+    """A page — zipped or loose, the same rules either way. The 2 MB per-entry cap is for program
+    files only: a phone scan or a PDF is routinely bigger than that and must not be refused for it.
+    Pages are bounded by the per-archive 20 MB decompressed cap, the running total here, and
+    `process_uploads`' page-count and 50 MB limits afterwards."""
     _charge(name, len(data), into, max_total_bytes)
     into.pages.append((_unique(name, into), data))
 
@@ -161,7 +161,7 @@ def _expand_zip(name: str, data: bytes, into: Intake, max_files: int, max_file_b
                 continue
             entry = _read_entry(z, name, info)
             if ext in PAGE_EXTS:
-                _add_page(inner, entry, into, max_total_bytes, max_file_bytes=max_file_bytes)
+                _add_page(inner, entry, into, max_total_bytes)
             else:
                 _add_file(inner, entry, into, max_files, max_file_bytes, max_total_bytes)
             usable += 1

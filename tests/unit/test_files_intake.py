@@ -138,11 +138,18 @@ def test_aggregate_cap_is_overridable_and_counts_loose_uploads_too():
     assert it.total_bytes == 60
 
 
-def test_a_big_page_inside_a_small_zip_is_refused():
-    """A 19 MB PDF slips under the per-archive budget; the per-entry cap still catches it."""
+def test_zipped_pages_are_not_held_to_the_program_file_cap():
+    """The 2 MB per-file cap is for .py/.sb3/.xlsx. A scan is routinely bigger and must go through;
+    pages are bounded by the per-archive 20 MB cap, the running total, and process_uploads after."""
+    it = classify_uploads([("z.zip", _zip([("scan.pdf", b"0" * (3 * 1024 * 1024))]))])
+    assert [n for n, _ in it.pages] == ["scan.pdf"] and input_kind(it) == "pages"
+    # even a 19 MB PDF is legal on its own: it is under the 20 MB per-archive budget
+    it = classify_uploads([("z.zip", _zip([("big.pdf", b"0" * (19 * 1024 * 1024))]))])
+    assert [len(b) for _, b in it.pages] == [19 * 1024 * 1024]
+    # a .py of the same size is not — the program-file cap is unchanged
     with pytest.raises(IntakeError) as e:
-        classify_uploads([("z.zip", _zip([("scan.pdf", b"0" * (19 * 1024 * 1024))]))])
-    assert e.value.code == "too_large" and "scan.pdf" in e.value.message
+        classify_uploads([("z.zip", _zip([("huge.py", b"0" * (3 * 1024 * 1024))]))])
+    assert e.value.code == "too_large" and "huge.py" in e.value.message
 
 
 def test_duplicate_basenames_in_a_zip_are_suffixed():
