@@ -498,5 +498,8 @@ describe("AssignmentEditor — MT and Computing", () => {
     expect(screen.getByRole("radio", { name: "Auto — follow Settings" })).toBeChecked();
     expect(screen.getByText("Using Google Gemini · gemini-3.8-flash from the Computing default")).toBeInTheDocument();
     expect(screen.queryByText(/from Settings$/)).not.toBeInTheDocument();
+    // That default belongs to Computing: pick another subject and the caption stops claiming it.
+    await userEvent.click(screen.getByRole("radio", { name: "Maths" }));
+    expect(screen.getByText("Using OpenRouter · Auto Router from Settings")).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { ProbeResult, ProviderSpec, Settings as S } from "../api/types";
 import { Button } from "../components/Button";
 import { Notice } from "../components/Notice";
+import { SubjectModels } from "./settings/SubjectModels";
 
 type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean; delete_pages_after_marking: boolean;
               telegram_bot_token: string; telegram_instant: boolean; telegram_daily_time: string; timezone: string; app_url: string };
@@ -324,6 +325,9 @@ export function Settings() {
           <Button type="submit" variant="primary" size="lg" disabled={busy !== null || !modelId}>{busy === "save" ? "Saving…" : "Save"}</Button>
         </div>
       </form>
+      <div style={{ maxWidth: 720 }}>
+        <SubjectModels providers={providers} settings={saved} />
+      </div>
     </div>
   );
 }

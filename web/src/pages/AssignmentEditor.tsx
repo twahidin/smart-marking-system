@@ -211,6 +211,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
       .then((t) => {
         lastSavedRef.current = JSON.stringify(body);
         loadedRef.current = t.id;
+        if (t.effective_model) setEffective({ model: t.effective_model, subject: t.subject });
         setTemplateId(t.id);
         nav(`/assignments/${t.id}`, { replace: true });
         return t.id;
@@ -245,8 +246,10 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   };
 
   const put = async (id: number, body: AssignmentBody) => {
-    await api.put(`/api/assignments/${id}`, body);
+    const t = await api.put<AssignmentTemplate>(`/api/assignments/${id}`, body);
     lastSavedRef.current = JSON.stringify(body);
+    // The server recomputes what will run — the subject's default may differ from the last one's.
+    if (t?.effective_model) setEffective({ model: t.effective_model, subject: t.subject });
   };
 
   // Draft autosave: whenever focus leaves a field and something changed, store it (once the template exists).
@@ -437,7 +440,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
                   <input type="radio" name="model-mode" checked={draft.provider !== null} onChange={chooseOwnModel} />Choose a model
                 </label>
               </div>
-              {draft.provider === null && (effective?.model.source === "subject"
+              {draft.provider === null && (effective?.model.source === "subject" && effective.subject === draft.subject
                 ? <span className="help">Using {modelName(effective.model.provider, effective.model.model)} from the {subjectLabel[effective.subject]} default</span>
                 : settings && <span className="help">Using {modelName(settings.provider, settings.model)} from Settings</span>)}
               {draft.provider === null && providers.length > 0 && !anyKey && <span className="help">No keys saved yet — add one under Settings to choose a model here.</span>}
