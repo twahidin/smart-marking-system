@@ -67,7 +67,8 @@ def _validate_scheme(scheme_kind: str, scheme: Any) -> List[dict]:
 
 def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_kind: str, questions: Any,
               scheme: Any, delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
-              model: Optional[str] = None, extractor_model: Optional[str] = None, *,
+              model: Optional[str] = None, extractor_model: Optional[str] = None,
+              language: Optional[str] = None, *,
               db: Optional[Database] = None) -> Dict[str, Any]:
     title = title.strip()
     if not title:
@@ -75,7 +76,13 @@ def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_k
     try:
         subject = SubjectRouter().resolve(subject)
     except KeyError:
-        raise ApiError(400, "bad_subject", "Subject must be math, language or science")
+        raise ApiError(400, "bad_subject", "Subject must be math, language, science, mt or computing")
+    if subject == "mt":
+        language = (language or "").strip() or None
+        if language not in ("zh", "ms", "ta"):
+            raise ApiError(400, "bad_language", "Choose the Mother Tongue language (zh, ms or ta)")
+    else:
+        language = None
     rubric = parse_rubric(rubric_json)
     qs = _validate_questions(questions)
     sc = _validate_scheme(scheme_kind, scheme)
@@ -98,7 +105,7 @@ def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_k
         "scheme_kind": scheme_kind, "questions": json.dumps(qs) if qs else None,
         "scheme": json.dumps(sc) if sc else None,
         "delete_pages": None if delete_pages_after_marking is None else bool(delete_pages_after_marking),
-        "provider": provider, "model": model, "extractor_model": extractor_model,
+        "provider": provider, "model": model, "extractor_model": extractor_model, "language": language,
     }
 
 
@@ -146,6 +153,7 @@ def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool,
                  if provider else dict(global_model))
     return {
         "id": r["id"], "title": r["title"], "subject": r["subject"], "context": r["context"],
+        "language": r["language"],
         "rubric": rubric.model_dump(),
         "criteria_count": len(rubric.criterion_defs),
         "total_marks": sum(c.max_score for c in rubric.criterion_defs),
@@ -175,8 +183,8 @@ _COUNTS = ("(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id) AS
            "(SELECT COUNT(*) FROM class_assignments c WHERE c.template_id = t.id) AS class_assignment_count")
 
 _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, "
-           "scheme_json, delete_pages_after_marking, provider, model, extractor_model) VALUES (:title, :subject, "
-           ":context, :rubric, :scheme_kind, :questions, :scheme, :delete_pages, :provider, :model, :extractor_model) "
+           "scheme_json, delete_pages_after_marking, provider, model, extractor_model, language) VALUES (:title, :subject, "
+           ":context, :rubric, :scheme_kind, :questions, :scheme, :delete_pages, :provider, :model, :extractor_model, :language) "
            "RETURNING id")
 
 
@@ -199,9 +207,10 @@ def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
 def create_template(db: Database, *, title: str, subject: str, context: str, rubric_json: str,
                     scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
                     delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
-                    model: Optional[str] = None, extractor_model: Optional[str] = None) -> Dict[str, Any]:
+                    model: Optional[str] = None, extractor_model: Optional[str] = None,
+                    language: Optional[str] = None) -> Dict[str, Any]:
     fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking,
-                       provider, model, extractor_model, db=db)
+                       provider, model, extractor_model, language, db=db)
     tid = db.insert(_INSERT, fields)
     return get_template(db, tid)  # type: ignore[return-value]
 
@@ -209,19 +218,20 @@ def create_template(db: Database, *, title: str, subject: str, context: str, rub
 def update_template(db: Database, template_id: int, *, title: str, subject: str, context: str, rubric_json: str,
                     scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
                     delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
-                    model: Optional[str] = None, extractor_model: Optional[str] = None) -> Dict[str, Any]:
+                    model: Optional[str] = None, extractor_model: Optional[str] = None,
+                    language: Optional[str] = None) -> Dict[str, Any]:
     """Update the template's fields. The paper (pages with this template_id) is owned by
     attach_paper and is never touched here."""
     if get_template(db, template_id) is None:
         raise ApiError(404, "not_found", "No such assignment")
     fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking,
-                       provider, model, extractor_model, db=db)
+                       provider, model, extractor_model, language, db=db)
     fields["id"] = template_id
     db.execute(
         "UPDATE assignment_templates SET title = :title, subject = :subject, context = :context, "
         "rubric_json = :rubric, scheme_kind = :scheme_kind, questions_json = :questions, scheme_json = :scheme, "
         "delete_pages_after_marking = :delete_pages, provider = :provider, model = :model, "
-        "extractor_model = :extractor_model, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+        "extractor_model = :extractor_model, language = :language, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
         fields,
     )
     return get_template(db, template_id)  # type: ignore[return-value]
@@ -239,7 +249,7 @@ def duplicate_template(db: Database, template_id: int) -> Dict[str, Any]:
             "title": f"{r['title']} (copy)", "subject": r["subject"], "context": r["context"], "rubric": r["rubric_json"],
             "scheme_kind": r["scheme_kind"], "questions": r["questions_json"], "scheme": r["scheme_json"],
             "delete_pages": r["delete_pages_after_marking"], "provider": r["provider"], "model": r["model"],
-            "extractor_model": r["extractor_model"],
+            "extractor_model": r["extractor_model"], "language": r["language"],
         })
         tx.execute(
             "INSERT INTO pages (template_id, kind, page_index, sha256, storage_path, source_filename, width, height) "

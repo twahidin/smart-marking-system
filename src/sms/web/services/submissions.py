@@ -32,7 +32,7 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
     try:
         subject = SubjectRouter().resolve(subject)
     except KeyError:
-        raise ApiError(400, "bad_subject", "Subject must be math, language or science")
+        raise ApiError(400, "bad_subject", "Subject must be math, language, science, mt or computing")
     rubric = parse_rubric(rubric_json)
     if not files:
         raise ApiError(400, "no_files", "Add at least one page")

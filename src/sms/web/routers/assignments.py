@@ -30,13 +30,15 @@ class TemplateBody(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     extractor_model: Optional[str] = None
+    # Mother Tongue language (zh / ms / ta); ignored for every other subject
+    language: Optional[str] = None
 
 
 def _kwargs(body: TemplateBody) -> dict:
     return dict(title=body.title, subject=body.subject, context=body.context, rubric_json=json.dumps(body.rubric),
                 scheme_kind=body.scheme_kind, questions=body.questions, scheme=body.scheme,
                 delete_pages_after_marking=body.delete_pages_after_marking, provider=body.provider,
-                model=body.model, extractor_model=body.extractor_model)
+                model=body.model, extractor_model=body.extractor_model, language=body.language)
 
 
 @router.get("")

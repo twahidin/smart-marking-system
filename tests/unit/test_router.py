@@ -29,3 +29,11 @@ def test_router_language_and_science_have_prompt_data():
     for subject in ("language", "science"):
         cfg = router.marker_prompt_config(subject)
         assert cfg["background"] and cfg["steps"] and cfg["output_instructions"]
+
+
+def test_router_knows_mt_and_computing():
+    router = SubjectRouter()
+    assert router.resolve("mt") == "mt" and router.resolve("computing") == "computing"
+    for subject in ("mt", "computing"):
+        cfg = router.marker_prompt_config(subject)
+        assert cfg["background"] and cfg["reviewer_steps"]

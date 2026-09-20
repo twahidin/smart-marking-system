@@ -56,6 +56,30 @@ def test_validation_codes(auth):
     assert _create(auth, title="   ").status_code == 400
 
 
+def test_mt_requires_language(auth):
+    body = _body()
+    body["subject"] = "mt"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_language"
+    body["language"] = "zh"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 201 and r.json()["language"] == "zh"
+
+
+def test_language_ignored_for_other_subjects(auth):
+    body = _body()
+    body["language"] = "zh"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 201 and r.json()["language"] is None
+
+
+def test_computing_is_a_subject(auth):
+    body = _body()
+    body["subject"] = "computing"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 201 and r.json()["subject"] == "computing"
+
+
 def test_update(auth):
     t = _create(auth).json()
     r = auth.put(f"/api/assignments/{t['id']}", json={"title": "Renamed", "subject": "science", "context": "ctx",

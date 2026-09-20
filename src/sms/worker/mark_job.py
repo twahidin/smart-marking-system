@@ -74,7 +74,7 @@ def _v2_template(db: Database, assignment_id: Optional[int], uploaded_kind: Opti
     non-retryable error rather than marked with the wrong pipeline — and then having its pages deleted."""
     if assignment_id is None:
         return None
-    rows = db.query("SELECT subject, context, scheme_kind, questions_json, scheme_json FROM assignment_templates "
+    rows = db.query("SELECT subject, context, scheme_kind, questions_json, scheme_json, language FROM assignment_templates "
                     "WHERE id = :id", {"id": assignment_id})
     if not rows:
         raise RuntimeError("The assignment this script was uploaded for has been deleted — upload it again against "
@@ -90,6 +90,7 @@ def _v2_template(db: Database, assignment_id: Optional[int], uploaded_kind: Opti
         "subject": t["subject"], "context": t["context"] or "", "scheme_kind": t["scheme_kind"],
         "questions": json.loads(t["questions_json"]) if t["questions_json"] else [],
         "scheme": json.loads(t["scheme_json"]) if t["scheme_json"] else [],
+        "language": t["language"],
     }
 
 
