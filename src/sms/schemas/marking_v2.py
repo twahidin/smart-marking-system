@@ -90,7 +90,14 @@ class ReviewVerdictV2(BaseModel):
     reviewer_note: str = Field(default="", description="Reviewer's reasoning")
 
 
+class DoublePenalty(BaseModel):
+    error: str = Field(description="The single slip that was deducted more than once, in the marker's words")
+    q_ids: List[str] = Field(min_length=2, description="Parts / criteria where it was deducted, first occurrence first")
+
+
 class ReviewedScriptV2(BaseIOSchema):
     """Reviewer output (v2): one verdict per marked part or criterion."""
 
     verdicts: List[ReviewVerdictV2] = Field(default_factory=list, description="One verdict per part / criterion")
+    double_penalties: List[DoublePenalty] = Field(default_factory=list,
+        description="Errors the marker deducted in more than one part or criterion; empty when none")

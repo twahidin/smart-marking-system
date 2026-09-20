@@ -6,6 +6,7 @@ from sms.schemas.extraction import ExtractedQuestion, ExtractedScript
 from sms.schemas.marking import ReviewVerdict
 from sms.schemas.marking_v2 import (
     AllocationMark,
+    DoublePenalty,
     MarkedScriptV2,
     MarkingInputV2,
     PartMark,
@@ -98,6 +99,21 @@ def test_review_schemas_v2():
     assert ReviewedScriptV2(verdicts=[v, rv, plain]).verdicts[2].verdict is ReviewVerdict.APPROVE
 
 
+def test_double_penalty_needs_at_least_two_parts():
+    dp = DoublePenalty(error="sign error in 1a", q_ids=["1a", "1b"])
+    assert dp.q_ids == ["1a", "1b"]
+    with pytest.raises(ValidationError):
+        DoublePenalty(error="sign error", q_ids=["1a"])
+
+
+def test_reviewed_script_v2_double_penalties_defaults_empty():
+    empty = ReviewedScriptV2(verdicts=[])
+    assert empty.double_penalties == []
+    flagged = ReviewedScriptV2(verdicts=[], double_penalties=[DoublePenalty(error="carried the same slip twice",
+                                                                             q_ids=["1a", "1b"])])
+    assert flagged.double_penalties[0].error == "carried the same slip twice"
+
+
 def test_scheme_prompt_configs_have_marker_and_reviewer_keys():
     keys = {"background", "steps", "output_instructions", "reviewer_background", "reviewer_steps",
             "reviewer_output_instructions"}
@@ -105,7 +121,10 @@ def test_scheme_prompt_configs_have_marker_and_reviewer_keys():
         assert keys <= set(cfg) and all(cfg[k] for k in keys)
     joined = " ".join(" ".join(v) for v in scheme_prompts.MARK_SCHEME.values()).lower()
     assert "in_scheme" in joined and "never invent" in joined and "method" in joined
-    assert "band" in " ".join(" ".join(v) for v in scheme_prompts.RUBRIC.values()).lower()
+    assert "double_penalties" in joined and "never deduct the same slip twice" in joined
+    rubric_joined = " ".join(" ".join(v) for v in scheme_prompts.RUBRIC.values()).lower()
+    assert "band" in rubric_joined
+    assert "a weakness counts once" in rubric_joined and "double_penalties" in rubric_joined
 
 
 def test_router_scheme_prompt_config():

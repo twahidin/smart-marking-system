@@ -14,6 +14,7 @@ from sms.records import builder
     ("marker/reviewer disagree", "Marker and reviewer disagreed"),
     ("low confidence", "Low confidence"),
     ("input truncated", "The files were too large to read completely — check this part against the original"),
+    ("double penalty", "The reviewer found the same error deducted twice — decide which part keeps the deduction"),
     # v1 (marking_pipeline)
     ("illegible transcription", "Unclear handwriting"),
     ("low marker confidence", "Low confidence"),
@@ -34,8 +35,9 @@ def test_every_reason_the_v2_pipeline_can_store_has_a_sentence():
     from sms.pipeline import marking_pipeline_v2 as p2
     from sms.reasons import REASON_TEXT
 
-    codes = {p2.ILLEGIBLE, p2.NOT_IN_SCHEME, p2.REVIEWER_ESCALATED, p2.DISAGREE, p2.LOW_CONFIDENCE, p2.INPUT_TRUNCATED}
-    assert len(codes) == 6 and codes <= set(REASON_TEXT)
+    codes = {p2.ILLEGIBLE, p2.NOT_IN_SCHEME, p2.REVIEWER_ESCALATED, p2.DISAGREE, p2.LOW_CONFIDENCE, p2.INPUT_TRUNCATED,
+             p2.DOUBLE_PENALTY}
+    assert len(codes) == 7 and codes <= set(REASON_TEXT)
 
 
 def test_record_builder_uses_the_shared_mapping():
