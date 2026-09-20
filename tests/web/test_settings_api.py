@@ -233,14 +233,6 @@ def test_removing_a_key_assignments_are_pinned_to_needs_force(auth):
     assert auth.delete("/api/settings/keys/tokenrouter").status_code == 204
 
 
-@pytest.fixture
-def auth_with_google_key(auth):
-    """Logged in, with a saved key for google — the provider the subject-model tests pin to."""
-    auth.put("/api/settings", json={"provider": "google", "model": "gemini-3.8-flash", "api_key": "g-key-1234",
-                                    "rpm_limit": 10, "confidence_threshold": 0})
-    return auth
-
-
 def test_subject_models_crud(auth_with_google_key):
     c = auth_with_google_key
     assert c.get("/api/settings/subject-models").json() == {"math": None, "language": None, "science": None, "mt": None, "computing": None}

@@ -119,6 +119,19 @@ def _global_model(db: Database) -> Dict[str, Optional[str]]:
     return {"provider": r["provider"], "model": r["model"], "extractor_model": r["extractor_model"] or None}
 
 
+def _effective_models_by_subject(db: Database) -> Dict[str, Dict[str, Any]]:
+    """Per known subject, the model a template in it falls back to when it does not pin one of its
+    own: that subject's saved default when one is saved and its provider still has a key, else the
+    global Settings model. Computed once per listing — there are only a handful of subjects."""
+    settings_default = {**_global_model(db), "source": "settings"}
+    out: Dict[str, Dict[str, Any]] = {s: settings_default for s in SubjectRouter.KNOWN_SUBJECTS}
+    for r in db.query("SELECT subject, provider, model, extractor_model FROM subject_models"):
+        if r["subject"] in out and SettingsStore.has_key_for(db, r["provider"]):
+            out[r["subject"]] = {"provider": r["provider"], "model": r["model"],
+                                 "extractor_model": r["extractor_model"] or None, "source": "subject"}
+    return out
+
+
 def global_delete_pages_default(db: Database) -> bool:
     """The Settings default for deleting a script's pages once it is done (True until saved otherwise)."""
     rows = db.query("SELECT delete_pages_after_marking FROM settings WHERE id = 1")
@@ -144,13 +157,14 @@ def _template_pages(db: Database, template_ids: List[int]) -> Dict[int, Dict[str
 
 
 def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool,
-                 global_model: Dict[str, Optional[str]]) -> Dict[str, Any]:
+                 effective_models: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     rubric = Rubric.model_validate_json(r["rubric_json"])
     flag = r["delete_pages_after_marking"]
     flag = None if flag is None else bool(flag)
     provider = r["provider"] or None
-    effective = ({"provider": provider, "model": r["model"] or None, "extractor_model": r["extractor_model"] or None}
-                 if provider else dict(global_model))
+    effective = ({"provider": provider, "model": r["model"] or None, "extractor_model": r["extractor_model"] or None,
+                  "source": "assignment"}
+                 if provider else dict(effective_models[r["subject"]]))
     return {
         "id": r["id"], "title": r["title"], "subject": r["subject"], "context": r["context"],
         "language": r["language"],
@@ -192,8 +206,8 @@ def list_templates(db: Database) -> List[Dict[str, Any]]:
     rows = db.query(f"SELECT t.*, {_COUNTS} FROM assignment_templates t ORDER BY times_used DESC, updated_at DESC, id DESC")
     pages = _template_pages(db, [r["id"] for r in rows])
     default = global_delete_pages_default(db)
-    gm = _global_model(db)
-    return [_row_to_dict(r, pages[r["id"]], default, gm) for r in rows]
+    em = _effective_models_by_subject(db)
+    return [_row_to_dict(r, pages[r["id"]], default, em) for r in rows]
 
 
 def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
@@ -201,7 +215,7 @@ def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
     if not rows:
         return None
     return _row_to_dict(rows[0], _template_pages(db, [template_id])[template_id],
-                        global_delete_pages_default(db), _global_model(db))
+                        global_delete_pages_default(db), _effective_models_by_subject(db))
 
 
 def create_template(db: Database, *, title: str, subject: str, context: str, rubric_json: str,

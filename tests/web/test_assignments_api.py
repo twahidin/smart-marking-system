@@ -80,6 +80,15 @@ def test_computing_is_a_subject(auth):
     assert r.status_code == 201 and r.json()["subject"] == "computing"
 
 
+def test_effective_model_reports_source(auth_with_google_key):
+    c = auth_with_google_key
+    c.put("/api/settings/subject-models/computing", json={"provider": "google", "model": "gemini-3.8-flash"})
+    t = _create(c, subject="computing").json()
+    assert t["effective_model"] == {"provider": "google", "model": "gemini-3.8-flash", "extractor_model": None, "source": "subject"}
+    t2 = _create(c, subject="math").json()
+    assert t2["effective_model"]["source"] == "settings"
+
+
 def test_update(auth):
     t = _create(auth).json()
     r = auth.put(f"/api/assignments/{t['id']}", json={"title": "Renamed", "subject": "science", "context": "ctx",
@@ -431,7 +440,8 @@ def test_template_model_override_requires_a_saved_key(auth):
     assert r.status_code == 400 and r.json()["error"]["code"] == "no_key_for_provider"
     _with_key(auth)   # saves an OpenAI key
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": "gpt-5.5", "extractor_model": "gpt-5-mini"})
-    assert r.status_code == 200 and r.json()["effective_model"] == {"provider": "openai", "model": "gpt-5.5", "extractor_model": "gpt-5-mini"}
+    assert r.status_code == 200 and r.json()["effective_model"] == {"provider": "openai", "model": "gpt-5.5",
+                                                                     "extractor_model": "gpt-5-mini", "source": "assignment"}
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": ""})
     assert r.json()["model"] == "gpt-5-mini"                      # blank model -> provider default
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": ""})

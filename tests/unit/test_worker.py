@@ -638,6 +638,26 @@ def test_run_mark_job_stamps_provider_and_model_on_the_run(env):
     assert (row["provider"], row["model"]) == ("openai", "gpt-5-mini")
 
 
+def test_mark_job_uses_the_subject_default_model_when_no_pin(env):
+    """An assignment with no provider of its own still picks up its subject's saved default,
+    end to end through get_template -> for_template -> the pipeline factory's settings."""
+    db, store, storage, sid = env
+    db.execute("INSERT INTO provider_keys (provider, api_key_enc) VALUES (?, ?)",
+              ("google", store.cipher.encrypt("g-key-9999")))
+    db.execute("INSERT INTO subject_models (subject, provider, model) VALUES ('math', 'google', 'gemini-3.8-pro')")
+    tid = db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json) VALUES "
+                    "('T', 'math', '', '{\"criterion_defs\": [{\"id\": \"c1\", \"description\": \"d\", \"max_score\": 2}]}') RETURNING id")
+    db.execute("UPDATE submissions SET assignment_id = ?, scheme_kind = 'criteria' WHERE id = ?", (tid, sid))
+    seen = {}
+
+    def factory(**kw):
+        seen["settings"] = kw["settings"]; return RunRowPipeline(db)
+
+    run_mark_job(db, storage, store, sid, pipeline_factory=factory)
+    assert (seen["settings"].provider, seen["settings"].model, seen["settings"].api_key) == ("google", "gemini-3.8-pro", "g-key-9999")
+    assert db.query("SELECT provider, model FROM marking_runs WHERE run_id = 'r1'")[0]["provider"] == "google"
+
+
 def test_mark_job_uses_the_assignments_own_model_and_bucket(env):
     db, store, storage, sid = env
     store.save(Settings(provider="openrouter", model="z-ai/glm-5.3-flash", api_key="or-key", rpm_limit=60))

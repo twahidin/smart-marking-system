@@ -35,3 +35,11 @@ def auth(client):
     r = client.post("/api/auth/login", json={"password": "letmein"})
     assert r.status_code == 204
     return client
+
+
+@pytest.fixture
+def auth_with_google_key(auth):
+    """Logged in, with a saved key for google — the provider the subject-model tests pin to."""
+    auth.put("/api/settings", json={"provider": "google", "model": "gemini-3.8-flash", "api_key": "g-key-1234",
+                                    "rpm_limit": 10, "confidence_threshold": 0})
+    return auth
