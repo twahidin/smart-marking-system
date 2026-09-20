@@ -208,6 +208,13 @@ class SettingsStore:
         """The settings a job for this assignment runs with, resolved in three steps: the
         template's own pin, else its subject's saved default, else the global Settings.
 
+        A subject default is skipped for the global Settings only when its provider has no saved
+        key *row* at all — the same `has_key_for` check the template list uses to decide whether to
+        show it as the source, so the two never disagree. A row that exists but fails to decrypt
+        (wrong SECRET_KEY) still overlays: `api_key` comes back None and the job fails with the
+        usual "No API key configured" error, exactly like a pin whose key won't decrypt — never a
+        silent fallback to Settings.
+
         The saved `base_url` belongs to the global provider, so it only survives when the resolved
         provider is that same one — pointing another provider at it would send the call to the
         wrong host."""
@@ -219,8 +226,11 @@ class SettingsStore:
         sub = self.subject_default(tpl.get("subject"))
         if sub is None:
             return s
-        if not self.key_for(sub["provider"]):
-            logger.info("subject default for %s ignored: no saved key for %s", tpl.get("subject"), sub["provider"])
+        if not self.has_key_for(self.db, sub["provider"]):
+            # Same check the template list uses to decide whether to show this default as the
+            # source — a row that exists but no longer decrypts still overlays below, so the UI
+            # and the job agree: both fall back to Settings only when there is truly no key saved.
+            logger.info("subject default for %s ignored: no saved key row for %s", tpl.get("subject"), sub["provider"])
             return s
         return self._overlay(s, sub["provider"], sub["model"], sub["extractor_model"])
 
