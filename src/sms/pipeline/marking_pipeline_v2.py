@@ -11,7 +11,7 @@ from sms.memory.db import Database
 from sms.memory.extraction_cache import ExtractionCache
 from sms.pipeline.marking_pipeline import image_from_bytes
 from sms.pipeline.router import SubjectRouter
-from sms.reasons import INPUT_TRUNCATED
+from sms.reasons import DOUBLE_PENALTY, INPUT_TRUNCATED
 from sms.schemas.extraction import ExtractionInput, ExtractedScript
 from sms.schemas.feedback import FeedbackInput, FeedbackReport
 from sms.schemas.marking import MarkedQuestion, MarkedScript, ReviewVerdict, ReviewVerdictItem, ReviewedScript
@@ -331,9 +331,38 @@ class MarkingPipelineV2:
             if key not in rows_by_key:  # invented part / criterion: kept as the marker's proposal, teacher decides
                 final.append(_out_of_scheme(m))
                 escalations[key] = NOT_IN_SCHEME
+        self._apply_double_penalties(final, reviewed, escalations)
         if self.kind == "mark_scheme":
             return MarkedScriptV2(kind="mark_scheme", parts=final), escalations  # type: ignore[arg-type]
         return MarkedScriptV2(kind="rubric", rubric=final), escalations  # type: ignore[arg-type]
+
+    def _apply_double_penalties(self, final: List[Mark], reviewed: ReviewedScriptV2, escalations: Dict[str, str]) -> None:
+        """The reviewer names, per double_penalties entry, every part/criterion the same slip cost marks
+        in, first occurrence first. The first deduction stands; every later one is restored (the single
+        lost allocation is un-lost, for a rubric the band and marks are untouched) unless it is already
+        escalated for a stronger reason, or which allocation to restore is ambiguous (more than one lost
+        allocation on a mark-scheme part) — that case is escalated instead of guessed."""
+        by_key = {_key(m): m for m in final}
+        for dp in reviewed.double_penalties:
+            keys = [norm_qid(q) if self.kind == "mark_scheme" else q for q in dp.q_ids]
+            first, later = keys[0], keys[1:]
+            for key in later:
+                m = by_key.get(key)
+                if m is None or key in escalations:
+                    continue
+                if isinstance(m, PartMark):
+                    lost = [a for a in m.awarded if not a.got]
+                    if len(lost) == 1:
+                        lost[0].got = True
+                        lost[0].why = f"already penalised in {first}"
+                        m.total = sum(a.marks for a in m.awarded if a.got)
+                        m.justification = (m.justification + f" {lost[0].label} restored: '{dp.error}' already "
+                                          f"penalised in {first}.").strip()
+                    elif lost:
+                        escalations[key] = DOUBLE_PENALTY  # which allocation to restore is the teacher's call
+                else:
+                    m.justification = (m.justification + f" Reviewer: '{dp.error}' already penalised under "
+                                       f"{first}; band kept.").strip()
 
     def _merge_one(self, m: Mark, row: Any, verdict, illegible: bool) -> Tuple[Mark, Optional[str]]:
         # Reason priority: illegible -> not in scheme -> reviewer escalated -> disagree -> low confidence.
