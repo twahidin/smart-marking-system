@@ -128,6 +128,11 @@ the subject default when one exists ("Using Qwen · qwen3.6-vl from the MT defau
 - **Submission detail**: a *Files* block (name, size, kind, rendered text expandable, unmatched note) beside the page
   strip when both exist.
 - **Settings**: the *By subject* model table (§D).
+- **Photos are downsized before upload on every path** — student hand-in (already), the teacher's per-student drop,
+  the teacher's *New submission* drop and the images inside a bulk zip (browser-side where the browser sees the
+  file; server-side `_normalise` remains the backstop): long edge ≤ 2000 px, JPEG q0.85, EXIF orientation applied,
+  so a 12 MP phone photo becomes ~400 KB before it leaves the device. The hand-in and upload lists show the
+  reduced size next to each photo.
 
 ## F. Errors and limits
 
