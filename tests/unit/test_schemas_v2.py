@@ -114,3 +114,34 @@ def test_router_scheme_prompt_config():
     assert router.scheme_prompt_config("rubric") is scheme_prompts.RUBRIC
     with pytest.raises(KeyError):
         router.scheme_prompt_config("criteria")
+
+
+def test_text_segment_input_carries_every_source_and_the_paper_parts():
+    from sms.schemas.segment import TextSegmentInput, TextSource
+
+    inp = TextSegmentInput(assignment_context="computing submission, 1 part(s)",
+                           questions=[Question(q_id="1", text="Print 1", max_marks=1)],
+                           sources=[TextSource(name="handwritten pages", text="[1] plan"),
+                                    TextSource(name="prog.py", text="   1 | print(1)")])
+    assert [s.name for s in inp.sources] == ["handwritten pages", "prog.py"]
+    assert isinstance(inp.questions[0], Question) and inp.model_dump()["sources"][1]["text"] == "   1 | print(1)"
+    # questions is optional (a paper with no listed parts), sources is not
+    assert TextSegmentInput(assignment_context="c", sources=[]).questions == []
+    with pytest.raises(ValidationError):
+        TextSegmentInput(assignment_context="c")
+
+
+def test_text_segmenter_asks_for_the_source_tag_the_detail_page_matches_on():
+    """get_submission marks a file as used when the transcription contains "[<file name>", so the
+    segmenter's instructions must ask for exactly that prefix."""
+    import instructor
+    import openai
+
+    from sms.agents.text_segmenter import build_text_segmenter
+    from sms.schemas.segment import TextSegmentInput
+
+    agent = build_text_segmenter(client=instructor.from_openai(openai.OpenAI(api_key="x")), model="m")
+    assert agent.input_schema is TextSegmentInput and agent.output_schema is ExtractedScript
+    prompt = agent.system_prompt_generator.generate_prompt()
+    assert "[prog.py L12-30]" in prompt and "[results.xlsx Marks!B4]" in prompt and "[handwritten pages]" in prompt
+    assert "verbatim" in prompt.lower() and "one ExtractedQuestion per listed part" in prompt
