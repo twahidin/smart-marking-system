@@ -367,10 +367,11 @@ class FakePipelineV2:
     def __init__(self, escalations):
         self.escalations = escalations
         self.calls = []
+        self.files = None
 
     def run(self, images, template, submission_id=None, files=None):
-        self.calls.append((images, template, submission_id))
         self.files = list(files or [])
+        self.calls.append((images, template, submission_id, self.files))
         from sms.pipeline.marking_pipeline_v2 import MarkingResultV2
         from sms.schemas.extraction import ExtractedScript
         from sms.schemas.marking_v2 import MarkedScriptV2
@@ -405,7 +406,8 @@ def test_run_mark_job_uses_v2_pipeline_for_mark_scheme_assignment(env):
     run_mark_job(db, storage, store, sid, pipeline_factory=factory)
     # the assignment's subject drives the v2 path (the submission row says 'math')
     assert seen["kind"] == "mark_scheme" and seen["subject"] == "science" and seen["db"] is db
-    images, template, sub_id = fp.calls[0]
+    images, template, sub_id, files = fp.calls[0]
+    assert files == []  # a photographed script hands the pipeline no files
     assert images == [b"\xff\xd8\xffjpegbytes"] and sub_id == sid
     assert template["scheme_kind"] == "mark_scheme" and template["subject"] == "science" and template["context"] == "ECF applies"
     assert template["questions"][0]["q_id"] == "1a" and template["scheme"][0]["marks"][0]["label"] == "B2"
@@ -433,6 +435,7 @@ def test_run_mark_job_renders_the_submitted_files_for_the_v2_pipeline(env):
     fp = FakePipelineV2(escalations={})
     run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: fp)
     assert fp.calls[0][0] == []  # no images
+    assert fp.calls[0][3] is fp.files
     assert [(f.name, f.kind) for f in fp.files] == [("prog.py", "py")] and "print(1)" in fp.files[0].text
     assert "print(1)" in db.query("SELECT text_rendered FROM submission_files WHERE id = ?", (fid,))[0]["text_rendered"]
 

@@ -62,10 +62,37 @@ def _marks_of(m: Mark) -> int:
 
 
 def _sources_from_extracted(ex: ExtractedScript) -> str:
-    """A page transcription flattened into one text source for the segmenter, each part tagged with the
-    q_id the extractor gave it so the segmenter can line the pages up with the files."""
-    return "\n\n".join(f"[{q.q_id}] {q.transcribed_answer}" + (f"\n{q.workings}" if q.workings else "")
-                       for q in ex.questions)
+    """A page transcription flattened into one text source for the segmenter, each part carrying the
+    same source tag the segmenter is asked to quote back — "[handwritten pages q1a] …" — so a part the
+    pages answer is cited in the form the detail page matches on. A part with nothing transcribed is
+    left out entirely rather than contributing a bare tag for the segmenter to copy."""
+    blocks = []
+    for q in ex.questions:
+        if not (q.transcribed_answer.strip() or q.workings.strip()):
+            continue
+        block = f"[handwritten pages q{q.q_id}] {q.transcribed_answer}".rstrip()
+        if q.workings.strip():
+            block += f"\n{q.workings}"
+        blocks.append(block)
+    return "\n\n".join(blocks)
+
+
+def _carry_page_doubts(vision: ExtractedScript, segmented: ExtractedScript) -> ExtractedScript:
+    """The segmenter reads the page transcription as plain text: it cannot tell which of it the vision
+    extractor could not actually read. Carry that doubt across a mixed submission — a part the pages
+    flagged illegible stays illegible (and keeps the lower confidence of the two) so the merge still
+    sends it to the teacher rather than marking a guess."""
+    doubted = {norm_qid(q.q_id): q for q in vision.questions if q.needs_human_transcription}
+    if not doubted:
+        return segmented
+    out = []
+    for q in segmented.questions:
+        v = doubted.get(norm_qid(q.q_id))
+        if v is not None:
+            q = q.model_copy(update={"needs_human_transcription": True,
+                                     "confidence": min(q.confidence, v.confidence)})
+        out.append(q)
+    return ExtractedScript(questions=out)
 
 
 class Normalised(NamedTuple):
@@ -195,6 +222,7 @@ class MarkingPipelineV2:
             extracted = self._extract(images, subject, questions, notes)
         else:
             sources: List[TextSource] = []
+            vision: Optional[ExtractedScript] = None
             if images:
                 # Mixed: the pages are transcribed as usual, and that transcription is handed to the
                 # segmenter as a source so one agent sees the whole submission at once.
@@ -202,6 +230,8 @@ class MarkingPipelineV2:
                 sources.append(TextSource(name="handwritten pages", text=_sources_from_extracted(vision)))
             sources += [TextSource(name=f.name, text=f.text) for f in files]
             extracted = self._segment(sources, subject, questions, notes)
+            if vision is not None:
+                extracted = _carry_page_doubts(vision, extracted)
         marked = self.marker.run(MarkingInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                 scheme=scheme, notes=notes))
         reviewed = self.reviewer.run(ReviewInputV2(kind=self.kind, extracted=extracted, questions=questions,

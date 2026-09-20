@@ -78,7 +78,38 @@ def test_mixed_feeds_transcription_into_segmenter(db, png_bytes):
     assert len(vision.calls) == 1 and len(seg.calls) == 1
     assert isinstance(vision.calls[0], ExtractionInput)
     assert [s.name for s in seg.calls[0].sources] == ["handwritten pages", "s.xlsx"]
-    assert "[1] [prog.py L1-3] print(1)" in seg.calls[0].sources[0].text
+    # the pages arrive tagged in the same form the segmenter is asked to quote back
+    assert "[handwritten pages q1] [prog.py L1-3] print(1)" in seg.calls[0].sources[0].text
+
+
+def test_an_unanswered_page_part_is_left_out_of_the_page_source(db, png_bytes):
+    """A part with nothing on the pages must not contribute a bare tag for the segmenter to copy."""
+    blank = ExtractedScript(questions=[ExtractedQuestion(q_id="1", transcribed_answer="  ", workings="",
+                                                         confidence=0.4)])
+    vision, seg = Fake(blank), Fake(EX)
+    p = _pipeline(db, vision, seg)
+    p.run(images=[png_bytes], template=_template(), files=[Rendered("prog.py", "py", "x", "1 line", False)])
+    assert seg.calls[0].sources[0].text == ""
+
+
+def test_mixed_keeps_the_pages_illegible_flag_through_the_segmenter(db, png_bytes):
+    """The segmenter reads the transcription as text and cannot tell what the camera could not read:
+    a part the pages flagged illegible still reaches the teacher."""
+    illegible = ExtractedScript(questions=[ExtractedQuestion(q_id="1", transcribed_answer="x", workings="",
+                                                             confidence=0.2, needs_human_transcription=True)])
+    p = _pipeline(db, Fake(illegible), Fake(EX))
+    res = p.run(images=[png_bytes], template=_template(),
+                files=[Rendered("s.xlsx", "xlsx", "sheet Marks\n  B1 = 1\n", "1 sheet", False)])
+    assert res.escalations == {"1": "illegible"}
+    assert res.extracted.questions[0].needs_human_transcription is True
+    assert res.extracted.questions[0].confidence == 0.2  # the lower of the two
+
+
+def test_files_only_never_inherits_a_page_flag(db):
+    """No pages, nothing to carry: the segmenter's own confidence stands."""
+    p = _pipeline(db, Fake(EX), Fake(EX))
+    res = p.run(images=[], template=_template(), files=[Rendered("prog.py", "py", "x", "1 line", False)])
+    assert res.escalations == {} and res.extracted.questions[0].confidence == 0.9
 
 
 def test_pages_only_never_calls_segmenter(db, png_bytes):

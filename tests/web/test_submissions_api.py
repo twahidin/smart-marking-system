@@ -370,6 +370,21 @@ def test_upload_python_file_creates_files_submission(auth):
     assert d["files"][0]["deleted"] is False and d["files"][0]["matched"] is False
 
 
+def test_a_file_cited_only_in_workings_still_counts_as_used(auth, app):
+    """The segmenter puts supporting sources — a helper module, the cells a formula depends on — in
+    `workings`, so both halves of a part decide whether a file was read."""
+    extracted = {"questions": [{"q_id": "1a", "transcribed_answer": "[prog.py L1-2] print(1)",
+                                "workings": "[utils.py L4-9] def helper(): return 1",
+                                "confidence": 0.9, "needs_human_transcription": False}]}
+    sid, _ = seed_v2(app, extracted=extracted, queue={})
+    for name in ("prog.py", "utils.py", "spare.py"):
+        app.state.db.execute("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path) "
+                             "VALUES (:s, :n, 'py', 1, :h, :p)",
+                             {"s": sid, "n": name, "h": f"h-{name}", "p": f"files/aa/{name}"})
+    d = auth.get(f"/api/submissions/{sid}").json()
+    assert {f["name"]: f["matched"] for f in d["files"]} == {"prog.py": True, "utils.py": True, "spare.py": False}
+
+
 def test_mixed_upload(auth):
     tid = _tpl_v2(auth)
     r = auth.post("/api/submissions", data=_data(tid, label="S2"),

@@ -425,12 +425,14 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
         feedback = json.loads(run["feedback_json"]) if run["feedback_json"] else None
         totals = compute_totals(rubric, marks, set(pending), corrections) if marks else None
     # `matched`: did the marker's transcription actually cite this file? The extractor tags what it
-    # read from a file with "[<name> …]", so a file whose tag never appears was not used. Before any
-    # run there is no transcription, so nothing is matched. Reuses the `extracted` already parsed
-    # for the parts above, and is skipped entirely for the usual pages-only script.
+    # read from a file with "[<name> …]", so a file whose tag never appears was not used. Both halves
+    # of a part count: a helper function or a cell an answer depends on is cited in `workings`, not in
+    # `transcribed_answer`, and that file was read just as much. Before any run there is no
+    # transcription, so nothing is matched. Reuses the `extracted` already parsed for the parts above,
+    # and is skipped entirely for the usual pages-only script.
     files: List[dict] = []
     if file_rows:
-        extracted_text = " ".join(q.get("transcribed_answer", "") or ""
+        extracted_text = " ".join(f"{q.get('transcribed_answer') or ''} {q.get('workings') or ''}"
                                   for q in (extracted.get("questions") or []) if isinstance(q, dict))
         files = [{"id": f["id"], "name": f["name"], "kind": f["kind"], "size": f["size"],
                   "text_rendered": f["text_rendered"], "deleted": f["deleted_at"] is not None,

@@ -42,6 +42,8 @@ def build_text_segmenter(client: Any, model: str = "gpt-5-mini", model_api_param
                     "exactly as it is given to you, a space, the location, then a closing bracket — "
                     "'[prog.py L12-30]', '[results.xlsx Marks!B4]', '[handwritten pages]'. Never shorten, re-spell or "
                     "drop the name: a file whose tag never appears is reported to the teacher as unread.",
+                    "Every source that contributed anywhere must be cited by its tag at least once in a "
+                    "transcribed_answer or workings.",
                     "Never paraphrase code, formulas or block text; quote them.",
                 ],
             ),

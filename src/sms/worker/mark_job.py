@@ -139,17 +139,18 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
     # `pages` is empty for a files-only submission: the images list below is then [] and the pipeline
     # segments the files instead of calling vision.
     images = [storage.read(p["storage_path"]) for p in pages]
-    rendered = _rendered_files(db, storage, submission_id)
     factory = pipeline_factory or _default_pipeline_factory
     template = _v2_template(db, sub.get("assignment_id"), sub.get("scheme_kind"))
     if template is not None:
         # the assignment's subject drives prompts/providers and the run row; the pipeline reads the same key
         pipeline = factory(db=db, settings=settings, subject=template["subject"], bucket=bucket, kind=template["scheme_kind"])
-        result = pipeline.run(images=images, template=template, submission_id=submission_id, files=rendered)
+        result = pipeline.run(images=images, template=template, submission_id=submission_id,
+                              files=_rendered_files(db, storage, submission_id))
     else:
-        if rendered:
+        if db.query("SELECT 1 FROM submission_files WHERE submission_id = :id LIMIT 1", {"id": submission_id}):
             # Unreachable: create_submission refuses files without a mark scheme or rubric. Kept so a row
-            # that gets here some other way is refused rather than marked with the files silently dropped.
+            # that gets here some other way is refused rather than marked with the files silently dropped
+            # — and refused before anything is rendered.
             raise RuntimeError("Files need an assignment with a mark scheme or rubric")
         rubric = Rubric.model_validate_json(sub["rubric_json"])
         pipeline = factory(db=db, settings=settings, subject=sub["subject"], bucket=bucket)
