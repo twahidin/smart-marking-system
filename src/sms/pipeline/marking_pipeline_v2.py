@@ -6,10 +6,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
+from sms.files.render import Rendered
 from sms.memory.db import Database
 from sms.memory.extraction_cache import ExtractionCache
 from sms.pipeline.marking_pipeline import image_from_bytes
 from sms.pipeline.router import SubjectRouter
+from sms.reasons import INPUT_TRUNCATED
 from sms.schemas.extraction import ExtractionInput, ExtractedScript
 from sms.schemas.feedback import FeedbackInput, FeedbackReport
 from sms.schemas.marking import MarkedQuestion, MarkedScript, ReviewVerdict, ReviewVerdictItem, ReviewedScript
@@ -24,8 +26,11 @@ from sms.schemas.marking_v2 import (
     RubricMark,
 )
 from sms.schemas.scheme import MarkSchemeEntry, Question, RubricCriterionBands, norm_qid
+from sms.schemas.segment import TextSegmentInput, TextSource
 
-# The only strings written to teacher_queue.reason by this pipeline.
+# The only strings written to teacher_queue.reason by this pipeline. Each one needs a teacher-facing
+# sentence in sms.reasons.REASON_TEXT (INPUT_TRUNCATED is defined there because the intake side
+# names it too).
 ILLEGIBLE = "illegible"
 NOT_IN_SCHEME = "not in scheme"
 REVIEWER_ESCALATED = "reviewer escalated"
@@ -54,6 +59,13 @@ def _row_key(row: Any) -> str:
 
 def _marks_of(m: Mark) -> int:
     return m.total if isinstance(m, PartMark) else m.marks
+
+
+def _sources_from_extracted(ex: ExtractedScript) -> str:
+    """A page transcription flattened into one text source for the segmenter, each part tagged with the
+    q_id the extractor gave it so the segmenter can line the pages up with the files."""
+    return "\n\n".join(f"[{q.q_id}] {q.transcribed_answer}" + (f"\n{q.workings}" if q.workings else "")
+                       for q in ex.questions)
 
 
 class Normalised(NamedTuple):
@@ -151,11 +163,12 @@ class MarkingPipelineV2:
     """Orchestrates extract -> mark per part -> review -> merge -> feedback -> persist for one script."""
 
     def __init__(self, db: Database, extractor: Any, marker: Any, reviewer: Any, feedback: Any, kind: str,
-                 confidence_threshold: float = 0.0):
+                 confidence_threshold: float = 0.0, segmenter: Any = None):
         if kind not in SCHEME_KINDS:
             raise ValueError(f"v2 pipeline kind must be one of {SCHEME_KINDS}, got {kind!r}")
         self.db = db
         self.extractor = extractor
+        self.segmenter = segmenter  # only a submission with files needs one
         self.marker = marker
         self.reviewer = reviewer
         self.feedback = feedback
@@ -165,20 +178,40 @@ class MarkingPipelineV2:
 
     # --- run -------------------------------------------------------------------------------------
 
-    def run(self, images: List[bytes], template: dict, submission_id: Optional[int] = None) -> MarkingResultV2:
-        """`template` is the assignment as a dict: subject, context (notes), questions, scheme (and scheme_kind)."""
+    def run(self, images: List[bytes], template: dict, submission_id: Optional[int] = None,
+            files: Optional[List[Rendered]] = None) -> MarkingResultV2:
+        """`template` is the assignment as a dict: subject, context (notes), questions, scheme (and scheme_kind).
+        `files` is the rendered text of any program/Scratch/spreadsheet files handed in: with none (the
+        usual photographed script) the pages go straight to the vision extractor; with any, the
+        segmenter maps the text onto the parts, and a mixed submission's pages become one more source."""
         run_id = uuid.uuid4().hex[:12]
         subject = SubjectRouter().resolve(template.get("subject") or "math")
         questions = [Question.model_validate(q) for q in template.get("questions") or []]
         scheme = list(template.get("scheme") or [])
         notes = (template.get("context") or "").strip()
+        files = list(files or [])
 
-        extracted = self._extract(images, subject, questions, notes)
+        if not files:
+            extracted = self._extract(images, subject, questions, notes)
+        else:
+            sources: List[TextSource] = []
+            if images:
+                # Mixed: the pages are transcribed as usual, and that transcription is handed to the
+                # segmenter as a source so one agent sees the whole submission at once.
+                vision = self._extract(images, subject, questions, notes)
+                sources.append(TextSource(name="handwritten pages", text=_sources_from_extracted(vision)))
+            sources += [TextSource(name=f.name, text=f.text) for f in files]
+            extracted = self._segment(sources, subject, questions, notes)
         marked = self.marker.run(MarkingInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                 scheme=scheme, notes=notes))
         reviewed = self.reviewer.run(ReviewInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                    scheme=scheme, notes=notes, marks=self._blind_script(marked)))
         final, escalations = self._merge(marked, reviewed, extracted, scheme)
+        if any(f.truncated for f in files):
+            # Something the marker needed may have been cut: every part the merge did not already
+            # escalate for a stronger reason goes to the teacher with the original to check against.
+            for m in (final.parts or final.rubric):
+                escalations.setdefault(_key(m), INPUT_TRUNCATED)
         feedback_report = self.feedback.run(feedback_input_for_v2(final, reviewed, escalations))
         self._persist(run_id, subject, template, questions, scheme, notes, extracted, marked, reviewed,
                       feedback_report, final, escalations, submission_id)
@@ -200,6 +233,24 @@ class MarkingPipelineV2:
         extracted = self.extractor.run(ExtractionInput(
             assignment_context=context, images=[image_from_bytes(b) for b in images], questions=questions))
         self.cache.put(composite, subject, extracted.model_dump())
+        return extracted
+
+    def _segment(self, sources: List[TextSource], subject: str, questions: List[Question],
+                 notes: str) -> ExtractedScript:
+        """The files counterpart of `_extract`: same cache, same output shape, no vision call. The key
+        covers every source's name and text and the labels they are segmented by, so re-marking the
+        same submission is free but an edited file is a fresh segmentation."""
+        if self.segmenter is None:
+            raise RuntimeError("This assignment's model set-up cannot read files yet — the segmenter is missing")
+        digest = self.cache.hash_image(("|".join(f"{s.name}:{self.cache.hash_image(s.text.encode())}" for s in sources)
+                                        + "#seg#" + ",".join(q.q_id for q in questions)).encode())
+        cached = self.cache.get(digest, subject)
+        if cached is not None:
+            return ExtractedScript.model_validate(cached)
+        context = f"{subject} submission, {len(questions)} part(s)" + (f". Notes: {notes}" if notes else "")
+        extracted = self.segmenter.run(TextSegmentInput(assignment_context=context, questions=questions,
+                                                        sources=sources))
+        self.cache.put(digest, subject, extracted.model_dump())
         return extracted
 
     def _blind_script(self, marked: MarkedScriptV2) -> MarkedScriptV2:
