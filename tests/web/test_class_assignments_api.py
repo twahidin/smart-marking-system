@@ -98,6 +98,24 @@ def test_teacher_upload_for_a_student_creates_a_linked_submission(auth, app):
     assert app.state.db.query("SELECT 1 FROM teacher_queue WHERE submission_id = :s", {"s": sid_dan}) == []
 
 
+def test_removing_a_file_hand_in_deletes_its_stored_files(auth, app):
+    _with_key(auth)
+    t = _template(auth)
+    c = _class_with_students(auth)
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    tan = c["students"][0]
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/students/{tan['id']}/upload",
+                  files=[("files", ("prog.py", b"print(1)\n", "text/x-python"))])
+    assert r.status_code == 202
+    sid = r.json()["id"]
+    assert app.state.db.query("SELECT input_kind FROM submissions WHERE id = :s", {"s": sid})[0]["input_kind"] == "files"
+    rel = app.state.db.query("SELECT stored_path FROM submission_files WHERE submission_id = :s", {"s": sid})[0]["stored_path"]
+    assert app.state.storage.abs(rel).exists()
+    assert auth.delete(f"/api/classes/{c['id']}/assignments/{ca['id']}/students/{tan['id']}/submission").status_code == 204
+    assert app.state.db.query("SELECT 1 FROM submission_files WHERE submission_id = :s", {"s": sid}) == []
+    assert not app.state.storage.abs(rel).exists()
+
+
 def test_upload_for_unknown_student_or_deleted_template(auth):
     _with_key(auth)
     t = _template(auth)

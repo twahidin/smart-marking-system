@@ -228,3 +228,64 @@ def test_sweep_heals_stragglers_stuck_at_needs_you(env):
     sweep_done_submissions(db, storage, older_than_hours=24)
     assert _status(db, stuck) == "done" and _deleted(db, pages[stuck][0]) and not storage.abs(pages[stuck][1]).exists()
     assert _status(db, waiting) == "needs_you" and _deleted(db, pages[waiting][0]) is None
+
+
+# --- uploaded files go with the pages ------------------------------------------------------------
+
+def _file(db, storage, content, *, submission_id, name="prog.py", kind="py", text_rendered=None):
+    digest, rel = storage.put_file(content, ".py")
+    fid = db.insert("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path, text_rendered) "
+                    "VALUES (:s, :n, :k, :z, :h, :p, :t) RETURNING id",
+                    {"s": submission_id, "n": name, "k": kind, "z": len(content), "h": digest, "p": rel,
+                     "t": text_rendered})
+    return fid, rel
+
+
+def _file_deleted(db, file_id):
+    return db.query("SELECT deleted_at FROM submission_files WHERE id = :id", {"id": file_id})[0]["deleted_at"]
+
+
+def test_delete_submission_pages_also_deletes_uploaded_files(env):
+    db, storage = env
+    sid = _submission(db)
+    p, page_rel = _page(db, storage, b"page", submission_id=sid)
+    fid, file_rel = _file(db, storage, b"print(1)", submission_id=sid, text_rendered="print(1)")
+    assert delete_submission_pages(db, storage, sid) == 1
+    assert _deleted(db, p) and not storage.abs(page_rel).exists()
+    assert _file_deleted(db, fid) and not storage.abs(file_rel).exists()
+    # the row and its rendered text survive so the marked record still reads
+    row = db.query("SELECT * FROM submission_files WHERE id = :id", {"id": fid})[0]
+    assert row["text_rendered"] == "print(1)"
+    # nothing left to do on a second pass
+    assert delete_submission_pages(db, storage, sid) == 0
+
+
+def test_a_file_only_submission_is_still_swept(env):
+    db, storage = env
+    sid = _submission(db)
+    fid, rel = _file(db, storage, b"x=1", submission_id=sid)
+    delete_submission_pages(db, storage, sid)
+    assert _file_deleted(db, fid) and not storage.abs(rel).exists()
+
+
+def test_flag_off_leaves_uploaded_files_alone(env):
+    db, storage = env
+    _set_global(db, False)
+    sid = _submission(db)
+    fid, rel = _file(db, storage, b"keep", submission_id=sid)
+    assert delete_submission_pages(db, storage, sid) == 0
+    assert _file_deleted(db, fid) is None and storage.abs(rel).exists()
+
+
+def test_detail_reports_a_deleted_file(env):
+    from sms.web.services.submissions import get_submission
+    from sms.worker.jobs import JobStore
+    db, storage = env
+    sid = _submission(db)
+    _page(db, storage, b"page", submission_id=sid)
+    _file(db, storage, b"print(1)", submission_id=sid, text_rendered="print(1)")
+    delete_submission_pages(db, storage, sid)
+    d = get_submission(db, JobStore(db), sid)
+    assert d["input_kind"] == "pages"
+    assert d["files"][0]["deleted"] is True and d["files"][0]["text_rendered"] == "print(1)"
+    assert d["files"][0]["matched"] is False
