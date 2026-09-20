@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import logging
 import re
 import zipfile
 from datetime import datetime, timezone
@@ -21,6 +22,8 @@ from sms.web.services.classlist import list_students
 from sms.web.services.pages_cleanup import unlink_pages
 from sms.web.services.submissions import create_submission, get_submission, row_key, row_max, submission_totals
 from sms.worker.jobs import JobStore
+
+log = logging.getLogger("sms.class_assignments")
 
 # `bulk_preview`/`bulk_commit` validate the archive as a whole with `classify_uploads` — but only
 # for the zip-bomb and nothing-usable checks (both enforced regardless of these two kwargs); the
@@ -233,6 +236,15 @@ def _bulk_usable(name: str, data: bytes) -> bool:
     return ext in PAGE_EXTS or ext in FILE_EXTS
 
 
+def _bulk_split(names: List[str], entries: Dict[str, bytes]) -> Tuple[List[str], List[str]]:
+    """A matched student's raw entry names, split into usable (kept, original paths) and ignored
+    (dropped — zero-byte, or an extension `classify_uploads` would reject outright)."""
+    usable, ignored = [], []
+    for n in names:
+        (usable if _bulk_usable(n, entries[n]) else ignored).append(n)
+    return usable, ignored
+
+
 def _bulk_handed_in_ids(db: Database, ca_id: int) -> Set[int]:
     rows = db.query("SELECT student_id FROM submissions WHERE class_assignment_id = :a AND student_id IS NOT NULL", {"a": ca_id})
     return {r["student_id"] for r in rows}
@@ -243,46 +255,81 @@ def _bulk_matched_in_reg_order(plan: BulkPlan, by_id: Dict[int, dict]) -> List[d
 
 
 def bulk_preview(db: Database, ca: Dict[str, Any], zip_bytes: bytes) -> Dict[str, Any]:
-    """Match a bulk zip's entries to this class's students without handing anything in yet."""
+    """Match a bulk zip's entries to this class's students without handing anything in yet. Each
+    matched student's raw entries are split into `files` (would be handed in) and `ignored`
+    (zero-byte, or a type `classify_uploads` would reject) so a folder that turns out to have
+    nothing usable in it is visible before committing, not just at commit time."""
     _validate_bulk_zip(zip_bytes)
     entries = _read_bulk_zip(zip_bytes)
     students = list_students(db, ca["class_id"])
     plan = match_entries(list(entries.keys()), students)
     by_id = {s["id"]: s for s in students}
     handed_in = _bulk_handed_in_ids(db, ca["id"])
-    matched = [{"student_id": s["id"], "reg_no": s["reg_no"], "name": s["name"], "files": plan.matched[s["id"]],
-                "already_handed_in": s["id"] in handed_in} for s in _bulk_matched_in_reg_order(plan, by_id)]
+    matched = []
+    for s in _bulk_matched_in_reg_order(plan, by_id):
+        usable, ignored = _bulk_split(plan.matched[s["id"]], entries)
+        matched.append({"student_id": s["id"], "reg_no": s["reg_no"], "name": s["name"], "files": usable,
+                        "ignored": ignored, "already_handed_in": s["id"] in handed_in})
     return {"matched": matched, "ambiguous": plan.ambiguous, "unmatched": plan.unmatched}
+
+
+def _bulk_no_usable_files_message(ignored: List[str]) -> str:
+    """`ignored` keeps the same original entry paths as the `ignored` field of the preview/commit
+    response, so the reason and the list line up."""
+    if not ignored:
+        return "no usable files"
+    return f"no usable files (only: {', '.join(ignored)})"
 
 
 def bulk_commit(db: Database, storage: PageStorage, jobs: JobStore, ca: Dict[str, Any], zip_bytes: bytes,
                 replace: bool) -> Dict[str, Any]:
     """Hand in each matched student's files from the zip, in register-number order. A student who
-    already handed in is skipped unless `replace`, in which case the old hand-in is removed first.
-    A student-level failure (a bad subject, a limit their own files exceed) is recorded in `failed`
-    and does not stop the rest of the class."""
+    already handed in is skipped unless `replace`. The student's new files are validated with
+    `classify_uploads` *before* anything existing is touched: a bad or empty set of files goes
+    straight to `failed` and the prior hand-in (if any) is left alone. Only once that passes does a
+    `replace` remove the old hand-in and the new one get created — if handing in still fails after
+    that removal, the `failed` reason is prefixed so it's clear the old hand-in is already gone.
+    Any other student-level failure (expected `ApiError` or not) is recorded in `failed` and does
+    not stop the rest of the class."""
     _validate_bulk_zip(zip_bytes)
     entries = _read_bulk_zip(zip_bytes)
     students = list_students(db, ca["class_id"])
     plan = match_entries(list(entries.keys()), students)
     by_id = {s["id"]: s for s in students}
     handed_in = _bulk_handed_in_ids(db, ca["id"])
-    created: List[int] = []
-    skipped: List[int] = []
+    created: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
     failed: List[Dict[str, Any]] = []
     for s in _bulk_matched_in_reg_order(plan, by_id):
         already = s["id"] in handed_in
         if already and not replace:
-            skipped.append(s["reg_no"])
+            skipped.append({"reg_no": s["reg_no"]})
             continue
+        usable, ignored = _bulk_split(plan.matched[s["id"]], entries)
+        files = [(PurePosixPath(n).name, entries[n]) for n in usable]
+        try:
+            intake = classify_uploads(files)
+        except IntakeError as e:
+            failed.append({"reg_no": s["reg_no"], "error": e.message})
+            continue
+        if not intake.pages and not intake.files:
+            failed.append({"reg_no": s["reg_no"], "error": _bulk_no_usable_files_message(ignored)})
+            continue
+        removed = False
         try:
             if already:
                 remove_hand_in(db, storage, ca["id"], s["id"])
-            files = [(PurePosixPath(n).name, entries[n]) for n in plan.matched[s["id"]] if _bulk_usable(n, entries[n])]
+                removed = True
             hand_in(db, storage, jobs, ca=ca, student=s, files=files, source="teacher")
-            created.append(s["reg_no"])
+            created.append({"reg_no": s["reg_no"], "ignored": ignored})
         except ApiError as e:
-            failed.append({"reg_no": s["reg_no"], "error": e.message})
+            reason = f"Previous hand-in removed — {e.message}" if removed else e.message
+            failed.append({"reg_no": s["reg_no"], "error": reason})
+        except Exception:
+            log.exception("bulk hand-in failed for student %s on class assignment %s", s["id"], ca["id"])
+            generic = "something went wrong handing this student in"
+            reason = f"Previous hand-in removed — {generic}" if removed else generic
+            failed.append({"reg_no": s["reg_no"], "error": reason})
     return {"created": created, "skipped": skipped, "failed": failed, "unmatched": plan.unmatched, "ambiguous": plan.ambiguous}
 
 

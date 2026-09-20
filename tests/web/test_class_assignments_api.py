@@ -4,6 +4,8 @@ import zipfile
 
 from PIL import Image
 
+from sms.web.errors import ApiError
+from sms.web.services import class_assignments
 from tests.web.seed_v2 import QUESTIONS as V2_QUESTIONS, SCHEME as V2_SCHEME, seed_v2
 
 RUBRIC = {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2}]}
@@ -284,6 +286,11 @@ def _zip(entries):
     return buf.getvalue()
 
 
+def _regs(entries):
+    """The register numbers out of a `created`/`skipped` list of {"reg_no": ...} dicts."""
+    return sorted(e["reg_no"] for e in entries)
+
+
 def test_bulk_upload_matches_a_zip_for_a_whole_class_by_register_number(auth, app):
     _with_key(auth)
     t = _template(auth)
@@ -311,23 +318,30 @@ def test_bulk_upload_matches_a_zip_for_a_whole_class_by_register_number(auth, ap
                   files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
     assert r.status_code == 202
     result = r.json()
-    assert sorted(result["created"]) == [7, 12] and result["skipped"] == [] and result["unmatched"] == []
+    assert _regs(result["created"]) == [7, 12] and result["skipped"] == [] and result["unmatched"] == []
+    assert all(c["ignored"] == [] for c in result["created"])
     sub_a = app.state.db.query("SELECT id FROM submissions WHERE student_id = :s", {"s": amirah["id"]})[0]["id"]
     sub_b = app.state.db.query("SELECT id FROM submissions WHERE student_id = :s", {"s": ben["id"]})[0]["id"]
+
+    # a second preview now shows both as already handed in
+    body = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk/preview",
+                     files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))]).json()
+    matched = {m["student_id"]: m for m in body["matched"]}
+    assert matched[amirah["id"]]["already_handed_in"] is True and matched[ben["id"]]["already_handed_in"] is True
 
     # a second bulk upload without replace skips both — they already handed in
     r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
                   files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
     assert r.status_code == 202
     result = r.json()
-    assert result["created"] == [] and sorted(result["skipped"]) == [7, 12]
+    assert result["created"] == [] and _regs(result["skipped"]) == [7, 12]
 
     # with ?replace=1, the old submissions are removed and new ones created in their place
     r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk?replace=1",
                   files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
     assert r.status_code == 202
     result = r.json()
-    assert sorted(result["created"]) == [7, 12] and result["skipped"] == []
+    assert _regs(result["created"]) == [7, 12] and result["skipped"] == []
     assert app.state.db.query("SELECT 1 FROM submissions WHERE id = :s", {"s": sub_a}) == []
     assert app.state.db.query("SELECT 1 FROM submissions WHERE id = :s", {"s": sub_b}) == []
 
@@ -355,7 +369,7 @@ def test_bulk_upload_reports_unmatched_entries_without_blocking_a_matched_studen
                   files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
     assert r.status_code == 202
     result = r.json()
-    assert result["created"] == [7] and result["unmatched"] == ["notes.txt"] and result["ambiguous"] == []
+    assert _regs(result["created"]) == [7] and result["unmatched"] == ["notes.txt"] and result["ambiguous"] == []
 
 
 def test_bulk_upload_ignores_junk_without_failing_the_matched_student(auth, app):
@@ -366,10 +380,101 @@ def test_bulk_upload_ignores_junk_without_failing_the_matched_student(auth, app)
     ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
     auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
              json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
-    # a zero-byte stray inside the student's folder must not fail the whole student
+    # a zero-byte stray inside the student's folder must not fail the whole student; the preview
+    # already shows it split into `files` (usable) and `ignored`
     zip_bytes = _zip([("7/prog.py", b"print(1)\n"), ("7/empty.py", b"")])
+    body = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk/preview",
+                     files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))]).json()
+    assert body["matched"][0]["files"] == ["7/prog.py"] and body["matched"][0]["ignored"] == ["7/empty.py"]
     r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
                   files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
     assert r.status_code == 202
     result = r.json()
-    assert result["created"] == [7] and result["failed"] == []
+    assert result["failed"] == [] and len(result["created"]) == 1
+    assert result["created"][0] == {"reg_no": 7, "ignored": ["7/empty.py"]}
+
+
+def _bulk_setup(auth, rows=({"reg_no": 7, "name": "Amirah"},)):
+    t = _template(auth)
+    c = auth.post("/api/classes", json={"name": "4E2"}).json()
+    auth.put(f"/api/classes/{c['id']}/students", json={"rows": list(rows)})
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+             json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    return c, ca
+
+
+def test_bulk_replace_validates_new_files_before_touching_the_old_hand_in(auth, app):
+    _with_key(auth)
+    c, ca = _bulk_setup(auth)
+    good_zip = _zip([("7/prog.py", b"print(1)\n")])
+    auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk", files=[("zip", ("bulk.zip", good_zip, "application/zip"))])
+    sub = app.state.db.query("SELECT id FROM submissions WHERE class_assignment_id = :a", {"a": ca["id"]})[0]["id"]
+
+    # the replace zip's only entry for this student is unsupported (an unrelated usable entry keeps
+    # the archive itself from being rejected as "nothing usable"): the old hand-in must be left alone
+    bad_zip = _zip([("7/notes.txt", b"hi\n"), ("99_extra.py", b"print(1)\n")])
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk?replace=1",
+                  files=[("zip", ("bulk.zip", bad_zip, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert result["created"] == [] and len(result["failed"]) == 1
+    failed = result["failed"][0]
+    assert failed["reg_no"] == 7 and "no usable files" in failed["error"] and "Previous hand-in removed" not in failed["error"]
+    assert app.state.db.query("SELECT 1 FROM submissions WHERE id = :s", {"s": sub}) != []
+
+
+def test_bulk_replace_prefixes_the_failure_once_the_old_hand_in_is_already_gone(auth, app, monkeypatch):
+    _with_key(auth)
+    c, ca = _bulk_setup(auth)
+    zip_bytes = _zip([("7/prog.py", b"print(1)\n")])
+    auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk", files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    sub = app.state.db.query("SELECT id FROM submissions WHERE class_assignment_id = :a", {"a": ca["id"]})[0]["id"]
+
+    def _boom(*a, **k):
+        raise ApiError(400, "bad_subject", "boom")
+
+    monkeypatch.setattr(class_assignments, "hand_in", _boom)
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk?replace=1",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert result["created"] == [] and len(result["failed"]) == 1
+    failed = result["failed"][0]
+    assert failed["reg_no"] == 7 and failed["error"] == "Previous hand-in removed — boom"
+    # the old hand-in really is gone — a `replace` does not get a free rollback
+    assert app.state.db.query("SELECT 1 FROM submissions WHERE id = :s", {"s": sub}) == []
+
+
+def test_bulk_upload_one_student_with_no_usable_files_does_not_block_another(auth, app):
+    _with_key(auth)
+    c, ca = _bulk_setup(auth, rows=[{"reg_no": 7, "name": "Amirah"}, {"reg_no": 12, "name": "Ben"}])
+    zip_bytes = _zip([("7/notes.txt", b"hi\n"), ("12/prog.py", b"print(1)\n")])
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert _regs(result["created"]) == [12]
+    assert len(result["failed"]) == 1 and result["failed"][0]["reg_no"] == 7
+    assert "no usable files" in result["failed"][0]["error"]
+
+
+def test_bulk_upload_a_student_level_crash_does_not_abort_the_batch(auth, app, monkeypatch):
+    _with_key(auth)
+    c, ca = _bulk_setup(auth, rows=[{"reg_no": 7, "name": "Amirah"}, {"reg_no": 12, "name": "Ben"}])
+    zip_bytes = _zip([("7/prog.py", b"print(1)\n"), ("12/prog.py", b"print(2)\n")])
+    real_hand_in = class_assignments.hand_in
+
+    def _flaky(db, storage, jobs, *, ca, student, files, source):
+        if student["reg_no"] == 7:
+            raise RuntimeError("boom")
+        return real_hand_in(db, storage, jobs, ca=ca, student=student, files=files, source=source)
+
+    monkeypatch.setattr(class_assignments, "hand_in", _flaky)
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert _regs(result["created"]) == [12]
+    assert len(result["failed"]) == 1 and result["failed"][0]["reg_no"] == 7
+    assert result["failed"][0]["error"] and "Previous hand-in removed" not in result["failed"][0]["error"]
