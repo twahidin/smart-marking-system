@@ -197,20 +197,40 @@ class SettingsStore:
         self.db.execute("UPDATE settings SET telegram_bot_token_enc = NULL, telegram_chat_id = NULL, "
                         "telegram_update_offset = 0, telegram_daily_last_sent = NULL WHERE id = 1")
 
-    def for_template(self, tpl: Optional[dict]) -> Settings:
-        """The settings a job for this assignment runs with: the global ones, or the template's own
-        provider/model (with that provider's saved key and default rpm) when it sets one.
+    def subject_default(self, subject: Optional[str]) -> Optional[dict]:
+        """The saved provider/model default for `subject`, or None (Auto — follow Settings)."""
+        if not subject:
+            return None
+        rows = self.db.query("SELECT provider, model, extractor_model FROM subject_models WHERE subject = :s", {"s": subject})
+        return dict(rows[0]) if rows else None
 
-        The saved `base_url` belongs to the global provider, so it only survives when the template
-        pins that same provider — pointing another provider at it would send the call to the wrong
-        host."""
+    def for_template(self, tpl: Optional[dict]) -> Settings:
+        """The settings a job for this assignment runs with, resolved in three steps: the
+        template's own pin, else its subject's saved default, else the global Settings.
+
+        The saved `base_url` belongs to the global provider, so it only survives when the resolved
+        provider is that same one — pointing another provider at it would send the call to the
+        wrong host."""
         s = self.load()
-        if not tpl or not tpl.get("provider"):
+        if not tpl:
             return s
-        provider = tpl["provider"]
+        if tpl.get("provider"):
+            return self._overlay(s, tpl["provider"], tpl.get("model"), tpl.get("extractor_model"))
+        sub = self.subject_default(tpl.get("subject"))
+        if sub is None:
+            return s
+        if not self.key_for(sub["provider"]):
+            logger.info("subject default for %s ignored: no saved key for %s", tpl.get("subject"), sub["provider"])
+            return s
+        return self._overlay(s, sub["provider"], sub["model"], sub["extractor_model"])
+
+    def _overlay(self, s: Settings, provider: str, model: Optional[str], extractor_model: Optional[str]) -> Settings:
+        """Apply `provider`/`model`/`extractor_model` on top of the loaded global settings `s`:
+        that provider's saved key and (when it differs from the global one) its default rpm; the
+        base_url only survives when the provider matches the global one (see `for_template`)."""
         spec = get_provider(provider)
-        s.model = tpl.get("model") or spec.default_model
-        s.extractor_model = tpl.get("extractor_model") or None
+        s.model = model or spec.default_model
+        s.extractor_model = extractor_model or None
         s.api_key = self.key_for(provider)
         s.base_url = None if provider != s.provider else s.base_url
         if provider != s.provider:
