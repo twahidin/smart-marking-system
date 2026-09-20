@@ -1,9 +1,12 @@
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy.exc import IntegrityError
 
+from sms.files.intake import IntakeError, classify_uploads, input_kind
+from sms.files.render import KIND_BY_EXT
 from sms.memory.db import Database
 from sms.reasons import reason_text
 from sms.pipeline.router import SubjectRouter
@@ -34,12 +37,17 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
     except KeyError:
         raise ApiError(400, "bad_subject", "Subject must be math, language, science, mt or computing")
     rubric = parse_rubric(rubric_json)
-    if not files:
-        raise ApiError(400, "no_files", "Add at least one page")
     try:
-        pages = process_uploads(files, storage, **({"max_pages": max_pages} if max_pages is not None else {}))
+        intake = classify_uploads(files)
+    except IntakeError as e:
+        raise ApiError(400, e.code, e.message)
+    if not intake.pages and not intake.files:
+        raise ApiError(400, "no_files", "Add at least one page or file")
+    try:
+        pages = process_uploads(intake.pages, storage, **({"max_pages": max_pages} if max_pages is not None else {})) if intake.pages else []
     except UploadError as e:
         raise ApiError(400, "bad_upload", str(e))
+    kind_of_input = input_kind(intake)
     # A stale id from the SPA (template deleted meanwhile) is dropped rather than rejected.
     template = get_template(db, assignment_id) if assignment_id is not None else None
     if template is None:
@@ -47,6 +55,11 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
     elif template["scheme_kind"] in V2_KINDS and not template["scheme"]:
         what = "rubric" if template["scheme_kind"] == "rubric" else "mark scheme"
         raise ApiError(400, "no_scheme", f"{template['title']} has no {what} yet — add one under Assignments before uploading")
+    # A program file has no pages to transcribe: it is only markable against a per-part scheme or a
+    # rubric. A quick mark (criteria) has nothing to line the code up with, so refuse it up front.
+    if intake.files and (template is None or template["scheme_kind"] not in V2_KINDS):
+        raise ApiError(400, "files_need_scheme",
+                       "Files can be marked against an assignment with a mark scheme or rubric — set one first")
     # The assignment type the script is uploaded against is kept on the row ('criteria' for a quick mark) so
     # a later retry can refuse to mark it with a different pipeline once the assignment has changed or gone.
     scheme_kind = template["scheme_kind"] if template else "criteria"
@@ -54,11 +67,12 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
         with db.transaction() as tx:
             sid = tx.insert(
                 "INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id, scheme_kind, "
-                "class_assignment_id, student_id, source, handed_in_at) "
-                "VALUES (:label, :subject, :context, :rubric, 'uploaded', :aid, :kind, :ca, :st, :src, "
+                "class_assignment_id, student_id, source, input_kind, handed_in_at) "
+                "VALUES (:label, :subject, :context, :rubric, 'uploaded', :aid, :kind, :ca, :st, :src, :ik, "
                 + ("CURRENT_TIMESTAMP" if class_assignment_id is not None else "NULL") + ") RETURNING id",
                 {"label": label, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
-                 "aid": assignment_id, "kind": scheme_kind, "ca": class_assignment_id, "st": student_id, "src": source},
+                 "aid": assignment_id, "kind": scheme_kind, "ca": class_assignment_id, "st": student_id, "src": source,
+                 "ik": kind_of_input},
             )
             page_rows = []
             for i, p in enumerate(pages):
@@ -68,9 +82,16 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
                     {"s": sid, "i": i, "h": p.sha256, "p": p.storage_path, "f": p.source_filename, "w": p.width, "ht": p.height},
                 )
                 page_rows.append({"id": pid, "page_index": i, "width": p.width, "height": p.height})
+            for name, data in intake.files:
+                ext = Path(name).suffix.lower()
+                digest, rel = storage.put_file(data, ext)
+                tx.insert("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path) "
+                          "VALUES (:s, :n, :k, :z, :h, :p) RETURNING id",
+                          {"s": sid, "n": name, "k": KIND_BY_EXT[ext], "z": len(data), "h": digest, "p": rel})
     except IntegrityError:
-        # uq_submissions_student_assignment: a second hand-in raced the first. The files process_uploads
-        # already stored are left orphaned — the sweep does not touch them and a duplicate hand-in is rare.
+        # uq_submissions_student_assignment: a second hand-in raced the first. Whatever process_uploads
+        # and put_file already stored is left orphaned — the sweep does not touch it and a duplicate
+        # hand-in is rare; both are content-addressed, so a redo reuses the same bytes.
         raise ApiError(409, "already_handed_in", "This student has already handed in — remove the hand-in first to redo it")
     if assignment_id is not None:
         mark_template_used(db, assignment_id)
@@ -83,7 +104,8 @@ def create_submission(db: Database, storage: PageStorage, jobs: JobStore, *, lab
         except Exception:  # noqa: BLE001
             log.exception("could not record the hand-in notification for submission %s", sid)
     jobs.enqueue("mark", sid)
-    return {"id": sid, "status": "queued", "pages": page_rows}
+    return {"id": sid, "status": "queued", "pages": page_rows, "input_kind": kind_of_input,
+            "files": [name for name, _ in intake.files], "ignored": intake.ignored}
 
 
 def compute_totals(rubric: Rubric, final_marks: Iterable[dict], pending_qids: Set[str],
@@ -365,6 +387,8 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
               "deleted": p["deleted_at"] is not None}
              for p in db.query("SELECT id, page_index, width, height, deleted_at FROM pages WHERE submission_id = :id "
                                "AND kind = 'student' ORDER BY page_index", {"id": submission_id})]
+    file_rows = db.query("SELECT id, name, kind, size, text_rendered, deleted_at FROM submission_files "
+                         "WHERE submission_id = :id ORDER BY id", {"id": submission_id})
     run = _run_row(db, s["run_id"])
     pending = _pending(db, submission_id)
     corrections = _corrections(db, s["run_id"])
@@ -399,10 +423,24 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
             })
         feedback = json.loads(run["feedback_json"]) if run["feedback_json"] else None
         totals = compute_totals(rubric, marks, set(pending), corrections) if marks else None
+    # `matched`: did the marker's transcription actually cite this file? The extractor tags what it
+    # read from a file with "[<name> …]", so a file whose tag never appears was not used. Before any
+    # run there is no transcription, so nothing is matched.
+    extracted_text = ""
+    if run and run["extracted_json"]:
+        try:
+            questions = (json.loads(run["extracted_json"]) or {}).get("questions") or []
+        except ValueError:
+            questions = []
+        extracted_text = " ".join(q.get("transcribed_answer", "") or "" for q in questions if isinstance(q, dict))
+    files = [{"id": f["id"], "name": f["name"], "kind": f["kind"], "size": f["size"], "text_rendered": f["text_rendered"],
+              "deleted": f["deleted_at"] is not None, "matched": f"[{f['name']}" in extracted_text} for f in file_rows]
     job = jobs.job_for_submission(submission_id)
     return {
         "id": s["id"], "label": s["label"], "subject": s["subject"], "context": s["context"], "status": s["status"],
         "created_at": iso_utc(s["created_at"]), "rubric": rubric.model_dump(), "pages": pages,
+        "input_kind": s.get("input_kind") or "pages",
+        "files": files,
         "pages_deleted": bool(pages) and all(p["deleted"] for p in pages), "marks": marks,
         "marks_version": marks_version, "parts": parts, "run_id": s["run_id"],
         "marked_at": iso_utc(run["created_at"]) if run else None,
