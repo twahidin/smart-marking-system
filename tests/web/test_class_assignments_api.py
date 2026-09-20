@@ -1,5 +1,6 @@
 import io
 import json
+import zipfile
 
 from PIL import Image
 
@@ -273,3 +274,102 @@ def test_status_transitions_no_unrelease_and_no_draft_with_hand_ins(auth, app):
         assert "cannot be reopened" in r.json()["error"]["message"]
     got = auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}", json={**body, "title": "Final", "status": "released"}).json()
     assert got["title"] == "Final" and got["status"] == "released"
+
+
+def _zip(entries):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, b in entries:
+            z.writestr(n, b)
+    return buf.getvalue()
+
+
+def test_bulk_upload_matches_a_zip_for_a_whole_class_by_register_number(auth, app):
+    _with_key(auth)
+    t = _template(auth)
+    c = auth.post("/api/classes", json={"name": "4E2"}).json()
+    auth.put(f"/api/classes/{c['id']}/students", json={"rows": [{"reg_no": 7, "name": "Amirah"}, {"reg_no": 12, "name": "Ben"}]})
+    students = auth.get(f"/api/classes/{c['id']}/students").json()
+    amirah = next(s for s in students if s["reg_no"] == 7)
+    ben = next(s for s in students if s["reg_no"] == 12)
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+             json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    zip_bytes = _zip([("07_a.py", b"print(1)\n"), ("12/prog.py", b"print(2)\n")])
+
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk/preview",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 200
+    body = r.json()
+    assert body["unmatched"] == [] and body["ambiguous"] == []
+    matched = {m["student_id"]: m for m in body["matched"]}
+    assert matched[amirah["id"]]["reg_no"] == 7 and matched[amirah["id"]]["files"] == ["07_a.py"]
+    assert matched[ben["id"]]["reg_no"] == 12 and matched[ben["id"]]["files"] == ["12/prog.py"]
+    assert matched[amirah["id"]]["already_handed_in"] is False and matched[ben["id"]]["already_handed_in"] is False
+
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert sorted(result["created"]) == [7, 12] and result["skipped"] == [] and result["unmatched"] == []
+    sub_a = app.state.db.query("SELECT id FROM submissions WHERE student_id = :s", {"s": amirah["id"]})[0]["id"]
+    sub_b = app.state.db.query("SELECT id FROM submissions WHERE student_id = :s", {"s": ben["id"]})[0]["id"]
+
+    # a second bulk upload without replace skips both — they already handed in
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert result["created"] == [] and sorted(result["skipped"]) == [7, 12]
+
+    # with ?replace=1, the old submissions are removed and new ones created in their place
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk?replace=1",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert sorted(result["created"]) == [7, 12] and result["skipped"] == []
+    assert app.state.db.query("SELECT 1 FROM submissions WHERE id = :s", {"s": sub_a}) == []
+    assert app.state.db.query("SELECT 1 FROM submissions WHERE id = :s", {"s": sub_b}) == []
+
+
+def test_bulk_upload_reports_unmatched_entries_without_blocking_a_matched_student(auth, app):
+    # `students` has a UNIQUE(class_id, reg_no) constraint, so two students sharing a register
+    # number cannot exist in one class via the public API — `ambiguous` is exercised at the
+    # `match_entries` unit level (tests/unit/test_files_bulk.py) instead of here.
+    _with_key(auth)
+    t = _template(auth)
+    c = auth.post("/api/classes", json={"name": "4E2"}).json()
+    auth.put(f"/api/classes/{c['id']}/students", json={"rows": [{"reg_no": 7, "name": "Amirah"}]})
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+             json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    # "notes.txt" matches no register number: unmatched, but does not block Amirah's own hand-in
+    zip_bytes = _zip([("07_a.py", b"print(1)\n"), ("notes.txt", b"hi\n")])
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk/preview",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ambiguous"] == [] and body["unmatched"] == ["notes.txt"]
+    assert [m["reg_no"] for m in body["matched"]] == [7]
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert result["created"] == [7] and result["unmatched"] == ["notes.txt"] and result["ambiguous"] == []
+
+
+def test_bulk_upload_ignores_junk_without_failing_the_matched_student(auth, app):
+    _with_key(auth)
+    t = _template(auth)
+    c = auth.post("/api/classes", json={"name": "4E2"}).json()
+    auth.put(f"/api/classes/{c['id']}/students", json={"rows": [{"reg_no": 7, "name": "Amirah"}]})
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+             json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    # a zero-byte stray inside the student's folder must not fail the whole student
+    zip_bytes = _zip([("7/prog.py", b"print(1)\n"), ("7/empty.py", b"")])
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk",
+                  files=[("zip", ("bulk.zip", zip_bytes, "application/zip"))])
+    assert r.status_code == 202
+    result = r.json()
+    assert result["created"] == [7] and result["failed"] == []
