@@ -250,7 +250,7 @@ def test_delete_submission_pages_also_deletes_uploaded_files(env):
     sid = _submission(db)
     p, page_rel = _page(db, storage, b"page", submission_id=sid)
     fid, file_rel = _file(db, storage, b"print(1)", submission_id=sid, text_rendered="print(1)")
-    assert delete_submission_pages(db, storage, sid) == 1
+    assert delete_submission_pages(db, storage, sid) == 2  # one page + one file
     assert _deleted(db, p) and not storage.abs(page_rel).exists()
     assert _file_deleted(db, fid) and not storage.abs(file_rel).exists()
     # the row and its rendered text survive so the marked record still reads
@@ -264,8 +264,13 @@ def test_a_file_only_submission_is_still_swept(env):
     db, storage = env
     sid = _submission(db)
     fid, rel = _file(db, storage, b"x=1", submission_id=sid)
-    delete_submission_pages(db, storage, sid)
+    assert delete_submission_pages(db, storage, sid) == 1
     assert _file_deleted(db, fid) and not storage.abs(rel).exists()
+    # ... and the 24h safety net finds it even though it has no pages at all
+    sid2 = _submission(db, age_hours=30)
+    fid2, rel2 = _file(db, storage, b"y=2", submission_id=sid2)
+    assert sweep_done_submissions(db, storage, older_than_hours=24) == 1
+    assert _file_deleted(db, fid2) and not storage.abs(rel2).exists()
 
 
 def test_flag_off_leaves_uploaded_files_alone(env):

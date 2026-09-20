@@ -118,11 +118,19 @@ def student_assignment(db: Database, jobs: JobStore, student: dict, caid: int) -
 _HAND_IN_MESSAGES = {
     "already_handed_in": "You have already handed this in — ask your teacher if you need to hand in again",
     "template_deleted": "This assignment is no longer available — ask your teacher",
+    "bad_file": "That file type can't be handed in — use .py, .sb3, .xlsx or photos",
+    "too_large": "That file is too big to hand in — each file must be under 2 MB",
+    "too_many_files": "Too many files — hand in at most 12",
+    "zip_nothing_usable": "That zip has nothing to mark in it — check you zipped the right folder",
+    "zip_bomb": "That zip is too big to hand in — zip just the work for this assignment",
+    "files_need_scheme": "This assignment does not take files yet — hand in photos, or ask your teacher",
 }
 
 
 MAX_HAND_IN_PAGES = 20
 TOO_MANY_PAGES = f"Hand in at most {MAX_HAND_IN_PAGES} pages"
+# The route's cheap pre-body cap counts uploads, which may be pages or files (or a zip of either).
+TOO_MANY_UPLOADS = f"Up to {MAX_HAND_IN_PAGES} pages or files"
 
 
 def open_for_hand_in(db: Database, student: dict, caid: int) -> Dict[str, Any]:

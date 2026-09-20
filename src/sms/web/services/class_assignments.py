@@ -163,10 +163,13 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
         raise ApiError(409, "marking", "This script is being marked right now — try again in a minute")
     with db.transaction() as tx:
         paths = [r["storage_path"] for r in tx.query("SELECT storage_path FROM pages WHERE submission_id = :s AND deleted_at IS NULL", {"s": sid})]
+        file_paths = [r["stored_path"] for r in tx.query("SELECT stored_path FROM submission_files WHERE submission_id = :s "
+                                                         "AND deleted_at IS NULL", {"s": sid})]
         tx.execute("DELETE FROM teacher_queue WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM marking_runs WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM jobs WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+        tx.execute("DELETE FROM submission_files WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM submissions WHERE id = :s", {"s": sid})
         stale = _unsent_hand_in_ids(tx, ca_id, student_id)
         if stale:
@@ -177,6 +180,8 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
         # (another script with the same page, a question paper) — same rule as pages_cleanup.
         orphaned = [p for p in dict.fromkeys(paths)
                     if not tx.query("SELECT 1 FROM pages WHERE storage_path = :p AND deleted_at IS NULL", {"p": p})]
+        orphaned += [p for p in dict.fromkeys(file_paths)
+                     if not tx.query("SELECT 1 FROM submission_files WHERE stored_path = :p AND deleted_at IS NULL", {"p": p})]
     unlink_pages(storage, orphaned)
 
 
