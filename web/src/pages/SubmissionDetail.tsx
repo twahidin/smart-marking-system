@@ -5,6 +5,7 @@ import { api, ApiError } from "../api/client";
 import type { Part, SubmissionDetail as D } from "../api/types";
 import { Button } from "../components/Button";
 import { CriteriaReading } from "../components/CriteriaTable";
+import { FilesBlock } from "../components/FilesBlock";
 import { MarkDisplay } from "../components/MarkDisplay";
 import { Notice } from "../components/Notice";
 import { PagePager } from "../components/PagePager";
@@ -45,6 +46,12 @@ export function SubmissionDetail() {
   const livePages = d.pages.filter((p) => !p.deleted);
   const pagesDeleted = !!d.pages_deleted || (d.pages.length > 0 && livePages.length === 0);
   const canDownload = d.status === "done" || d.status === "needs_you";
+  const files = d.files ?? [];
+  // "3 pages", "2 files", "1 page · 2 files" — a script may arrive as either, or both.
+  const countsLabel = [
+    d.pages.length > 0 || files.length === 0 ? `${d.pages.length} page${d.pages.length === 1 ? "" : "s"}` : "",
+    files.length > 0 ? `${files.length} file${files.length === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
 
   const retry = async () => {
     setRetryError(null);
@@ -65,7 +72,7 @@ export function SubmissionDetail() {
         <div className="page-header">
           <div>
             <h1>{d.label}</h1>
-            <p className="meta">{d.assignment_title ? `${d.assignment_title} · ` : ""}{subjectLabel[d.subject]}{d.context && ` · ${d.context}`} · uploaded {fmtDate(d.created_at)} · {d.pages.length} page{d.pages.length === 1 ? "" : "s"}{d.marked_at ? ` · marked ${fmtDate(d.marked_at)}` : ""}{d.marked_by ? ` by ${d.marked_by}` : ""}</p>
+            <p className="meta">{d.assignment_title ? `${d.assignment_title} · ` : ""}{subjectLabel[d.subject]}{d.context && ` · ${d.context}`} · uploaded {fmtDate(d.created_at)} · {countsLabel}{d.marked_at ? ` · marked ${fmtDate(d.marked_at)}` : ""}{d.marked_by ? ` by ${d.marked_by}` : ""}</p>
             <div className="actions" style={{ marginTop: 12, alignItems: "center" }}>
               <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={download} disabled={!canDownload || downloading} title={canDownload ? undefined : "Available once marking finishes."}>{downloading ? "Preparing…" : "Download marking record"}</Button>
               {!canDownload && <span className="help">Available once marking finishes.</span>}
@@ -94,13 +101,16 @@ export function SubmissionDetail() {
         <section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h4 style={{ margin: 0 }}>Pages</h4>
-            {!pagesDeleted && <PagePager count={livePages.length} current={Math.min(page, Math.max(0, livePages.length - 1))} onSelect={setPage} />}
+            {!pagesDeleted && livePages.length > 0 && <PagePager count={livePages.length} current={Math.min(page, Math.max(0, livePages.length - 1))} onSelect={setPage} />}
           </div>
           {pagesDeleted
             ? <div className="page-view" role="note" aria-label="Pages deleted after marking" style={{ padding: 24 }}><strong style={{ display: "block", marginBottom: 6 }}>Pages deleted after marking</strong><span className="help">Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark.</span></div>
-            : livePages[Math.min(page, livePages.length - 1)] && <div className="page-view"><img className="grayscale" src={`/api/pages/${livePages[Math.min(page, livePages.length - 1)].id}`} alt={`Page ${Math.min(page, livePages.length - 1) + 1}`} /></div>}
+            : d.pages.length === 0 && files.length > 0
+              ? <div className="page-view" role="note" aria-label="Handed in as files" style={{ padding: 24 }}><strong style={{ display: "block", marginBottom: 6 }}>Handed in as files</strong><span className="help">Nothing was photographed for this script — the files are listed beside the marks.</span></div>
+              : livePages[Math.min(page, livePages.length - 1)] && <div className="page-view"><img className="grayscale" src={`/api/pages/${livePages[Math.min(page, livePages.length - 1)].id}`} alt={`Page ${Math.min(page, livePages.length - 1) + 1}`} /></div>}
         </section>
         <section>
+          {files.length > 0 && <FilesBlock files={files} />}
           <h4>{v2 ? (d.scheme_kind === "rubric" ? "Marks by criterion" : "Marks by question part") : "Marks by question"}</h4>
           {v2 && d.scheme_kind === "rubric" && <Transcription parts={parts} />}
           {v2 ? <PartsTable parts={parts} rubric={d.scheme_kind === "rubric"} inProgress={inProgress} /> : (

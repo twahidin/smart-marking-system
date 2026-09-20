@@ -5,6 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssignmentTemplate } from "../../api/types";
 import { NewSubmission } from "../NewSubmission";
 
+// Stands in for the canvas resize jsdom cannot run: a 4000 px photo comes back small, and renamed.
+vi.mock("../../lib/image", () => ({
+  downscale: vi.fn((f: File) => Promise.resolve(new File(["x".repeat(1234)], f.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }))),
+}));
+
 const settings = { provider: "openai", model: "gpt-5-mini", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true };
 const templates: AssignmentTemplate[] = [
   { id: 5, title: "Essay draft", subject: "language", context: "Sec 3 · Narrative", rubric: { criterion_defs: [{ id: "s", description: "Structure", max_score: 5 }, { id: "g", description: "Grammar", max_score: 3 }, { id: "v", description: "Vocabulary", max_score: 2 }] },
@@ -85,5 +90,56 @@ describe("NewSubmission — assignment first", () => {
     await vi.waitFor(() => expect(posted).toHaveLength(1));
     expect(posted[0].get("assignment_id")).toBe("8");
     expect(JSON.parse(String(posted[0].get("rubric")))).toEqual(markScheme.rubric);
+  });
+});
+
+const computing: AssignmentTemplate = { ...markScheme, id: 9, title: "Loops — Task 2", subject: "computing" };
+
+function stub(posted: FormData[], list: AssignmentTemplate[]) {
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/settings") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
+    if (path === "/api/assignments") return Promise.resolve(new Response(JSON.stringify(list), { status: 200 }));
+    if (path === "/api/submissions") { posted.push(init!.body as FormData); return Promise.resolve(new Response(JSON.stringify({ id: 12, status: "queued", pages: [] }), { status: 201 })); }
+    return Promise.reject(new Error(`Unexpected fetch to ${path}`));
+  }));
+}
+
+const dropInput = () => document.querySelector('input[type="file"][multiple]') as HTMLInputElement;
+
+describe("NewSubmission — pages and files", () => {
+  it("offers all five subjects, shrinks the photos, and asks for a page or a file", async () => {
+    const posted: FormData[] = [];
+    stub(posted, templates);
+    render(<MemoryRouter><NewSubmission /></MemoryRouter>);
+    await screen.findByLabelText("Use a saved assignment");
+    for (const name of ["Maths", "English", "Science", "MT", "Computing"]) {
+      expect(screen.getByRole("radio", { name })).toBeInTheDocument();
+    }
+    await userEvent.type(screen.getByLabelText("Label"), "Tan Wei Ling");
+    expect(screen.getByText("Add at least one page or file.")).toBeInTheDocument();
+    // Without a Computing assignment chosen, the drop zone still takes pages only.
+    expect(dropInput().accept).not.toMatch(/\.py/);
+    await userEvent.upload(dropInput(), new File(["x".repeat(4000)], "big.png", { type: "image/png" }));
+    expect(screen.queryByText("Add at least one page or file.")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].getAll("files").map((f) => (f as File).name)).toEqual(["big.jpg"]);
+  });
+
+  it("takes program files once a Computing assignment is chosen", async () => {
+    const posted: FormData[] = [];
+    stub(posted, [...templates, computing]);
+    render(<MemoryRouter><NewSubmission /></MemoryRouter>);
+    const select = await screen.findByLabelText("Use a saved assignment");
+    await userEvent.selectOptions(select, "9");
+    expect(screen.getByRole("radio", { name: "Computing" })).toBeChecked();
+    expect(dropInput().accept).toContain(".py,.sb3,.xlsx,.zip");
+    await userEvent.type(screen.getByLabelText("Label"), "Tan Wei Ling");
+    await userEvent.upload(dropInput(), new File(["print(1)"], "prog.py", { type: "text/x-python" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    // A program file goes up byte for byte, under its own name.
+    expect(posted[0].getAll("files").map((f) => (f as File).name)).toEqual(["prog.py"]);
   });
 });

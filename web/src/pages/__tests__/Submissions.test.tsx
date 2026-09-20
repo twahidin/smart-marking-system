@@ -6,7 +6,7 @@ import type { SubmissionRow } from "../../api/types";
 import { Submissions } from "../Submissions";
 
 const row = (id: number, label: string, status: SubmissionRow["status"]): SubmissionRow => ({
-  id, label, subject: "math", page_count: 2, status, created_at: "2026-09-15T03:04:05Z",
+  id, label, subject: "math", page_count: 2, file_count: 0, status, created_at: "2026-09-15T03:04:05Z",
   total: status === "done" ? 7 : null, total_upper: status === "done" ? 7 : null, total_max: status === "done" ? 9 : null,
   needs_you_qids: status === "needs_you" ? ["1b"] : [], assignment_id: 3, assignment_title: "Quadratics — Worksheet 3",
 });
@@ -68,5 +68,22 @@ describe("Submissions — download marking records", () => {
     expect(screen.getByRole("button", { name: "Download marking records (0 of 1)" })).toBeDisabled();
     expect(screen.getAllByText("Quadratics — Worksheet 3")).toHaveLength(4);
     click.mockRestore();
+  });
+});
+
+describe("Submissions — files column", () => {
+  it("counts files for a script handed in as code, and pages otherwise", async () => {
+    const list = [
+      { ...row(5, "Ong Kai Xin", "done"), subject: "computing" as const, page_count: 0, file_count: 3 },
+      row(6, "Siti Nurhaliza", "done"),
+    ];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/submissions") return Promise.resolve(new Response(JSON.stringify(list), { status: 200 }));
+      return Promise.reject(new Error(`Unexpected fetch to ${String(input)}`));
+    }));
+    render(<MemoryRouter><Submissions /></MemoryRouter>);
+    expect((await screen.findByText("Ong Kai Xin")).closest("tr")!).toHaveTextContent("3 files");
+    expect(screen.getByText("Siti Nurhaliza").closest("tr")!).toHaveTextContent("2");
+    expect(screen.getByText("Siti Nurhaliza").closest("tr")!).not.toHaveTextContent("files");
   });
 });

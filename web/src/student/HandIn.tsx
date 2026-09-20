@@ -1,14 +1,22 @@
-import { ArrowDown, ArrowUp, Camera, Images, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Camera, FileCode2, Images, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import type { StudentAssignmentDetail } from "../api/types";
-import { canThumbnail } from "../lib/files";
+import { canThumbnail, fmtSize, isProgramFile, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { fmtDate } from "../lib/format";
-import { downscale } from "../lib/image";
 import { studentApi as api } from "./api";
 
-interface Page { id: string; file: File; url: string }
+interface Page { id: string; file: File; url: string; kind: "photo" | "file" }
+
+/** "Hand in 2 pages", "Hand in 1 file", "Hand in 1 page and 2 files". */
+export function handInLabel(pages: Page[]): string {
+  const photos = pages.filter((p) => p.kind === "photo").length, files = pages.length - photos;
+  const bits: string[] = [];
+  if (photos) bits.push(`${photos} ${photos === 1 ? "page" : "pages"}`);
+  if (files) bits.push(`${files} ${files === 1 ? "file" : "files"}`);
+  return `Hand in ${bits.join(" and ")}`;
+}
 
 const MAX_PAGES = 20;
 const OFFLINE = "Couldn't hand in — check your signal and try again.";
@@ -25,6 +33,7 @@ export function HandIn() {
   const [doneAt, setDoneAt] = useState<string | null>(null);
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
+  const programs = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
 
   const load = () => {
@@ -43,12 +52,18 @@ export function HandIn() {
 
   // Object URLs are created outside the state updater — StrictMode runs updaters twice in dev and would leak one per file.
   const add = (picked: File[]) => {
-    if (picked.length === 0) return;
+    // Program files are only marked where the marker can read them; elsewhere the accept lists never
+    // offer them, and this is the belt-and-braces for a file dropped in some other way.
+    const usable = detail?.accepts_files ? picked : picked.filter((f) => !isProgramFile(f));
+    if (usable.length === 0) return;
     setError(null);
-    const kept = picked.slice(0, Math.max(0, MAX_PAGES - pages.length));
-    setOverLimit(kept.length < picked.length);
+    const kept = usable.slice(0, Math.max(0, MAX_PAGES - pages.length));
+    setOverLimit(kept.length < usable.length);
     if (kept.length === 0) return;
-    const built: Page[] = kept.map((file) => ({ id: String(nextId.current++), file, url: canThumbnail(file) ? URL.createObjectURL(file) : "" }));
+    const built: Page[] = kept.map((file) => ({
+      id: String(nextId.current++), file, url: canThumbnail(file) ? URL.createObjectURL(file) : "",
+      kind: isProgramFile(file) ? "file" : "photo",
+    }));
     setPages((cur) => [...cur, ...built]);
   };
   const remove = (i: number) => {
@@ -63,7 +78,8 @@ export function HandIn() {
     setBusy(true); setError(null);
     try {
       const fd = new FormData();
-      for (const p of pages) { const f = await downscale(p.file); fd.append("files", f, f.name); }
+      // Photos are shrunk on the phone; program files go up byte for byte.
+      for (const f of await prepareUploads(pages.map((p) => p.file))) fd.append("files", f, f.name);
       await api.postForm(`/api/student/assignments/${caid}/hand-in`, fd);
       setDoneAt(new Date().toISOString());
     } catch (e) { setError(e instanceof ApiError ? e.message : OFFLINE); }
@@ -112,9 +128,18 @@ export function HandIn() {
           onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <input ref={gallery} type="file" accept="image/*,.pdf,.heic,.heif" multiple hidden aria-label="Choose from gallery"
           onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+        {detail.accepts_files && (
+          <>
+            <button type="button" className="btn btn-secondary btn-lg" disabled={busy} onClick={() => programs.current?.click()}><FileCode2 size={20} aria-hidden /> Add files</button>
+            <input ref={programs} type="file" accept={PROGRAM_ACCEPT} multiple hidden aria-label="Add files"
+              onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+          </>
+        )}
       </div>
-      <p className="help">{`One photo per page, in order — up to ${MAX_PAGES} pages. Photos are shrunk on your phone before they're sent.`}</p>
-      {overLimit && <p role="status" className="notice">{`You can hand in at most ${MAX_PAGES} pages.`}</p>}
+      <p className="help">{detail.accepts_files
+        ? `Your .py, .sb3, .xlsx or .zip files, and a photo of anything you wrote on paper — up to ${MAX_PAGES} in all. Photos are shrunk on your phone before they're sent.`
+        : `One photo per page, in order — up to ${MAX_PAGES} pages. Photos are shrunk on your phone before they're sent.`}</p>
+      {overLimit && <p role="status" className="notice">{`You can hand in at most ${MAX_PAGES} ${detail.accepts_files ? "pages or files" : "pages"}.`}</p>}
       {n > 0 && (
         <ol className="student-pages" aria-label="Pages">
           {pages.map((p, i) => (
@@ -123,7 +148,7 @@ export function HandIn() {
               {p.url
                 ? <img className="student-thumb" src={p.url} alt="" />
                 : <span className="student-thumb student-thumb-file" aria-hidden>{p.file.name.replace(/^.*\./, "").toUpperCase()}</span>}
-              <span className="help student-page-name">{p.file.name}</span>
+              <span className="help student-page-name">{p.file.name}{p.kind === "file" && ` · ${fmtSize(p.file.size)}`}</span>
               <span className="student-page-actions">
                 <button type="button" className="btn btn-secondary" aria-label="Move up" disabled={busy || i === 0} onClick={() => move(i, -1)}><ArrowUp size={20} aria-hidden /></button>
                 <button type="button" className="btn btn-secondary" aria-label="Move down" disabled={busy || i === n - 1} onClick={() => move(i, 1)}><ArrowDown size={20} aria-hidden /></button>
@@ -136,7 +161,7 @@ export function HandIn() {
       {error && <p role="alert" className="notice notice-error">{error}</p>}
       {n > 0 && (error
         ? <button type="button" className="btn btn-primary btn-lg" disabled={busy} onClick={submit}>{busy ? "Handing in…" : "Try again"}</button>
-        : <button type="button" className="btn btn-primary btn-lg" disabled={busy} onClick={submit}>{busy ? "Handing in…" : `Hand in ${n} ${n === 1 ? "page" : "pages"}`}</button>)}
+        : <button type="button" className="btn btn-primary btn-lg" disabled={busy} onClick={submit}>{busy ? "Handing in…" : handInLabel(pages)}</button>)}
     </>
   );
 }

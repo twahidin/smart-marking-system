@@ -27,7 +27,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const me: StudentMe = { class_name: "4E2", code: "CE4R", student_name: "Tan Wei Ling", reg_no: 1 };
 const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const detail = (over: Partial<StudentAssignmentDetail>): StudentAssignmentDetail =>
-  ({ id: 1, title: "Worksheet 3", due_at: null, status: "handed_in", handed_in_at: "2026-09-09T07:12:00Z", pages: 4, allow_student_uploads: true, feedback: null, ...over });
+  ({ id: 1, title: "Worksheet 3", due_at: null, status: "handed_in", handed_in_at: "2026-09-09T07:12:00Z", pages: 4, allow_student_uploads: true, feedback: null, subject: "math", accepts_files: false, ...over });
 
 function app(path: string) {
   return (

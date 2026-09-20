@@ -8,12 +8,13 @@ import { Dialog } from "../components/Dialog";
 import { InsightsPanel } from "../components/InsightsPanel";
 import { Notice } from "../components/Notice";
 import { ProgressStrip, type StripBucket } from "../components/ProgressStrip";
+import { PAGE_ACCEPT } from "../components/DropZone";
 import { downloadFile } from "../lib/download";
+import { fmtSize, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { fmtDate } from "../lib/format";
 import { qLabel, totalLabel } from "../lib/marks";
 
 const POLL_MS = 10_000;
-const ACCEPT = ".pdf,.jpg,.jpeg,.png,.heic,.heif,image/*,application/pdf";
 const msg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
 const HEADER_STATUS: Record<ClassAssignment["derived_status"], { label: string; pill: string }> = {
@@ -195,7 +196,8 @@ export function ClassAssignmentPage() {
           <p>Students will see their marks and feedback. Students can no longer hand in. Pages you upload for a student later are marked and shown to them automatically.</p>
         </Dialog>
       )}
-      {uploading && <UploadDialog base={base} student={uploading} onClose={() => setUploading(null)} onDone={() => { setUploading(null); load(); }} />}
+      {uploading && <UploadDialog base={base} student={uploading} accept={detail.subject === "computing" ? `${PAGE_ACCEPT},${PROGRAM_ACCEPT}` : PAGE_ACCEPT}
+        onClose={() => setUploading(null)} onDone={() => { setUploading(null); load(); }} />}
       {removing && (
         <Dialog title={`Remove ${removing.name}'s hand-in?`} onClose={() => setRemoving(null)}
           footer={<><Button variant="secondary" onClick={() => setRemoving(null)}>Cancel</Button><Button variant="primary" onClick={() => remove(removing)} disabled={busy !== null}>Remove hand-in</Button></>}>
@@ -206,13 +208,15 @@ export function ClassAssignmentPage() {
   );
 }
 
-function UploadDialog({ base, student, onClose, onDone }: { base: string; student: RosterRow; onClose: () => void; onDone: () => void }) {
+function UploadDialog({ base, student, accept, onClose, onDone }: { base: string; student: RosterRow; accept: string; onClose: () => void; onDone: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  const add = (picked: File[]) => setFiles((cur) => [...cur, ...picked]);
+  // Photos are shrunk as they are picked, so the list shows the size that will actually go up.
+  const add = (picked: File[]) => { prepareUploads(picked).then((ready) => setFiles((cur) => [...cur, ...ready])); };
+  const takesFiles = accept.includes(PROGRAM_ACCEPT);
   const start = async () => {
     if (!files.length) return;
     setBusy(true); setError(null);
@@ -229,15 +233,17 @@ function UploadDialog({ base, student, onClose, onDone }: { base: string; studen
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); add(Array.from(e.dataTransfer.files)); }}>
         <Upload size={32} aria-hidden />
-        <h3>Drop {student.name}'s pages here</h3>
-        <p className="help">PDF, JPG, PNG or HEIC — up to 20 pages. The script is marked as handed in by you.</p>
+        <h3>Drop {student.name}'s work here</h3>
+        <p className="help">{takesFiles
+          ? "PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to 20 in all. The script is marked as handed in by you."
+          : "PDF, JPG, PNG or HEIC — up to 20 pages. The script is marked as handed in by you."}</p>
         <button type="button" className="btn btn-secondary" onClick={() => input.current?.click()}>Choose files</button>
-        <input ref={input} type="file" multiple accept={ACCEPT} hidden aria-label={`Choose pages for ${student.name}`}
+        <input ref={input} type="file" multiple accept={accept} hidden aria-label={`Choose pages for ${student.name}`}
           onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
       {files.length > 0 && (
         <ul className="help" style={{ margin: "12px 0 0", paddingLeft: 20 }}>
-          {files.map((f, i) => <li key={`${f.name}-${i}`}>{f.name}</li>)}
+          {files.map((f, i) => <li key={`${f.name}-${i}`}>{f.name} · {fmtSize(f.size)}</li>)}
         </ul>
       )}
     </Dialog>

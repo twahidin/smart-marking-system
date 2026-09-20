@@ -5,14 +5,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClassAssignmentDetail, ClassRow, InsightsPayload } from "../../api/types";
 import { ClassAssignmentPage } from "../ClassAssignmentPage";
 
+// Stands in for the canvas resize jsdom cannot run: a 4000 px photo comes back small, and renamed.
+vi.mock("../../lib/image", () => ({
+  downscale: vi.fn((f: File) => Promise.resolve(new File(["x".repeat(1234)], f.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }))),
+}));
+
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
-  const calls: { path: string; method: string }[] = [];
+  const calls: { path: string; method: string; init?: RequestInit }[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       const method = init?.method ?? "GET";
-      calls.push({ path, method });
+      calls.push({ path, method, init });
       const handler = handlers[`${method} ${path}`];
       if (!handler) return Promise.reject(new Error(`Unexpected fetch to ${method} ${path}`));
       return Promise.resolve(handler(init));
@@ -111,6 +116,39 @@ describe("ClassAssignmentPage", () => {
     await userEvent.upload(input, [new File(["x"], "p1.png", { type: "image/png" })]);
     await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/students/3/upload"))).toBe(true));
+  });
+
+  it("shrinks a teacher's photo before it is uploaded and lists it at its new size", async () => {
+    const calls = mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+      "POST /api/classes/1/assignments/3/students/3/upload": () => new Response(JSON.stringify({ id: 99, status: "queued", pages: [] }), { status: 202 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Upload pages" }));
+    const input = screen.getByLabelText("Choose pages for Priya Nair") as HTMLInputElement;
+    // A Maths assignment takes pages only.
+    expect(input.accept).not.toMatch(/\.py/);
+    await userEvent.upload(input, [new File(["x".repeat(4000)], "big.png", { type: "image/png" })]);
+    const listed = await screen.findByText(/big\.jpg/);
+    expect(listed).toHaveTextContent("1.2 KB");
+    await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const form = calls.find((c) => c.method === "POST")!.init!.body as FormData;
+    expect(form.getAll("files").map((f) => (f as File).name)).toEqual(["big.jpg"]);
+  });
+
+  it("takes program files too when the assignment is Computing", async () => {
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify({ ...detail, subject: "computing" }), { status: 200 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Upload pages" }));
+    const input = screen.getByLabelText("Choose pages for Priya Nair") as HTMLInputElement;
+    expect(input.accept).toContain(".py,.sb3,.xlsx,.zip");
+    await userEvent.upload(input, [new File(["print(1)"], "prog.py", { type: "text/x-python" })]);
+    expect(screen.getByText(/prog\.py/)).toHaveTextContent("8 B");
   });
 
   it("shows the insights panel instead of the roster on ?tab=insights", async () => {
