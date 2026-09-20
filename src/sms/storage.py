@@ -59,6 +59,26 @@ class PageStorage:
                 tmp.unlink(missing_ok=True)
         return digest, rel
 
+    def put_file(self, data: bytes, ext: str) -> Tuple[str, str]:
+        """Store an uploaded program file (.py / .sb3 / .xlsx) verbatim under `files/<aa>/<sha><ext>`.
+
+        Same content-addressed rules as `put_jpeg` — identical bytes are stored once — but fanned
+        out over a first-byte subdirectory: a class set is a dozen files per script, not one page."""
+        digest = hashlib.sha256(data).hexdigest()
+        rel = f"files/{digest[:2]}/{digest}{ext}"
+        path = self.root / rel
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Unique per-call tmp name, as in put_jpeg: two writers of identical content must
+            # not race on the same tmp path.
+            tmp = path.with_name(f"{digest}.{uuid.uuid4().hex}.tmp")
+            tmp.write_bytes(data)
+            try:
+                tmp.replace(path)
+            except (FileNotFoundError, FileExistsError):
+                tmp.unlink(missing_ok=True)
+        return digest, rel
+
     def abs(self, relative_path: str) -> Path:
         return self.root / relative_path
 
