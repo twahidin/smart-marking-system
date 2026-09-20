@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { AssignmentBody, AssignmentTemplate, ExtractStatus, MarkSchemeEntry, ProviderSpec, Question, RubricBands, SchemeKind, Settings, Subject } from "../api/types";
+import type { AssignmentBody, AssignmentTemplate, EffectiveModel, ExtractStatus, MarkSchemeEntry, MtLanguage, ProviderSpec, Question, RubricBands, SchemeKind, Settings, Subject } from "../api/types";
 import { Button } from "../components/Button";
 import { CriteriaEditor } from "../components/CriteriaTable";
 import { Dialog } from "../components/Dialog";
@@ -12,13 +12,15 @@ import { ModelPicker } from "../components/ModelPicker";
 import { Notice } from "../components/Notice";
 import { QuestionsTable } from "../components/QuestionsTable";
 import { RubricTable } from "../components/RubricTable";
-import { providerLabel, subjectLabel } from "../lib/format";
+import { languageLabel, providerLabel, subjectLabel } from "../lib/format";
 import { jsonToRows, type Row } from "../lib/rubric";
 import { kindLabel, placeholderRubric, schemeTotal, validateTemplate, type Scheme } from "../lib/scheme";
 
 type Draft = {
   title: string; subject: Subject; kind: SchemeKind | null; context: string;
   questions: Question[]; scheme: Scheme; criteria: Row[]; deletePages: boolean | null;
+  /** Only sent when the subject is MT; kept while another subject is selected so switching back restores it. */
+  language: MtLanguage;
   /** null = Auto: the assignment follows Settings, and its model fields go with it. */
   provider: string | null; model: string; extractorModel: string;
 };
@@ -26,8 +28,11 @@ type Upload = "paper" | "scheme";
 type Busy = null | "save" | Upload | `read-${Upload}`;
 
 const KINDS: SchemeKind[] = ["mark_scheme", "rubric", "criteria"];
+const SUBJECTS: Subject[] = ["math", "language", "science", "mt", "computing"];
+const LANGUAGES: MtLanguage[] = ["zh", "ms", "ta"];
+const COMPUTING_NOTE = "Students can hand in files (.py, .sb3, .xlsx) and photos";
 const DEFAULT_SUBJECT: Record<SchemeKind, Subject> = { mark_scheme: "math", rubric: "language", criteria: "math" };
-const EMPTY: Draft = { title: "", subject: "math", kind: null, context: "", questions: [], scheme: [], criteria: [], deletePages: null, provider: null, model: "", extractorModel: "" };
+const EMPTY: Draft = { title: "", subject: "math", kind: null, context: "", questions: [], scheme: [], criteria: [], deletePages: null, language: "zh", provider: null, model: "", extractorModel: "" };
 const isActive = (s: string | null | undefined) => s === "queued" || s === "running";
 
 const clampInt = (v: unknown) => Math.max(0, Math.round(Number(v) || 0));
@@ -54,6 +59,8 @@ function toBody(d: Draft): AssignmentBody {
   return {
     title: trimmed(d.title), subject: d.subject, context: trimmed(d.context), scheme_kind: kind,
     rubric: placeholderRubric(kind, questions, scheme, criteria), questions, scheme, delete_pages_after_marking: d.deletePages,
+    // Only MT has a language; every other subject clears whatever was stored.
+    language: d.subject === "mt" ? d.language : null,
     // Auto sends all three as null; the server treats a missing provider as "follow Settings" either way.
     provider: d.provider, model: d.provider ? trimmed(d.model) : null,
     extractor_model: d.provider ? trimmed(d.extractorModel) || null : null,
@@ -64,6 +71,7 @@ function fromTemplate(t: AssignmentTemplate): Draft {
   return {
     title: t.title, subject: t.subject, kind: t.scheme_kind, context: t.context, questions: t.questions, scheme: t.scheme,
     criteria: t.scheme_kind === "criteria" ? jsonToRows(JSON.stringify(t.rubric)) : [], deletePages: t.delete_pages_after_marking,
+    language: t.language ?? "zh",
     provider: t.provider, model: t.model ?? "", extractorModel: t.extractor_model ?? "",
   };
 }
@@ -92,6 +100,9 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const [draftSaved, setDraftSaved] = useState(false);
   const [pendingKind, setPendingKind] = useState<SchemeKind | null>(null);
   const [subjectTouched, setSubjectTouched] = useState(false);
+  // What the server said would actually run, and the subject it said it for — the Auto caption names
+  // the subject default when the model came from one.
+  const [effective, setEffective] = useState<{ model: EffectiveModel; subject: Subject } | null>(null);
   const [deleteTouched, setDeleteTouched] = useState(false);
   const loadedRef = useRef<number | null>(null);
   const lastSavedRef = useRef<string>("");
@@ -120,6 +131,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
         const d = fromTemplate(t);
         lastSavedRef.current = JSON.stringify(toBody(d));
         setDraft(d); setPages({ paper: t.paper_page_ids, scheme: t.scheme_page_ids }); setExtract(s); setTemplateId(id); setSubjectTouched(true);
+        setEffective({ model: t.effective_model, subject: t.subject });
       })
       .catch((e) => setError(errMsg(e, "Could not load the assignment.")))
       .finally(() => setLoading(false));
@@ -354,10 +366,19 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
             <div className="field"><label htmlFor="title">Title</label><input id="title" className="input" placeholder="Sec 4 · Quadratics worksheet 3" value={draft.title} onChange={(e) => patch({ title: e.target.value })} /></div>
             <div className="field"><label>Subject</label>
               <div className="seg" role="radiogroup" aria-label="Subject">
-                {(["math", "language", "science"] as Subject[]).map((s) => (
+                {SUBJECTS.map((s) => (
                   <label key={s} className={`seg-opt ${draft.subject === s ? "on" : ""}`}><input type="radio" name="subject" checked={draft.subject === s} onChange={() => { setSubjectTouched(true); patch({ subject: s }); }} />{subjectLabel[s]}</label>
                 ))}
-              </div></div>
+              </div>
+              {draft.subject === "mt" && (
+                <select className="input" aria-label="Language" style={{ marginTop: 8, maxWidth: 220 }} value={draft.language}
+                  onChange={(e) => patch({ language: e.target.value as MtLanguage })}>
+                  {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel[l]}</option>)}
+                </select>
+              )}
+              {draft.subject === "mt" && <span className="help">Feedback is written in the language the script is in.</span>}
+              {draft.subject === "computing" && <span className="help">{COMPUTING_NOTE}</span>}
+              </div>
           </div>
 
           {kind !== "criteria" && (
@@ -416,7 +437,9 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
                   <input type="radio" name="model-mode" checked={draft.provider !== null} onChange={chooseOwnModel} />Choose a model
                 </label>
               </div>
-              {draft.provider === null && settings && <span className="help">Using {modelName(settings.provider, settings.model)} from Settings</span>}
+              {draft.provider === null && (effective?.model.source === "subject"
+                ? <span className="help">Using {modelName(effective.model.provider, effective.model.model)} from the {subjectLabel[effective.subject]} default</span>
+                : settings && <span className="help">Using {modelName(settings.provider, settings.model)} from Settings</span>)}
               {draft.provider === null && providers.length > 0 && !anyKey && <span className="help">No keys saved yet — add one under Settings to choose a model here.</span>}
             </div>
             {draft.provider !== null && (
