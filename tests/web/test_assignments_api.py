@@ -151,7 +151,7 @@ def test_export_import_round_trip_skips_duplicates(auth):
     assert r.headers["content-disposition"] == 'attachment; filename="assignments.json"'
     payload = r.json()
     assert payload["version"] == 1 and len(payload["assignments"]) == 2
-    assert set(payload["assignments"][0]) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme"}
+    assert set(payload["assignments"][0]) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme", "language"}
     # importing the export again creates nothing (exact title+subject duplicates are skipped)
     r = auth.post("/api/assignments/import", json=payload)
     assert r.status_code == 200 and r.json() == {"created": 0}
@@ -270,7 +270,7 @@ def test_export_import_carry_scheme_fields_but_not_pages(auth):
     auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p1.png", _png(), "image/png"))])
     payload = auth.get("/api/assignments/export").json()
     item = payload["assignments"][0]
-    assert set(item) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme"}
+    assert set(item) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme", "language"}
     assert item["scheme_kind"] == "mark_scheme" and item["questions"] == t["questions"] and item["scheme"] == t["scheme"]
     item["title"] = "Paper 1 (copy)"
     assert auth.post("/api/assignments/import", json=payload).json() == {"created": 1}
@@ -283,6 +283,19 @@ def test_export_import_carry_scheme_fields_but_not_pages(auth):
     bad = {"version": 1, "assignments": [{"title": "New", "subject": "math", "context": "", "rubric": RUBRIC, "scheme_kind": "nope"}]}
     r = auth.post("/api/assignments/import", json=bad)
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_scheme_kind"
+
+
+def test_export_import_carry_the_mt_language(auth):
+    """An MT template without its language would fail to import (a subject `mt` needs one), so the
+    export carries it and the import reads it back."""
+    _create(auth, title="Zuowen 1", subject="mt", language="zh")
+    payload = auth.get("/api/assignments/export").json()
+    item = next(x for x in payload["assignments"] if x["title"] == "Zuowen 1")
+    assert item["subject"] == "mt" and item["language"] == "zh"
+    item["title"] = "Zuowen 1 (copy)"
+    assert auth.post("/api/assignments/import", json={"version": 1, "assignments": [item]}).json() == {"created": 1}
+    copy = next(x for x in auth.get("/api/assignments").json() if x["title"] == "Zuowen 1 (copy)")
+    assert copy["subject"] == "mt" and copy["language"] == "zh"
 
 
 def test_rename_keeps_paper_pages(auth):

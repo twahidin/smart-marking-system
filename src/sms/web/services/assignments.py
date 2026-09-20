@@ -381,7 +381,7 @@ def extract_status(db: Database, template_id: int) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-_EXPORT_FIELDS = ("title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme")
+_EXPORT_FIELDS = ("title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme", "language")
 
 
 def export_templates(db: Database) -> Dict[str, Any]:
@@ -409,7 +409,8 @@ def import_templates(db: Database, payload: Any) -> int:
         validated.append(_validate(str(item["title"]), str(item["subject"]), str(item.get("context") or ""),
                                    json.dumps(item["rubric"]), str(item.get("scheme_kind") or "criteria"),
                                    item.get("questions"), item.get("scheme"),
-                                   _optional_bool(item.get("delete_pages_after_marking"), i), db=db))
+                                   _optional_bool(item.get("delete_pages_after_marking"), i),
+                                   language=str(item["language"]) if item.get("language") else None, db=db))
     existing = {(t["title"], t["subject"]) for t in list_templates(db)}
     created = 0
     with db.transaction() as tx:
