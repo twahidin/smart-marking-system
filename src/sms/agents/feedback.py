@@ -32,6 +32,9 @@ def build_feedback(
                     "Write for a student audience: encouraging, specific, jargon-free.",
                     "per_question_comments must cover every marked question.",
                     "improvement_plan entries must be actionable practice items.",
+                    "Write summary, strengths, comments, improvement_plan and next_steps in the language named by "
+                    "feedback_language (en = English, zh = Chinese, ms = Malay, ta = Tamil); keep q_ids and "
+                    "mark-scheme labels unchanged.",
                 ],
             ),
         )

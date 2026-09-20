@@ -32,10 +32,17 @@ FEEDBACK = FeedbackReport(summary="Nice.", strengths=["structure"], per_question
                           improvement_plan=["p"], next_steps=["n"])
 
 
-def _template():
-    return {"subject": "computing", "context": "Write a program that prints 1", "scheme_kind": "mark_scheme",
+def _template(subject="computing", language=None, kind="mark_scheme"):
+    """`subject`/`language`/`kind` let subject/language-threading tests (test_pipeline_v2_subjects.py)
+    reuse this same shape; `language` mirrors assignment_templates.language (None unless the assignment
+    is MT) and `kind` picks a scheme shaped for a mark scheme or a rubric."""
+    if kind == "rubric":
+        scheme = [{"criterion": "1", "bands": [{"band": "A", "marks": 1, "descriptor": ""}]}]
+    else:
+        scheme = [{"q_id": "1", "answer": "print(1)", "marks": [{"label": "B1", "marks": 1}], "notes": ""}]
+    return {"subject": subject, "context": "Write a program that prints 1", "scheme_kind": kind,
             "questions": [{"q_id": "1", "text": "Print 1", "max_marks": 1}],
-            "scheme": [{"q_id": "1", "answer": "print(1)", "marks": [{"label": "B1", "marks": 1}], "notes": ""}]}
+            "scheme": scheme, "language": language}
 
 
 def _feedback_stub():

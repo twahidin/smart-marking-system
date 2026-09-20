@@ -1,6 +1,7 @@
 """Per-part marking pipeline (version 2), used when a submission's assignment has a mark scheme or a
 rubric: extract (segmented by the paper's parts) -> mark per part / criterion -> blind review ->
 merge with escalation -> feedback -> persist as final_marks_json {"version": 2, ...}."""
+import importlib
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -167,9 +168,11 @@ def _as_marked_question(m: Mark) -> MarkedQuestion:
 
 
 def feedback_input_for_v2(final: MarkedScriptV2, reviewed: ReviewedScriptV2, escalations: Dict[str, str],
-                          student_context: Optional[str] = None) -> FeedbackInput:
+                          student_context: Optional[str] = None, language: str = "en") -> FeedbackInput:
     """Adapt v2 marks to the v1 FeedbackInput so build_feedback needs no change: each part / criterion
-    becomes a MarkedQuestion (q_id -> total, rationale = justification; rubric rationale in band language)."""
+    becomes a MarkedQuestion (q_id -> total, rationale = justification; rubric rationale in band language).
+    `language` is the Mother Tongue assignment's language code ("en" for every other subject) and is
+    carried through as feedback_language so the feedback agent writes the student-facing text in it."""
     marks = [_as_marked_question(m) for m in (final.parts if final.kind == "mark_scheme" else final.rubric)]
     verdicts = [
         ReviewVerdictItem(q_id=v.q_id, verdict=v.verdict,
@@ -183,6 +186,7 @@ def feedback_input_for_v2(final: MarkedScriptV2, reviewed: ReviewedScriptV2, esc
         final_marks=MarkedScript(marks=marks),
         final_result_set=not escalations,
         student_context=student_context,
+        feedback_language=language,
     )
 
 
@@ -217,16 +221,19 @@ class MarkingPipelineV2:
         scheme = list(template.get("scheme") or [])
         notes = (template.get("context") or "").strip()
         files = list(files or [])
+        # Only a Mother Tongue assignment carries a language (zh/ms/ta from assignment_templates.language);
+        # every other subject's feedback stays in English.
+        language = (template.get("language") or "en") if subject == "mt" else "en"
 
         if not files:
-            extracted = self._extract(images, subject, questions, notes)
+            extracted = self._extract(images, subject, questions, notes, language)
         else:
             sources: List[TextSource] = []
             vision: Optional[ExtractedScript] = None
             if images:
                 # Mixed: the pages are transcribed as usual, and that transcription is handed to the
                 # segmenter as a source so one agent sees the whole submission at once.
-                vision = self._extract(images, subject, questions, notes)
+                vision = self._extract(images, subject, questions, notes, language)
                 sources.append(TextSource(name="handwritten pages", text=_sources_from_extracted(vision)))
             sources += [TextSource(name=f.name, text=f.text) for f in files]
             extracted = self._segment(sources, subject, questions, notes)
@@ -242,7 +249,7 @@ class MarkingPipelineV2:
             # escalate for a stronger reason goes to the teacher with the original to check against.
             for m in (final.parts or final.rubric):
                 escalations.setdefault(_key(m), INPUT_TRUNCATED)
-        feedback_report = self.feedback.run(feedback_input_for_v2(final, reviewed, escalations))
+        feedback_report = self.feedback.run(feedback_input_for_v2(final, reviewed, escalations, language=language))
         self._persist(run_id, subject, template, questions, scheme, notes, extracted, marked, reviewed,
                       feedback_report, final, escalations, submission_id)
         return MarkingResultV2(run_id=run_id, extracted=extracted, final=final, escalations=escalations,
@@ -250,16 +257,25 @@ class MarkingPipelineV2:
 
     # --- stages ----------------------------------------------------------------------------------
 
-    def _extract(self, images: List[bytes], subject: str, questions: List[Question], notes: str) -> ExtractedScript:
-        # Cache key covers the pages and the labels they are segmented by: the same pages segmented by a
-        # different question list (or by none, v1) are a different extraction.
+    def _extract(self, images: List[bytes], subject: str, questions: List[Question], notes: str,
+                 language: str = "en") -> ExtractedScript:
+        context = f"{subject} script, {len(questions)} question part(s)" + (f". Notes: {notes}" if notes else "")
+        if subject == "mt":
+            # The extractor reads the script in its own language: tell it which one, and not to translate
+            # quoted evidence — the marker/reviewer background note (subjects/mt/prompt.SUBJECT_NOTE)
+            # leaves the language unnamed since the transcription they see is already in it.
+            mt_prompt = importlib.import_module("sms.subjects.mt.prompt")
+            context += " " + mt_prompt.SUBJECT_NOTE.format(
+                language=mt_prompt.LANGUAGE_NAMES.get(language, "the script's language"))
+        # Cache key covers the pages, the labels they are segmented by and the context (which carries the
+        # language for MT): the same pages segmented by a different question list, or extracted for a
+        # different language, are a different extraction.
         page_hashes = [self.cache.hash_image(b) for b in images]
         labels = ",".join(q.q_id for q in questions)
-        composite = self.cache.hash_image(("|".join(page_hashes) + "#v2#" + labels).encode())
+        composite = self.cache.hash_image(("|".join(page_hashes) + "#v2#" + labels + "#" + context).encode())
         cached = self.cache.get(composite, subject)
         if cached is not None:
             return ExtractedScript.model_validate(cached)
-        context = f"{subject} script, {len(questions)} question part(s)" + (f". Notes: {notes}" if notes else "")
         extracted = self.extractor.run(ExtractionInput(
             assignment_context=context, images=[image_from_bytes(b) for b in images], questions=questions))
         self.cache.put(composite, subject, extracted.model_dump())
