@@ -1,4 +1,8 @@
-export type Subject = "math" | "language" | "science";
+export type Subject = "math" | "language" | "science" | "mt" | "computing";
+/** The script's language, for Mother Tongue only: Chinese, Malay or Tamil. */
+export type MtLanguage = "zh" | "ms" | "ta";
+/** Every subject's saved model default; null = Auto, so the subject follows Settings. */
+export type SubjectModels = Record<Subject, { provider: string; model: string; extractor_model: string | null } | null>;
 export type SubmissionStatus = "uploaded" | "queued" | "marking" | "needs_you" | "done" | "failed";
 
 export interface ModelSpec { id: string; label: string; vision: boolean; /** saved by the teacher under “My models”, not part of the curated list */ custom?: boolean }
@@ -30,6 +34,8 @@ export interface Band { band: string; marks: number; descriptor: string }
 export interface RubricBands { criterion: string; bands: Band[] }
 export interface AssignmentTemplate {
   id: number; title: string; subject: Subject; context: string; rubric: Rubric;
+  /** The script's language — set for subject `mt`, null for every other subject. */
+  language: MtLanguage | null;
   criteria_count: number; total_marks: number; times_used: number; created_at: string; updated_at: string;
   submission_count?: number; pending_count?: number; class_assignment_count?: number;
   scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[];
@@ -40,10 +46,16 @@ export interface AssignmentTemplate {
   /** What will actually run: the assignment's own model, or the one saved under Settings. */
   effective_model: EffectiveModel;
 }
-export interface EffectiveModel { provider: string; model: string; extractor_model: string | null }
+export interface EffectiveModel {
+  provider: string; model: string; extractor_model: string | null;
+  /** Where it came from: the assignment's own pin, its subject's default, or Settings. */
+  source: "assignment" | "subject" | "settings";
+}
 export interface AssignmentBody {
   title: string; subject: Subject; context: string; rubric: Rubric; scheme_kind: SchemeKind;
   questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[]; delete_pages_after_marking: boolean | null;
+  /** Required when the subject is `mt`; sent as null for every other subject. */
+  language?: MtLanguage | null;
   /** Omitted or null = Auto. A PUT that leaves these out clears a saved override, so every caller sends them. */
   provider?: string | null; model?: string | null; extractor_model?: string | null;
 }

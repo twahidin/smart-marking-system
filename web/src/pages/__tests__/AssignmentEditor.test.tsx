@@ -19,11 +19,11 @@ const providers: ProviderSpec[] = [
 const noExtract: ExtractStatus = { paper: { status: null, error: null, job_id: null }, scheme: { status: null, error: null, job_id: null } };
 const template = (over: Partial<AssignmentTemplate> = {}): AssignmentTemplate => ({
   id: 7, title: "Quadratics worksheet", subject: "math", context: "", rubric: { criterion_defs: [{ id: "draft", description: "Draft", max_score: 0 }] },
-  criteria_count: 1, total_marks: 0, times_used: 0, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
+  language: null, criteria_count: 1, total_marks: 0, times_used: 0, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
   scheme_kind: "mark_scheme", questions: [], scheme: [], paper_page_ids: [], scheme_page_ids: [],
   delete_pages_after_marking: null, effective_delete_pages: true,
   provider: null, model: null, extractor_model: null,
-  effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null }, ...over,
+  effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null, source: "settings" }, ...over,
 });
 /** A template that passes validation, so the Save button is enabled. */
 const savable = (over: Partial<AssignmentTemplate> = {}): AssignmentTemplate => template({
@@ -405,7 +405,7 @@ describe("AssignmentEditor — model", () => {
   });
 
   it("switching back to Auto clears the assignment's own model", async () => {
-    const calls = modelMocks(savable({ provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini", effective_model: { provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini" } }));
+    const calls = modelMocks(savable({ provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini", effective_model: { provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini", source: "assignment" } }));
     renderAt("/assignments/7");
     await screen.findByLabelText("Title");
     expect(screen.getByRole("radio", { name: "Choose a model" })).toBeChecked();

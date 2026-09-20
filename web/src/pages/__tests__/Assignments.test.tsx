@@ -7,13 +7,13 @@ import { Assignments } from "../Assignments";
 
 const templates: AssignmentTemplate[] = [
   { id: 1, title: "Worksheet 3", subject: "math", context: "Sec 4", rubric: { criterion_defs: [{ id: "c1", description: "method", max_score: 2 }] },
-    criteria_count: 1, total_marks: 2, times_used: 4, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
+    language: null, criteria_count: 1, total_marks: 2, times_used: 4, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
     scheme_kind: "mark_scheme", questions: [{ q_id: "q1", text: "Solve 2x + 3 = 7", max_marks: 2 }], scheme: [], paper_page_ids: [11, 12], scheme_page_ids: [], delete_pages_after_marking: null, effective_delete_pages: true,
-    provider: null, model: null, extractor_model: null, effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null } },
+    provider: null, model: null, extractor_model: null, effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null, source: "settings" } },
   { id: 2, title: "Essay draft", subject: "language", context: "", rubric: { criterion_defs: [{ id: "c1", description: "structure", max_score: 5 }, { id: "c2", description: "grammar", max_score: 3 }] },
-    criteria_count: 2, total_marks: 8, times_used: 0, created_at: "2026-09-14T03:04:05Z", updated_at: "2026-09-14T03:04:05Z",
+    language: null, criteria_count: 2, total_marks: 8, times_used: 0, created_at: "2026-09-14T03:04:05Z", updated_at: "2026-09-14T03:04:05Z",
     scheme_kind: "criteria", questions: [], scheme: [], paper_page_ids: [], scheme_page_ids: [], delete_pages_after_marking: null, effective_delete_pages: true,
-    provider: null, model: null, extractor_model: null, effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null } },
+    provider: null, model: null, extractor_model: null, effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null, source: "settings" } },
 ];
 
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {

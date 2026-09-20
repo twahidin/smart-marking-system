@@ -12,7 +12,10 @@ export function elapsed(iso: string | null | undefined): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export const subjectLabel: Record<string, string> = { math: "Maths", language: "English", science: "Science" };
+export const subjectLabel: Record<string, string> = { math: "Maths", language: "English", science: "Science", mt: "MT", computing: "Computing" };
+
+/** The three Mother Tongue languages, in the order the Language select offers them. */
+export const languageLabel: Record<string, string> = { zh: "Chinese", ms: "Malay", ta: "Tamil" };
 
 export const schemeLabel: Record<string, string> = { criteria: "Criteria", mark_scheme: "Mark scheme", rubric: "Rubric" };
 
