@@ -5,15 +5,22 @@ the only place that decides which is which: it splits the upload, expands a `.zi
 usual shape of "my whole folder"), drops the junk a Mac or Windows zip carries, and enforces the
 limits. The renderers in `sms.files.render` are deliberately cap-free — every cap lives here, so
 nothing oversized ever reaches storage or a model.
+
+Four caps, all checked before a byte is written: 12 program files per submission, 2 MB per entry,
+20 MB decompressed per zip, and `MAX_UPLOAD_BYTES` (50 MB) over the whole upload once unpacked —
+the last one because everything extracted from a zip is held in memory until `process_uploads`
+runs, and a handful of individually legal zips could otherwise add up to far more than the request
+body the 50 MB body cap let through.
 """
 import io
 import zipfile
+import zlib
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import List, Tuple
+from pathlib import PurePosixPath
+from typing import List, Optional, Set, Tuple
 
 from sms.files.render import KIND_BY_EXT
-from sms.storage import IMAGE_EXTS, PDF_EXTS
+from sms.storage import IMAGE_EXTS, MAX_UPLOAD_BYTES, PDF_EXTS
 
 MAX_FILES = 12
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -21,6 +28,7 @@ MAX_ZIP_DECOMPRESSED = 20 * 1024 * 1024
 PAGE_EXTS = set(IMAGE_EXTS) | set(PDF_EXTS)
 FILE_EXTS = set(KIND_BY_EXT)
 BAD_FILE_MESSAGE = "unsupported file type (use PDF, JPG, PNG, HEIC, .py, .sb3, .xlsx or a .zip of those)"
+UNPACK_FAILED = "could not be unpacked (password-protected or damaged zip)"
 
 
 class IntakeError(ValueError):
@@ -38,63 +46,146 @@ class Intake:
     pages: List[Tuple[str, bytes]] = field(default_factory=list)
     files: List[Tuple[str, bytes]] = field(default_factory=list)
     ignored: List[str] = field(default_factory=list)
+    total_bytes: int = 0
+
+
+# --- names -------------------------------------------------------------------------------------
+
+def _norm(name: str) -> str:
+    """A zip written on Windows stores `folder\\file.py`; fold the separators so the rest of this
+    module can treat every entry name as a POSIX path."""
+    return name.replace("\\", "/")
+
+
+def _basename(name: str) -> str:
+    """The leaf name: folders inside a zip (and any path a browser sends) are flattened away."""
+    return PurePosixPath(_norm(name)).name
 
 
 def _junk(name: str) -> bool:
-    """Zip entries no student meant to hand in: directories, `__MACOSX` forks, dotfiles."""
-    parts = Path(name).parts
+    """Zip entries no student meant to hand in: directories, `__MACOSX` forks, dotfiles.
+    This is tidying, NOT the path-traversal guard — `_traversal` is, and it runs first."""
+    parts = PurePosixPath(_norm(name)).parts
     return name.endswith("/") or any(p.startswith("__MACOSX") or p.startswith(".") for p in parts)
 
 
-def _add_file(name: str, data: bytes, into: Intake, max_files: int, max_file_bytes: int) -> None:
+def _traversal(name: str) -> bool:
+    """An entry that tries to escape the archive: absolute, or with a `..` path segment. We only
+    ever keep the basename and store by content hash, so this cannot reach the filesystem — it is
+    refused anyway, and listed, so a zip built to escape is visible rather than silently tidied."""
+    norm = _norm(name)
+    return norm.startswith("/") or ".." in PurePosixPath(norm).parts
+
+
+def _unique(name: str, into: "Intake") -> str:
+    """`prog.py` from two folders of the same zip would collide on the submission, so the second
+    becomes `prog (2).py`, the third `prog (3).py`."""
+    taken: Set[str] = {n for n, _ in into.pages} | {n for n, _ in into.files}
+    if name not in taken:
+        return name
+    p = PurePosixPath(name)
+    stem, suffix = p.stem, p.suffix
+    i = 2
+    while f"{stem} ({i}){suffix}" in taken:
+        i += 1
+    return f"{stem} ({i}){suffix}"
+
+
+# --- limits ------------------------------------------------------------------------------------
+
+def _charge(name: str, size: int, into: Intake, max_total_bytes: int) -> None:
+    """Add an entry's bytes to the running total for the whole upload and stop at the budget."""
+    into.total_bytes += size
+    if into.total_bytes > max_total_bytes:
+        raise IntakeError("too_large", name, f"upload is over {max_total_bytes // (1024 * 1024)} MB once unpacked")
+
+
+def _add_page(name: str, data: bytes, into: Intake, max_total_bytes: int,
+              max_file_bytes: Optional[int] = None) -> None:
+    """A page. `max_file_bytes` is passed for a page extracted from a zip — a loose photo or PDF is
+    capped only by the request body, but a zip entry is decompressed here and must not be a bomb
+    that slipped under the per-archive budget."""
+    if max_file_bytes is not None and len(data) > max_file_bytes:
+        raise IntakeError("too_large", name, f"{name} is over {max_file_bytes // (1024 * 1024)} MB")
+    _charge(name, len(data), into, max_total_bytes)
+    into.pages.append((_unique(name, into), data))
+
+
+def _add_file(name: str, data: bytes, into: Intake, max_files: int, max_file_bytes: int,
+              max_total_bytes: int) -> None:
+    # Count first: an oversized 13th file is "too many files", which is the thing to fix.
+    if len(into.files) >= max_files:
+        raise IntakeError("too_many_files", name, f"{name}: too many files — the limit is {max_files} per submission")
     if len(data) > max_file_bytes:
         raise IntakeError("too_large", name, f"{name} is over {max_file_bytes // (1024 * 1024)} MB")
-    if len(into.files) >= max_files:
-        raise IntakeError("too_many_files", name, f"too many files; the limit is {max_files} per submission")
-    into.files.append((name, data))
+    _charge(name, len(data), into, max_total_bytes)
+    into.files.append((_unique(name, into), data))
 
 
-def _expand_zip(name: str, data: bytes, into: Intake, max_files: int, max_file_bytes: int) -> None:
+# --- zips --------------------------------------------------------------------------------------
+
+def _read_entry(z: zipfile.ZipFile, zip_name: str, info: zipfile.ZipInfo) -> bytes:
+    """One entry's bytes. An encrypted entry raises RuntimeError, an unsupported compression
+    method NotImplementedError, a damaged stream EOFError / BadZipFile / zlib.error — all of them
+    are a bad upload to tell the teacher about, never a 500."""
+    try:
+        return z.read(info)
+    except (RuntimeError, NotImplementedError, zipfile.BadZipFile, EOFError, zlib.error) as e:
+        raise IntakeError("bad_file", zip_name, f"{zip_name}: {UNPACK_FAILED}") from e
+
+
+def _expand_zip(name: str, data: bytes, into: Intake, max_files: int, max_file_bytes: int,
+                max_total_bytes: int) -> None:
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
         raise IntakeError("bad_file", name, f"{name} is not a zip file")
     with z:
-        # Trust the central directory only for the cheap bomb check; the per-entry size cap in
-        # _add_file still measures the bytes actually read, so a lying header cannot get past it.
+        # Trust the central directory only for the cheap bomb check; the per-entry size cap and the
+        # running total below measure the bytes actually read, so a lying header gains nothing.
         if sum(i.file_size for i in z.infolist()) > MAX_ZIP_DECOMPRESSED:
             raise IntakeError("zip_bomb", name, f"{name} expands past {MAX_ZIP_DECOMPRESSED // (1024 * 1024)} MB")
         usable = 0
         for info in z.infolist():
-            if info.is_dir() or _junk(info.filename):
+            if info.is_dir():
                 continue
-            # Folders inside the zip are flattened: only the leaf name is kept.
-            inner = Path(info.filename).name
-            ext = Path(inner).suffix.lower()
-            if ext in PAGE_EXTS:
-                into.pages.append((inner, z.read(info)))
-                usable += 1
-            elif ext in FILE_EXTS:
-                _add_file(inner, z.read(info), into, max_files, max_file_bytes)
-                usable += 1
-            else:
+            if _traversal(info.filename):
+                into.ignored.append(info.filename)
+                continue
+            if _junk(info.filename):
+                continue
+            inner = _basename(info.filename)
+            ext = PurePosixPath(inner).suffix.lower()
+            if ext not in PAGE_EXTS and ext not in FILE_EXTS:
                 into.ignored.append(inner)
+                continue
+            entry = _read_entry(z, name, info)
+            if ext in PAGE_EXTS:
+                _add_page(inner, entry, into, max_total_bytes, max_file_bytes=max_file_bytes)
+            else:
+                _add_file(inner, entry, into, max_files, max_file_bytes, max_total_bytes)
+            usable += 1
         if usable == 0:
             raise IntakeError("zip_nothing_usable", name, f"{name} contains no pages or program files")
 
 
+# --- entry point -------------------------------------------------------------------------------
+
 def classify_uploads(files: List[Tuple[str, bytes]], *, max_files: int = MAX_FILES,
-                     max_file_bytes: int = MAX_FILE_BYTES) -> Intake:
+                     max_file_bytes: int = MAX_FILE_BYTES,
+                     max_total_bytes: int = MAX_UPLOAD_BYTES) -> Intake:
     """Split an upload into pages (images/PDFs) and program files, expanding zips. Order is kept."""
     it = Intake()
-    for name, data in files:
-        ext = Path(name).suffix.lower()
+    for raw_name, data in files:
+        name = _basename(raw_name) or raw_name
+        ext = PurePosixPath(name).suffix.lower()
         if ext == ".zip":
-            _expand_zip(name, data, it, max_files, max_file_bytes)
+            _charge(name, len(data), it, max_total_bytes)
+            _expand_zip(name, data, it, max_files, max_file_bytes, max_total_bytes)
         elif ext in PAGE_EXTS:
-            it.pages.append((name, data))
+            _add_page(name, data, it, max_total_bytes)
         elif ext in FILE_EXTS:
-            _add_file(name, data, it, max_files, max_file_bytes)
+            _add_file(name, data, it, max_files, max_file_bytes, max_total_bytes)
         else:
             raise IntakeError("bad_file", name, f"{name}: {BAD_FILE_MESSAGE}")
     return it

@@ -424,6 +424,17 @@ def test_file_bytes_are_stored_content_addressed(auth, app):
     assert app.state.storage.abs(row["stored_path"]).read_bytes() == b"print(1)\n"
 
 
+def test_unreadable_zip_entries_are_400_bad_file_naming_the_zip(auth):
+    """A password-protected or damaged archive must be a named 400, never a 500."""
+    from tests.unit.test_files_intake import _zip_damaged_stream, _zip_unreadable_method
+    tid = _tpl_v2(auth)
+    for data in (_zip_unreadable_method(), _zip_damaged_stream()):
+        r = auth.post("/api/submissions", data=_data(tid, label="S7"),
+                      files=[("files", ("work.zip", data, "application/zip"))])
+        assert r.status_code == 400, r.text
+        assert r.json()["error"]["code"] == "bad_file" and "work.zip" in r.json()["error"]["message"]
+
+
 def test_no_files_at_all_is_rejected(auth, app):
     from sms.web.services.submissions import create_submission
     with pytest.raises(ApiError) as e:

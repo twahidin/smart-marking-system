@@ -398,6 +398,7 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
     totals = None
     marks_version = 1
     feedback = None
+    extracted: Dict[str, Any] = {"questions": []}
     scheme_info = run_scheme(run)
     if run and scheme_info:
         marks_version = 2
@@ -425,16 +426,15 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
         totals = compute_totals(rubric, marks, set(pending), corrections) if marks else None
     # `matched`: did the marker's transcription actually cite this file? The extractor tags what it
     # read from a file with "[<name> …]", so a file whose tag never appears was not used. Before any
-    # run there is no transcription, so nothing is matched.
-    extracted_text = ""
-    if run and run["extracted_json"]:
-        try:
-            questions = (json.loads(run["extracted_json"]) or {}).get("questions") or []
-        except ValueError:
-            questions = []
-        extracted_text = " ".join(q.get("transcribed_answer", "") or "" for q in questions if isinstance(q, dict))
-    files = [{"id": f["id"], "name": f["name"], "kind": f["kind"], "size": f["size"], "text_rendered": f["text_rendered"],
-              "deleted": f["deleted_at"] is not None, "matched": f"[{f['name']}" in extracted_text} for f in file_rows]
+    # run there is no transcription, so nothing is matched. Reuses the `extracted` already parsed
+    # for the parts above, and is skipped entirely for the usual pages-only script.
+    files: List[dict] = []
+    if file_rows:
+        extracted_text = " ".join(q.get("transcribed_answer", "") or ""
+                                  for q in (extracted.get("questions") or []) if isinstance(q, dict))
+        files = [{"id": f["id"], "name": f["name"], "kind": f["kind"], "size": f["size"],
+                  "text_rendered": f["text_rendered"], "deleted": f["deleted_at"] is not None,
+                  "matched": f"[{f['name']}" in extracted_text} for f in file_rows]
     job = jobs.job_for_submission(submission_id)
     return {
         "id": s["id"], "label": s["label"], "subject": s["subject"], "context": s["context"], "status": s["status"],
