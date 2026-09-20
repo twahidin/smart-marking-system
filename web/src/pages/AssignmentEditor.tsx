@@ -8,6 +8,7 @@ import { Dialog } from "../components/Dialog";
 import { DropZone } from "../components/DropZone";
 import { EmptyState } from "../components/EmptyState";
 import { MarkSchemeTable } from "../components/MarkSchemeTable";
+import { ModelPicker } from "../components/ModelPicker";
 import { Notice } from "../components/Notice";
 import { QuestionsTable } from "../components/QuestionsTable";
 import { RubricTable } from "../components/RubricTable";
@@ -27,8 +28,6 @@ type Busy = null | "save" | Upload | `read-${Upload}`;
 const KINDS: SchemeKind[] = ["mark_scheme", "rubric", "criteria"];
 const DEFAULT_SUBJECT: Record<SchemeKind, Subject> = { mark_scheme: "math", rubric: "language", criteria: "math" };
 const EMPTY: Draft = { title: "", subject: "math", kind: null, context: "", questions: [], scheme: [], criteria: [], deletePages: null, provider: null, model: "", extractorModel: "" };
-const CUSTOM = "__custom__";
-const NO_KEY = "No key saved — add one under Settings";
 const isActive = (s: string | null | undefined) => s === "queued" || s === "running";
 
 const clampInt = (v: unknown) => Math.max(0, Math.round(Number(v) || 0));
@@ -83,7 +82,6 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   const [notFound, setNotFound] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [providers, setProviders] = useState<ProviderSpec[]>([]);
-  const [customModel, setCustomModel] = useState(false);
   const [pages, setPages] = useState<Record<Upload, number[]>>({ paper: [], scheme: [] });
   const [extract, setExtract] = useState<ExtractStatus | null>(null);
   const [justRead, setJustRead] = useState<Upload | null>(null);
@@ -287,17 +285,14 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   // Model: Auto (draft.provider === null) follows Settings; a chosen provider must already have a key saved.
   const keys = settings?.keys ?? (settings?.has_key ? { [settings.provider]: settings.key_hint } : {});
   const hasKey = (id: string) => !!keys[id];
-  const spec = providers.find((p) => p.id === draft.provider) ?? null;
   const anyKey = providers.some((p) => hasKey(p.id));
   const modelName = (providerId: string, modelId: string) => {
     const p = providers.find((x) => x.id === providerId);
     return `${p?.label ?? providerLabel[providerId] ?? providerId} · ${p?.models.find((m) => m.id === modelId)?.label ?? modelId}`;
   };
-  const showCustomModel = draft.provider !== null && (customModel || !spec?.models.some((m) => m.id === draft.model));
-  const pickProvider = (id: string) => { setCustomModel(false); patch({ provider: id, model: providers.find((p) => p.id === id)?.default_model ?? "" }); };
   const chooseOwnModel = () => {
     const from = (settings && hasKey(settings.provider) ? settings.provider : providers.find((p) => hasKey(p.id))?.id) ?? null;
-    if (from) pickProvider(from);
+    if (from) patch({ provider: from, model: providers.find((p) => p.id === from)?.default_model ?? "" });
   };
 
   const uploadBlock = (what: Upload, title: string, readLabel: string) => {
@@ -415,7 +410,7 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
             <div className="field" style={{ maxWidth: 420 }}>
               <div className="seg" role="radiogroup" aria-label="Model">
                 <label className={`seg-opt ${draft.provider === null ? "on" : ""}`}>
-                  <input type="radio" name="model-mode" checked={draft.provider === null} onChange={() => { setCustomModel(false); patch({ provider: null }); }} />Auto — follow Settings
+                  <input type="radio" name="model-mode" checked={draft.provider === null} onChange={() => patch({ provider: null })} />Auto — follow Settings
                 </label>
                 <label className={`seg-opt ${draft.provider !== null ? "on" : ""}`}>
                   <input type="radio" name="model-mode" checked={draft.provider !== null} onChange={chooseOwnModel} />Choose a model
@@ -425,30 +420,9 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
               {draft.provider === null && providers.length > 0 && !anyKey && <span className="help">No keys saved yet — add one under Settings to choose a model here.</span>}
             </div>
             {draft.provider !== null && (
-              <>
-                <div className="field"><label>Provider</label>
-                  <div className="seg" role="radiogroup" aria-label="Model provider">
-                    {providers.map((p) => (
-                      <label key={p.id} className={`seg-opt ${draft.provider === p.id ? "on" : ""}${hasKey(p.id) ? "" : " off"}`} title={hasKey(p.id) ? undefined : NO_KEY}>
-                        <input type="radio" name="model-provider" checked={draft.provider === p.id} disabled={!hasKey(p.id)} onChange={() => pickProvider(p.id)} />{p.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid-2">
-                  <div className="field"><label>Model</label>
-                    <select className="input" aria-label="Model id" value={showCustomModel ? CUSTOM : draft.model}
-                      onChange={(e) => { if (e.target.value === CUSTOM) setCustomModel(true); else { setCustomModel(false); patch({ model: e.target.value }); } }}>
-                      {(spec?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.label}{m.vision ? " · reads pages" : " · text only"}</option>)}
-                      <option value={CUSTOM}>Custom model id…</option>
-                    </select>
-                    {showCustomModel && <input className="input" aria-label="Custom model id" placeholder="exact model id" value={draft.model} onChange={(e) => patch({ model: e.target.value })} />}
-                  </div>
-                  <div className="field"><label htmlFor="assignment-extractor">Different model for reading pages (optional)</label>
-                    <input id="assignment-extractor" className="input" placeholder="leave blank to use the same model" value={draft.extractorModel} onChange={(e) => patch({ extractorModel: e.target.value })} />
-                    <span className="help">Use a cheap vision model to transcribe, and a stronger one to mark.</span></div>
-                </div>
-              </>
+              <ModelPicker providers={providers} keys={keys} name="model-provider" extractorId="assignment-extractor"
+                value={{ provider: draft.provider, model: draft.model, extractorModel: draft.extractorModel }}
+                onChange={(v) => patch({ provider: v.provider, model: v.model, extractorModel: v.extractorModel })} />
             )}
           </section>
 
