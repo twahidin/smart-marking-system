@@ -8,6 +8,8 @@ from sms.agents.marker import build_marker
 from sms.agents.marker_v2 import build_marker_v2
 from sms.agents.reviewer import build_reviewer
 from sms.agents.reviewer_v2 import build_reviewer_v2
+from sms.agents.text_segmenter import build_text_segmenter
+from sms.files.render import RenderError, render_all
 from sms.memory.db import Database
 from sms.memory.metrics_hook import wire_metrics
 from sms.pipeline.marking_pipeline import MarkingPipeline
@@ -42,6 +44,8 @@ def _default_pipeline_factory(*, db: Database, settings, subject: str, bucket: O
                                       model_api_parameters=params),
             "reviewer": build_reviewer_v2(client=client, model=settings.model, kind=kind, subject=subject, db=db,
                                           model_api_parameters=params),
+            # reads the rendered text of any .py/.sb3/.xlsx handed in; unused by a photographed script
+            "segmenter": build_text_segmenter(client=client, model=settings.model, model_api_parameters=params),
             "feedback": feedback,
         }
     else:
@@ -94,6 +98,26 @@ def _v2_template(db: Database, assignment_id: Optional[int], uploaded_kind: Opti
     }
 
 
+def _rendered_files(db: Database, storage: PageStorage, submission_id: int) -> list:
+    """The submission's uploaded program files as text for the pipeline, and the same text saved on each
+    row so the teacher sees on the detail page exactly what the model read. Rendering is read-only
+    (nothing is run or opened as a macro) and a file that cannot be read fails the job with the
+    renderer's own message, non-retryably: retrying will not make it readable."""
+    rows = db.query("SELECT id, name, stored_path, deleted_at FROM submission_files WHERE submission_id = :id "
+                    "ORDER BY id", {"id": submission_id})
+    if not rows:
+        return []
+    if any(f["deleted_at"] is not None for f in rows):
+        raise RuntimeError("This submission's files were deleted after marking, so it cannot be marked again")
+    try:
+        rendered = render_all([(f["name"], storage.read(f["stored_path"])) for f in rows])
+    except RenderError as e:
+        raise RuntimeError(str(e)) from e
+    for f, r in zip(rows, rendered):
+        db.execute("UPDATE submission_files SET text_rendered = :t WHERE id = :i", {"t": r.text, "i": f["id"]})
+    return rendered
+
+
 def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsStore, submission_id: int,
                  pipeline_factory: Optional[Callable[..., Any]] = None,
                  bucket: Optional[TokenBucket] = None, bucket_pool: Optional[BucketPool] = None) -> None:
@@ -112,14 +136,21 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
                      "ORDER BY page_index", {"id": submission_id})
     if any(p["deleted_at"] is not None for p in pages):
         raise RuntimeError("This script's pages were deleted after marking, so it cannot be marked again")
+    # `pages` is empty for a files-only submission: the images list below is then [] and the pipeline
+    # segments the files instead of calling vision.
     images = [storage.read(p["storage_path"]) for p in pages]
+    rendered = _rendered_files(db, storage, submission_id)
     factory = pipeline_factory or _default_pipeline_factory
     template = _v2_template(db, sub.get("assignment_id"), sub.get("scheme_kind"))
     if template is not None:
         # the assignment's subject drives prompts/providers and the run row; the pipeline reads the same key
         pipeline = factory(db=db, settings=settings, subject=template["subject"], bucket=bucket, kind=template["scheme_kind"])
-        result = pipeline.run(images=images, template=template, submission_id=submission_id)
+        result = pipeline.run(images=images, template=template, submission_id=submission_id, files=rendered)
     else:
+        if rendered:
+            # Unreachable: create_submission refuses files without a mark scheme or rubric. Kept so a row
+            # that gets here some other way is refused rather than marked with the files silently dropped.
+            raise RuntimeError("Files need an assignment with a mark scheme or rubric")
         rubric = Rubric.model_validate_json(sub["rubric_json"])
         pipeline = factory(db=db, settings=settings, subject=sub["subject"], bucket=bucket)
         result = pipeline.run(images=images, assignment_context=sub["context"] or "Student script",

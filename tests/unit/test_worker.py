@@ -368,8 +368,9 @@ class FakePipelineV2:
         self.escalations = escalations
         self.calls = []
 
-    def run(self, images, template, submission_id=None):
+    def run(self, images, template, submission_id=None, files=None):
         self.calls.append((images, template, submission_id))
+        self.files = list(files or [])
         from sms.pipeline.marking_pipeline_v2 import MarkingResultV2
         from sms.schemas.extraction import ExtractedScript
         from sms.schemas.marking_v2 import MarkedScriptV2
@@ -414,6 +415,53 @@ def test_run_mark_job_uses_v2_pipeline_for_mark_scheme_assignment(env):
     db.execute("UPDATE submissions SET status = 'uploaded'")
     run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipelineV2({"1a": "not in scheme"}))
     assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "needs_you"
+
+
+def _add_file(db, storage, sid, name="prog.py", data=b"print(1)\n"):
+    digest, rel = storage.put_file(data, "." + name.rsplit(".", 1)[1])
+    return db.insert("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path) "
+                     "VALUES (:s, :n, :k, :z, :h, :p) RETURNING id",
+                     {"s": sid, "n": name, "k": name.rsplit(".", 1)[1], "z": len(data), "h": digest, "p": rel})
+
+
+def test_run_mark_job_renders_the_submitted_files_for_the_v2_pipeline(env):
+    db, store, storage, sid = env
+    tid = _template(db, "mark_scheme", subject="computing")
+    db.execute("UPDATE submissions SET assignment_id = ?, input_kind = 'files' WHERE id = ?", (tid, sid))
+    db.execute("DELETE FROM pages WHERE submission_id = ?", (sid,))  # files-only: no pages at all
+    fid = _add_file(db, storage, sid)
+    fp = FakePipelineV2(escalations={})
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: fp)
+    assert fp.calls[0][0] == []  # no images
+    assert [(f.name, f.kind) for f in fp.files] == [("prog.py", "py")] and "print(1)" in fp.files[0].text
+    assert "print(1)" in db.query("SELECT text_rendered FROM submission_files WHERE id = ?", (fid,))[0]["text_rendered"]
+
+
+def test_run_mark_job_refuses_a_submission_whose_files_were_deleted(env):
+    db, store, storage, sid = env
+    tid = _template(db, "mark_scheme")
+    db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
+    fid = _add_file(db, storage, sid)
+    db.execute("UPDATE submission_files SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?", (fid,))
+    with pytest.raises(RuntimeError, match="files were deleted"):
+        run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipelineV2({}))
+
+
+def test_run_mark_job_turns_an_unreadable_file_into_a_non_retryable_error(env):
+    db, store, storage, sid = env
+    tid = _template(db, "mark_scheme")
+    db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
+    _add_file(db, storage, sid, name="book.xlsx", data=b"not a workbook")
+    with pytest.raises(RuntimeError, match="book.xlsx") as e:
+        run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipelineV2({}))
+    assert is_retryable(e.value) is False
+
+
+def test_run_mark_job_refuses_files_on_the_quick_mark_path(env):
+    db, store, storage, sid = env  # no assignment: the v1 pipeline, which cannot read files
+    _add_file(db, storage, sid)
+    with pytest.raises(RuntimeError, match="mark scheme or rubric"):
+        run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipeline([]))
 
 
 def test_run_mark_job_keeps_v1_for_criteria_or_no_assignment(env):
@@ -468,7 +516,8 @@ def test_default_pipeline_factory_builds_v2_agents(env, monkeypatch):
     from sms.providers.ratelimit import RateLimitedAgent
     pipeline = mark_job._default_pipeline_factory(db=db, settings=store.load(), subject="math", kind="rubric")
     assert isinstance(pipeline, MarkingPipelineV2) and pipeline.kind == "rubric"
-    assert all(isinstance(a, RateLimitedAgent) for a in (pipeline.extractor, pipeline.marker, pipeline.reviewer, pipeline.feedback))
+    assert all(isinstance(a, RateLimitedAgent) for a in (pipeline.extractor, pipeline.marker, pipeline.reviewer,
+                                                         pipeline.feedback, pipeline.segmenter))
     from sms.pipeline.marking_pipeline import MarkingPipeline
     assert isinstance(mark_job._default_pipeline_factory(db=db, settings=store.load(), subject="math"), MarkingPipeline)
 
