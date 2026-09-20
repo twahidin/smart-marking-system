@@ -15,6 +15,7 @@ from sms.providers.settings import Settings, SettingsStore
 from sms.web.deps import get_db, get_settings_store, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.custom_models import add_custom_model, list_custom_models, remove_custom_model
+from sms.web.services.subject_models import clear_subject_model, list_subject_models, set_subject_model
 from sms.web.services.telegram import TelegramClient, TelegramError
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_teacher)])
@@ -55,6 +56,12 @@ class CustomModelBody(BaseModel):
     model_id: str
     label: str = ""
     vision: bool = True
+
+
+class SubjectModelBody(BaseModel):
+    provider: str
+    model: str
+    extractor_model: Optional[str] = None
 
 
 @router.get("/providers")
@@ -123,24 +130,35 @@ def _saved_key(store: SettingsStore, provider: str) -> Optional[str]:
         raise ApiError(400, "bad_provider", str(e))
 
 
+def _in_use_message(n_templates: int, n_subjects: int) -> str:
+    parts = []
+    if n_templates:
+        parts.append(f"{n_templates} assignment{'s' if n_templates != 1 else ''}")
+    if n_subjects:
+        parts.append(f"{n_subjects} subject default{'s' if n_subjects != 1 else ''}")
+    n = n_templates + n_subjects
+    return (f"{' and '.join(parts)} use{'' if n != 1 else 's'} this provider — "
+            "they will fail to mark until you pick another model")
+
+
 @router.delete("/settings/keys/{provider}", status_code=204)
 def delete_key(provider: str, force: bool = False, db: Database = Depends(get_db),
                store: SettingsStore = Depends(get_settings_store)):
-    """Forget a provider's API key. Refused (409 `in_use`, with the count) while assignments are
-    pinned to that provider — they would fail to mark the moment the key went — unless `force`,
-    the same shape as deleting an assignment that is still in use."""
+    """Forget a provider's API key. Refused (409 `in_use`, with the count) while assignments or
+    subject defaults are pinned to that provider — they would fail to mark the moment the key
+    went — unless `force`, the same shape as deleting an assignment that is still in use."""
     try:
         get_provider(provider)
     except KeyError as e:
         raise ApiError(400, "bad_provider", str(e))
     if not force:
-        n = int(db.query("SELECT COUNT(*) AS c FROM assignment_templates WHERE provider = :p",
-                         {"p": provider})[0]["c"] or 0)
+        n_templates = int(db.query("SELECT COUNT(*) AS c FROM assignment_templates WHERE provider = :p",
+                                   {"p": provider})[0]["c"] or 0)
+        n_subjects = int(db.query("SELECT COUNT(*) AS c FROM subject_models WHERE provider = :p",
+                                  {"p": provider})[0]["c"] or 0)
+        n = n_templates + n_subjects
         if n:
-            raise ApiError(409, "in_use",
-                           f"{n} assignment{'s' if n != 1 else ''} use{'' if n != 1 else 's'} this provider — "
-                           "they will fail to mark until you pick another model",
-                           extra={"count": n})
+            raise ApiError(409, "in_use", _in_use_message(n_templates, n_subjects), extra={"count": n})
     store.delete_key(provider)
     return Response(status_code=204)
 
@@ -203,4 +221,20 @@ def add_model(provider: str, body: CustomModelBody, db: Database = Depends(get_d
 @router.delete("/settings/models/{provider}/{model_id:path}", status_code=204)
 def delete_model(provider: str, model_id: str, db: Database = Depends(get_db)):
     remove_custom_model(db, provider, model_id)
+    return Response(status_code=204)
+
+
+@router.get("/settings/subject-models")
+def subject_models(db: Database = Depends(get_db)):
+    return list_subject_models(db)
+
+
+@router.put("/settings/subject-models/{subject}")
+def put_subject_model(subject: str, body: SubjectModelBody, db: Database = Depends(get_db)):
+    return set_subject_model(db, subject, body.provider, body.model, body.extractor_model)
+
+
+@router.delete("/settings/subject-models/{subject}", status_code=204)
+def delete_subject_model(subject: str, db: Database = Depends(get_db)):
+    clear_subject_model(db, subject)
     return Response(status_code=204)

@@ -233,6 +233,38 @@ def test_removing_a_key_assignments_are_pinned_to_needs_force(auth):
     assert auth.delete("/api/settings/keys/tokenrouter").status_code == 204
 
 
+@pytest.fixture
+def auth_with_google_key(auth):
+    """Logged in, with a saved key for google — the provider the subject-model tests pin to."""
+    auth.put("/api/settings", json={"provider": "google", "model": "gemini-3.8-flash", "api_key": "g-key-1234",
+                                    "rpm_limit": 10, "confidence_threshold": 0})
+    return auth
+
+
+def test_subject_models_crud(auth_with_google_key):
+    c = auth_with_google_key
+    assert c.get("/api/settings/subject-models").json() == {"math": None, "language": None, "science": None, "mt": None, "computing": None}
+    r = c.put("/api/settings/subject-models/mt", json={"provider": "google", "model": "gemini-3.8-pro"})
+    assert r.status_code == 200 and r.json()["model"] == "gemini-3.8-pro"
+    assert c.put("/api/settings/subject-models/mt", json={"provider": "anthropic", "model": "x"}).json()["error"]["code"] == "no_key_for_provider"
+    assert c.put("/api/settings/subject-models/art", json={"provider": "google", "model": "x"}).status_code == 400
+    assert c.delete("/api/settings/subject-models/mt").status_code == 204
+    assert c.get("/api/settings/subject-models").json()["mt"] is None
+
+
+def test_removing_a_key_a_subject_default_uses_needs_force(auth_with_google_key):
+    """Extends the same in_use guard as pinned assignments: a subject default pointed at a
+    provider must not go stale the moment that provider's key is removed."""
+    c = auth_with_google_key
+    c.put("/api/settings/subject-models/mt", json={"provider": "google", "model": "gemini-3.8-pro"})
+    r = c.delete("/api/settings/keys/google")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "in_use" and r.json()["count"] == 1
+    assert "1 subject default uses this provider" in r.json()["error"]["message"]
+    assert c.get("/api/settings/subject-models").json()["mt"] is not None   # nothing removed
+
+    assert c.delete("/api/settings/keys/google?force=1").status_code == 204
+
+
 def test_telegram_test_maps_a_transport_failure_to_502(auth, monkeypatch):
     """api.telegram.org being unreachable is the same answer as a refusal: the message did not go."""
     import httpx
