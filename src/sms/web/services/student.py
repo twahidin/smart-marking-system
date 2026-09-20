@@ -52,9 +52,10 @@ def _status(sub: Optional[dict], released: bool) -> str:
 
 def _visible(db: Database, student: dict, caid: Optional[int] = None) -> List[dict]:
     """The class's non-draft assignments joined with this student's own hand-in (if any)."""
-    sql = ("SELECT a.*, s.id AS submission_id, s.status AS sub_status, s.handed_in_at, s.run_id, "
+    sql = ("SELECT a.*, t.subject AS subject, s.id AS submission_id, s.status AS sub_status, s.handed_in_at, s.run_id, "
            "(SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count "
-           "FROM class_assignments a LEFT JOIN submissions s ON s.class_assignment_id = a.id AND s.student_id = :st "
+           "FROM class_assignments a LEFT JOIN assignment_templates t ON t.id = a.template_id "
+           "LEFT JOIN submissions s ON s.class_assignment_id = a.id AND s.student_id = :st "
            "WHERE a.class_id = :c AND a.status != 'draft'")
     params: Dict[str, Any] = {"st": student["student_id"], "c": student["class_id"]}
     if caid is not None:
@@ -108,6 +109,9 @@ def student_assignment(db: Database, jobs: JobStore, student: dict, caid: int) -
         raise ApiError(404, "not_found", "No such assignment")
     r = rows[0]
     out = _row(r)
+    # The hand-in page offers *Add files* only where the marker can read them: a Computing assignment.
+    out["subject"] = r["subject"]
+    out["accepts_files"] = r["subject"] == "computing"
     out["feedback"] = None
     if out["status"] == "feedback_ready":
         detail = get_submission(db, jobs, r["submission_id"])

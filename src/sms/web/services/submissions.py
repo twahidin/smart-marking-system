@@ -354,6 +354,7 @@ def submission_totals(db: Database, s: dict, *, pending: Optional[Dict[str, dict
 
 def list_submissions(db: Database) -> List[Dict[str, Any]]:
     subs = db.query("SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count, "
+                    "(SELECT COUNT(*) FROM submission_files f WHERE f.submission_id = s.id) AS file_count, "
                     "a.title AS assignment_title, cl.name AS class_name, st.reg_no AS reg_no "
                     "FROM submissions s LEFT JOIN assignment_templates a ON a.id = s.assignment_id "
                     "LEFT JOIN students st ON st.id = s.student_id LEFT JOIN classes cl ON cl.id = st.class_id "
@@ -364,6 +365,8 @@ def list_submissions(db: Database) -> List[Dict[str, Any]]:
         totals = submission_totals(db, s, pending=pending)
         out.append({
             "id": s["id"], "label": s["label"], "subject": s["subject"], "page_count": s["page_count"],
+            # A files-only script has no pages, so the table shows "N files" in the Pages column instead.
+            "file_count": s["file_count"],
             "status": s["status"], "created_at": iso_utc(s["created_at"]),
             "assignment_id": s["assignment_id"], "assignment_title": s["assignment_title"],
             "class_assignment_id": s["class_assignment_id"],

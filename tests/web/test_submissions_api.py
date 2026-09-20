@@ -429,6 +429,18 @@ def test_pages_only_upload_keeps_input_kind_pages(auth):
     assert d["input_kind"] == "pages" and d["files"] == []
 
 
+def test_list_counts_files_beside_pages(auth):
+    """The Submissions table shows "N files" for a script with no pages, so the list carries the count."""
+    tid = _tpl_v2(auth)
+    files = auth.post("/api/submissions", data=_data(tid, label="Files only"),
+                      files=[("files", ("prog.py", b"print(1)\n", "text/x-python")),
+                             ("files", ("utils.py", b"x = 1\n", "text/x-python"))]).json()["id"]
+    pages = _create(auth, label="Pages only").json()["id"]
+    rows = {r["id"]: r for r in auth.get("/api/submissions").json()}
+    assert rows[files]["file_count"] == 2 and rows[files]["page_count"] == 0
+    assert rows[pages]["file_count"] == 0 and rows[pages]["page_count"] == 1
+
+
 def test_file_bytes_are_stored_content_addressed(auth, app):
     tid = _tpl_v2(auth)
     r = auth.post("/api/submissions", data=_data(tid, label="S6"),

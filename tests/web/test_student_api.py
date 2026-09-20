@@ -214,3 +214,19 @@ def test_student_can_fetch_own_page_until_it_is_deleted(auth, client, app):
     assert client.get("/api/student/pages/999999").status_code == 404
     app.state.db.execute("UPDATE pages SET deleted_at = CURRENT_TIMESTAMP WHERE id = :p", {"p": page["id"]})
     assert client.get(f"/api/student/pages/{page['id']}").json()["error"]["code"] == "gone"
+
+
+def test_assignment_detail_names_the_subject_and_whether_it_takes_files(auth, client):
+    """The hand-in page only offers *Add files* for a Computing assignment, so the detail says both."""
+    t, c, ca, draft = _setup(auth)
+    tc = auth.post("/api/assignments", json={"title": "Loops", "subject": "computing", "context": "", "rubric": RUBRIC,
+                                             "scheme_kind": "mark_scheme", "questions": QUESTIONS, "scheme": SCHEME}).json()
+    cac = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": tc["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{cac['id']}",
+             json={"title": cac["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    maths = client.get(f"/api/student/assignments/{ca['id']}").json()
+    assert maths["subject"] == "math" and maths["accepts_files"] is False
+    computing = client.get(f"/api/student/assignments/{cac['id']}").json()
+    assert computing["subject"] == "computing" and computing["accepts_files"] is True
