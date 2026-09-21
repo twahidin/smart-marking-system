@@ -28,7 +28,9 @@ function FileRow({ file }: { file: SubmissionFile }) {
       <div>
         <strong>{file.name}</strong>
         <span className="help" style={{ marginLeft: 8 }}>{KIND_LABEL[file.kind]} · {fmtSize(file.size)}</span>
-        {!file.matched && <div className="warn-note">Not used for any part</div>}
+        {/* Only once a run has decided. `matched: null` is "not marked yet", and `.warn-note` is an
+            inline-flex box, so the separator belongs in the flow: "Python · 95 B · Not used …". */}
+        {file.matched === false && <><span className="help"> · </span><span className="warn-note">Not used for any part</span></>}
         {file.deleted && <div className="help">Deleted after marking</div>}
         {file.text_rendered && (
           <>

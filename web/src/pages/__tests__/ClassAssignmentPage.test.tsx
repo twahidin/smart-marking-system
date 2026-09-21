@@ -178,7 +178,7 @@ describe("ClassAssignmentPage", () => {
     expect(input.accept).toContain(".py,.sb3,.xlsx,.zip");
     await userEvent.upload(input, [new File(["print(1)"], "prog.py", { type: "text/x-python" })]);
     expect(screen.getByText(/prog\.py/)).toHaveTextContent("8 B");
-    expect(screen.getByText(/up to 20 pages and 12 files/)).toBeInTheDocument();
+    expect(screen.getByText(/up to 60 pages and 12 files/)).toBeInTheDocument();
   });
 
   it("holds the teacher to the same two caps the server enforces", async () => {
@@ -192,9 +192,41 @@ describe("ClassAssignmentPage", () => {
     await userEvent.upload(input, Array.from({ length: 15 }, (_, i) => new File(["x"], `p${i + 1}.py`, { type: "text/x-python" })));
     expect(await screen.findByRole("status")).toHaveTextContent("You can hand in at most 12 files.");
     expect(screen.getAllByRole("listitem")).toHaveLength(12);
-    await userEvent.upload(input, Array.from({ length: 12 }, (_, i) => new File(["x"], `q${i + 1}.png`, { type: "image/png" })));
-    expect(await screen.findByText(/at most 20 pages or files/)).toBeInTheDocument();
-    expect(screen.getAllByRole("listitem")).toHaveLength(20);
+    // The teacher's door is the 60 pages `process_uploads` allows, not the student hand-in's 20.
+    await userEvent.upload(input, Array.from({ length: 49 }, (_, i) => new File(["x"], `q${i + 1}.png`, { type: "image/png" })));
+    expect(await screen.findByText(/at most 60 pages or files/)).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(60);
+  });
+
+  it("offers no program files for a Computing quick mark", async () => {
+    // `create_submission` refuses files against a criteria assignment, so the door must not open.
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify({ ...detail, subject: "computing", scheme_kind: "criteria" }), { status: 200 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Upload pages" }));
+    const input = screen.getByLabelText("Choose pages for Priya Nair") as HTMLInputElement;
+    expect(input.accept).not.toMatch(/\.py/);
+    expect(screen.getByText(/up to 60 pages\./)).toBeInTheDocument();
+  });
+
+  it("names what the server skipped out of a student's zip", async () => {
+    const calls = mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify({ ...detail, subject: "computing" }), { status: 200 }),
+      "POST /api/classes/1/assignments/3/students/3/upload": () =>
+        new Response(JSON.stringify({ id: 99, status: "queued", pages: [], ignored: ["notes.txt", "data.csv"] }), { status: 202 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Upload pages" }));
+    await userEvent.upload(screen.getByLabelText("Choose pages for Priya Nair"), [new File(["zip"], "work.zip", { type: "application/zip" })]);
+    await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
+    expect(await screen.findByText("Skipped: notes.txt, data.csv")).toBeInTheDocument();
+    // the roster behind has still been refreshed
+    await waitFor(() => expect(calls.filter((c) => c.method === "GET" && c.path === "/api/classes/1/assignments/3")).toHaveLength(2));
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("shows the insights panel instead of the roster on ?tab=insights", async () => {
@@ -265,6 +297,27 @@ describe("ClassAssignmentPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
     expect(await screen.findByText("Created 2 · Skipped 0 · Not matched 1")).toBeInTheDocument();
     expect(calls.some((c) => c.path.endsWith("/bulk?replace=1"))).toBe(true);
+  });
+
+  it("closes the drop target while the zip is being read", async () => {
+    // A second pick mid-request would replace the zip the commit is about to send, leaving the
+    // preview on screen describing a different archive.
+    let release: (r: Response) => void = () => {};
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+      "POST /api/classes/1/assignments/3/bulk/preview": () => new Promise<Response>((r) => { release = r; }) as unknown as Response,
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Bulk upload" }));
+    const input = screen.getByLabelText("Choose a zip of hand-ins") as HTMLInputElement;
+    await userEvent.upload(input, zipFile());
+    expect(await screen.findByText("Reading the zip…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose a zip" })).toBeDisabled();
+    expect(input).toBeDisabled();
+    release(new Response(JSON.stringify(preview), { status: 200 }));
+    expect(await screen.findByText(/#3 Priya Nair/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose a zip" })).toBeEnabled();
   });
 
   it("shows the server's message when the zip can't be read", async () => {

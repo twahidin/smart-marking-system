@@ -25,14 +25,17 @@ export function fmtSize(bytes: number): string {
   return `${(bytes / MB).toFixed(1)} MB`;
 }
 
-/** The two caps the server enforces on a hand-in — pages and files together, and program files on
- *  their own. Both are checked as work is picked so nobody finds out after uploading 15 files. */
-export const MAX_UPLOAD_ITEMS = 20;
+/** The two caps the server enforces, checked as work is picked so nobody finds out after uploading
+ *  15 files. The program-file cap is the same everywhere (`intake.MAX_FILES`); the item cap is not —
+ *  a student hand-in is held to 20 pages (`student.MAX_HAND_IN_PAGES`) and the teacher's per-student
+ *  upload to the 60 `process_uploads` allows — so it is passed in rather than assumed. */
+export const MAX_HAND_IN_PAGES = 20;
+export const MAX_TEACHER_PAGES = 60;
 export const MAX_PROGRAM_FILES = 12;
 
 /** What of `picked` still fits beside `already`, and which cap turned the rest away. The file cap is
  *  applied first, so a photo is never dropped to make room for a file that cannot go up anyway. */
-export function capUploads(picked: File[], already: File[]): { kept: File[]; overItems: boolean; overFiles: boolean } {
+export function capUploads(picked: File[], already: File[], maxItems: number): { kept: File[]; overItems: boolean; overFiles: boolean } {
   let fileRoom = Math.max(0, MAX_PROGRAM_FILES - already.filter(isProgramFile).length);
   let overFiles = false;
   const fits = picked.filter((f) => {
@@ -41,7 +44,7 @@ export function capUploads(picked: File[], already: File[]): { kept: File[]; ove
     overFiles = true;
     return false;
   });
-  const kept = fits.slice(0, Math.max(0, MAX_UPLOAD_ITEMS - already.length));
+  const kept = fits.slice(0, Math.max(0, maxItems - already.length));
   return { kept, overItems: kept.length < fits.length, overFiles };
 }
 

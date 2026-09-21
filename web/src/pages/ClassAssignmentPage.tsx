@@ -11,7 +11,7 @@ import { Notice } from "../components/Notice";
 import { ProgressStrip, type StripBucket } from "../components/ProgressStrip";
 import { PAGE_ACCEPT } from "../components/DropZone";
 import { downloadFile } from "../lib/download";
-import { capUploads, fmtSize, MAX_PROGRAM_FILES, MAX_UPLOAD_ITEMS, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
+import { capUploads, fmtSize, MAX_PROGRAM_FILES, MAX_TEACHER_PAGES, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { fmtDate } from "../lib/format";
 import { qLabel, totalLabel } from "../lib/marks";
 
@@ -90,6 +90,10 @@ export function ClassAssignmentPage() {
     : detail.status !== "open" ? "Open the assignment before releasing feedback."
     : markedCount === 0 ? "Nothing has been marked yet." : undefined;
   const recordIds = roster.rows.filter(hasRecord).map((r) => r.submission_id as number);
+  // Program files are only markable against a Computing assignment with a mark scheme or a rubric: a
+  // quick mark has nothing to line code up with, and the server refuses them — so the per-student
+  // upload dialog must not offer them either.
+  const takesFiles = detail.subject === "computing" && (detail.scheme_kind === "mark_scheme" || detail.scheme_kind === "rubric");
 
   const run = async (kind: NonNullable<typeof busy>, fallback: string, fn: () => Promise<void>) => {
     setBusy(kind); setError(null);
@@ -202,8 +206,8 @@ export function ClassAssignmentPage() {
       )}
       {/* The roster refreshes behind the result, so the dialog can still say what came of the zip. */}
       {bulking && <BulkUploadDialog base={base} onClose={() => setBulking(false)} onDone={load} />}
-      {uploading && <UploadDialog base={base} student={uploading} accept={detail.subject === "computing" ? `${PAGE_ACCEPT},${PROGRAM_ACCEPT}` : PAGE_ACCEPT}
-        onClose={() => setUploading(null)} onDone={() => { setUploading(null); load(); }} />}
+      {uploading && <UploadDialog base={base} student={uploading} accept={takesFiles ? `${PAGE_ACCEPT},${PROGRAM_ACCEPT}` : PAGE_ACCEPT}
+        onClose={() => setUploading(null)} onDone={load} />}
       {removing && (
         <Dialog title={`Remove ${removing.name}'s hand-in?`} onClose={() => setRemoving(null)}
           footer={<><Button variant="secondary" onClick={() => setRemoving(null)}>Cancel</Button><Button variant="primary" onClick={() => remove(removing)} disabled={busy !== null}>Remove hand-in</Button></>}>
@@ -221,6 +225,10 @@ function UploadDialog({ base, student, accept, onClose, onDone }: { base: string
   const [error, setError] = useState<string | null>(null);
   const [overItems, setOverItems] = useState(false);
   const [overFiles, setOverFiles] = useState(false);
+  // What the server dropped out of a zip. The dialog stays open to say so rather than closing on a
+  // half-taken upload; `onDone` still refreshes the roster behind it.
+  const [ignored, setIgnored] = useState<string[]>([]);
+  const [done, setDone] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   // The same two caps the server enforces, checked as work is picked; photos are shrunk on the way in,
   // so the list shows the size that will actually go up.
@@ -228,7 +236,7 @@ function UploadDialog({ base, student, accept, onClose, onDone }: { base: string
   // not both measure themselves against the same stale list.
   const accepted = useRef<File[]>([]);
   const add = (picked: File[]) => {
-    const { kept, overItems: tooMany, overFiles: tooManyFiles } = capUploads(picked, accepted.current);
+    const { kept, overItems: tooMany, overFiles: tooManyFiles } = capUploads(picked, accepted.current, MAX_TEACHER_PAGES);
     setOverItems(tooMany); setOverFiles(tooManyFiles);
     if (kept.length === 0) return;
     accepted.current = [...accepted.current, ...kept];
@@ -240,9 +248,26 @@ function UploadDialog({ base, student, accept, onClose, onDone }: { base: string
     setBusy(true); setError(null);
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f, f.name));
-    try { await api.postForm(`${base}/students/${student.student_id}/upload`, fd); onDone(); }
+    try {
+      const r = await api.postForm<{ ignored?: string[] }>(`${base}/students/${student.student_id}/upload`, fd);
+      onDone();
+      const skipped = r?.ignored ?? [];
+      // Nothing was dropped: close as before. Otherwise stay open long enough to say what the zip
+      // carried that the marker can't take, since the roster behind will show no sign of it.
+      if (skipped.length === 0) { onClose(); return; }
+      setIgnored(skipped); setDone(true); setBusy(false);
+    }
     catch (e) { setError(e instanceof ApiError && e.code === "no_key" ? "Add an API key under Settings before marking." : msg(e, "Couldn't upload the pages — try again.")); setBusy(false); }
   };
+  if (done) {
+    return (
+      <Dialog title={`Upload pages for ${student.name}`} onClose={onClose}
+        footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+        <p role="status">Marking has started for {student.name}.</p>
+        <p className="notice">{`Skipped: ${ignored.join(", ")}`}</p>
+      </Dialog>
+    );
+  }
   return (
     <Dialog title={`Upload pages for ${student.name}`} onClose={onClose}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" onClick={start} disabled={busy || files.length === 0}>{busy ? "Uploading…" : "Start marking"}</Button></>}>
@@ -253,13 +278,13 @@ function UploadDialog({ base, student, accept, onClose, onDone }: { base: string
         <Upload size={32} aria-hidden />
         <h3>Drop {student.name}'s work here</h3>
         <p className="help">{takesFiles
-          ? `PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to ${MAX_UPLOAD_ITEMS} pages and ${MAX_PROGRAM_FILES} files. The script is marked as handed in by you.`
-          : `PDF, JPG, PNG or HEIC — up to ${MAX_UPLOAD_ITEMS} pages. The script is marked as handed in by you.`}</p>
+          ? `PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to ${MAX_TEACHER_PAGES} pages and ${MAX_PROGRAM_FILES} files. The script is marked as handed in by you.`
+          : `PDF, JPG, PNG or HEIC — up to ${MAX_TEACHER_PAGES} pages. The script is marked as handed in by you.`}</p>
         <button type="button" className="btn btn-secondary" onClick={() => input.current?.click()}>Choose files</button>
         <input ref={input} type="file" multiple accept={accept} hidden aria-label={`Choose pages for ${student.name}`}
           onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
-      {overItems && <p role="status" className="notice">{`You can hand in at most ${MAX_UPLOAD_ITEMS} ${takesFiles ? "pages or files" : "pages"}.`}</p>}
+      {overItems && <p role="status" className="notice">{`You can hand in at most ${MAX_TEACHER_PAGES} ${takesFiles ? "pages or files" : "pages"}.`}</p>}
       {overFiles && <p role="status" className="notice">{`You can hand in at most ${MAX_PROGRAM_FILES} files.`}</p>}
       {files.length > 0 && (
         <ul className="help" style={{ margin: "12px 0 0", paddingLeft: 20 }}>

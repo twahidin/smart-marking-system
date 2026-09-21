@@ -80,7 +80,9 @@ export type InputKind = "pages" | "files" | "mixed";
  *  `matched` says whether the transcription actually cited it, `deleted` that its bytes are gone. */
 export interface SubmissionFile {
   id: number; name: string; kind: "py" | "sb3" | "xlsx"; size: number;
-  text_rendered: string | null; deleted: boolean; matched: boolean;
+  text_rendered: string | null; deleted: boolean;
+  /** null until the script has been marked — not yet known, which is not the same as "not used". */
+  matched: boolean | null;
 }
 export interface Mark {
   q_id: string; criterion_scores: number[]; total: number; max: number; confidence: number | null;

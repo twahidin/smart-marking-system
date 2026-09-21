@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import type { StudentAssignmentDetail } from "../api/types";
-import { canThumbnail, capUploads, fmtSize, isProgramFile, MAX_PROGRAM_FILES, MAX_UPLOAD_ITEMS, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
+import { canThumbnail, capUploads, fmtSize, isProgramFile, MAX_HAND_IN_PAGES, MAX_PROGRAM_FILES, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { fmtDate } from "../lib/format";
 import { studentApi as api } from "./api";
 
@@ -18,7 +18,7 @@ export function handInLabel(pages: Page[]): string {
   return `Hand in ${bits.join(" and ")}`;
 }
 
-const MAX_PAGES = MAX_UPLOAD_ITEMS;
+const MAX_PAGES = MAX_HAND_IN_PAGES;
 const PHOTOS_ONLY = "This assignment takes photos only.";
 const OFFLINE = "Couldn't hand in — check your signal and try again.";
 const UNREACHABLE = "Can't reach Smart Marking — check your signal and try again.";
@@ -33,6 +33,9 @@ export function HandIn() {
   const [overFiles, setOverFiles] = useState(false);
   const [busy, setBusy] = useState(false);
   const [doneAt, setDoneAt] = useState<string | null>(null);
+  // What the server dropped out of a zip (notes.txt, data.csv …). Said out loud on the done screen,
+  // so a student whose folder went up half-ignored finds out now rather than when the marks come back.
+  const [ignored, setIgnored] = useState<string[]>([]);
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
   const programs = useRef<HTMLInputElement>(null);
@@ -63,7 +66,7 @@ export function HandIn() {
     }
     setError(null);
     // Both caps are the server's, checked here so nobody learns about them after a long upload.
-    const { kept, overItems, overFiles: tooManyFiles } = capUploads(usable, pages.map((p) => p.file));
+    const { kept, overItems, overFiles: tooManyFiles } = capUploads(usable, pages.map((p) => p.file), MAX_PAGES);
     setOverLimit(overItems);
     setOverFiles(tooManyFiles);
     if (kept.length === 0) return;
@@ -87,7 +90,8 @@ export function HandIn() {
       const fd = new FormData();
       // Photos are shrunk on the phone; program files go up byte for byte.
       for (const f of await prepareUploads(pages.map((p) => p.file))) fd.append("files", f, f.name);
-      await api.postForm(`/api/student/assignments/${caid}/hand-in`, fd);
+      const r = await api.postForm<{ ignored?: string[] }>(`/api/student/assignments/${caid}/hand-in`, fd);
+      setIgnored(r?.ignored ?? []);
       setDoneAt(new Date().toISOString());
     } catch (e) { setError(e instanceof ApiError ? e.message : OFFLINE); }
     finally { setBusy(false); }
@@ -107,6 +111,7 @@ export function HandIn() {
       <>
         <h1>{detail.title}</h1>
         <p className="notice notice-ok student-done">{`Handed in ${fmtDate(doneAt)}`}</p>
+        {ignored.length > 0 && <p role="status" className="notice">{`Skipped: ${ignored.join(", ")}`}</p>}
         <p className="help">Your teacher will see it shortly. You'll find your feedback here once it's ready.</p>
         <Link className="btn btn-primary btn-lg" to="/s">Back to assignments</Link>
       </>

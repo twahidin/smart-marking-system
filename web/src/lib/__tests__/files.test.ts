@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { canThumbnail, capUploads, fmtSize, isProgramFile, MAX_PROGRAM_FILES, MAX_UPLOAD_ITEMS, PROGRAM_ACCEPT, prepareUploads } from "../files";
+import { canThumbnail, capUploads, fmtSize, isProgramFile, MAX_HAND_IN_PAGES, MAX_PROGRAM_FILES, MAX_TEACHER_PAGES, PROGRAM_ACCEPT, prepareUploads } from "../files";
 
 vi.mock("../image", () => ({
   // A stand-in for the real canvas resize: the name says the photo went through it.
@@ -50,13 +50,20 @@ describe("capUploads", () => {
   const py = (name: string) => new File(["x"], name, { type: "text/x-python" });
   const jpg = (name: string) => new File(["x"], name, { type: "image/jpeg" });
 
-  it("matches the two caps the server enforces", () => {
-    expect(MAX_UPLOAD_ITEMS).toBe(20);
-    expect(MAX_PROGRAM_FILES).toBe(12);
+  it("matches the caps the server enforces on each door", () => {
+    expect(MAX_HAND_IN_PAGES).toBe(20);       // sms.web.services.student.MAX_HAND_IN_PAGES
+    expect(MAX_TEACHER_PAGES).toBe(60);       // sms.storage.process_uploads' own max_pages
+    expect(MAX_PROGRAM_FILES).toBe(12);       // sms.files.intake.MAX_FILES, the same either way
+  });
+
+  it("takes the item cap as a parameter, so the two doors can differ", () => {
+    const many = Array.from({ length: 30 }, (_, i) => jpg(`p${i}.jpg`));
+    expect(capUploads(many, [], MAX_HAND_IN_PAGES).kept).toHaveLength(20);
+    expect(capUploads(many, [], MAX_TEACHER_PAGES).kept).toHaveLength(30);
   });
 
   it("keeps the first 12 program files and blames the file cap, not the item cap", () => {
-    const r = capUploads(Array.from({ length: 15 }, (_, i) => py(`p${i}.py`)), []);
+    const r = capUploads(Array.from({ length: 15 }, (_, i) => py(`p${i}.py`)), [], MAX_HAND_IN_PAGES);
     expect(r.kept).toHaveLength(12);
     expect(r.overFiles).toBe(true);
     expect(r.overItems).toBe(false);
@@ -64,13 +71,13 @@ describe("capUploads", () => {
 
   it("counts the files already picked against the same cap, and lets a photo through", () => {
     const already = Array.from({ length: 12 }, (_, i) => py(`p${i}.py`));
-    const r = capUploads([py("more.py"), jpg("a.jpg")], already);
+    const r = capUploads([py("more.py"), jpg("a.jpg")], already, MAX_HAND_IN_PAGES);
     expect(r.kept.map((f) => f.name)).toEqual(["a.jpg"]);
     expect(r.overFiles).toBe(true);
   });
 
   it("caps the whole hand-in at 20 items", () => {
-    const r = capUploads(Array.from({ length: 21 }, (_, i) => jpg(`p${i}.jpg`)), []);
+    const r = capUploads(Array.from({ length: 21 }, (_, i) => jpg(`p${i}.jpg`)), [], MAX_HAND_IN_PAGES);
     expect(r.kept).toHaveLength(20);
     expect(r.overItems).toBe(true);
     expect(r.overFiles).toBe(false);
@@ -78,7 +85,7 @@ describe("capUploads", () => {
 
   it("passes an ordinary hand-in through untouched", () => {
     const picked = [jpg("a.jpg"), py("prog.py")];
-    const r = capUploads(picked, []);
+    const r = capUploads(picked, [], MAX_HAND_IN_PAGES);
     expect(r.kept).toEqual(picked);
     expect(r.overItems).toBe(false);
     expect(r.overFiles).toBe(false);

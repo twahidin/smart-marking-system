@@ -40,4 +40,16 @@ describe("FilesBlock", () => {
     expect(rows[0]).not.toHaveTextContent("Deleted after marking");
     expect(rows[1]).toHaveTextContent("Deleted after marking");
   });
+
+  it("stays quiet about a file nothing has decided on yet", () => {
+    // `matched: null` is "no marking run yet", which is not the same as "not used for any part".
+    render(<FilesBlock files={[file({ matched: null })]} />);
+    expect(screen.queryByText("Not used for any part")).not.toBeInTheDocument();
+  });
+
+  it("separates the note from the size instead of running them together", () => {
+    render(<FilesBlock files={[file({ size: 95, matched: false })]} />);
+    const row = within(screen.getByRole("list", { name: "Files" })).getAllByRole("listitem")[0];
+    expect(row.textContent).toContain("95 B · Not used for any part");
+  });
 });

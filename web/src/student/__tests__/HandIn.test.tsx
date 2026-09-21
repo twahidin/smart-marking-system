@@ -210,6 +210,44 @@ describe("HandIn", () => {
     expect(screen.queryByRole("button", { name: /Add files/ })).not.toBeInTheDocument();
   });
 
+  it("names what the server skipped out of a zip", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+      "POST /api/student/assignments/1/hand-in": () => ok({ id: 5, status: "queued", pages: [], ignored: ["notes.txt", "data.csv"] }, 202),
+    });
+    render(app("/s/a/1/hand-in"));
+    await userEvent.upload(await screen.findByLabelText("Choose from gallery"), [jpg("page1.jpg")]);
+    await userEvent.click(screen.getByRole("button", { name: /Hand in/ }));
+    expect(await screen.findByText(/Handed in/)).toBeInTheDocument();
+    expect(screen.getByText("Skipped: notes.txt, data.csv")).toBeInTheDocument();
+  });
+
+  it("says nothing about skipped files when nothing was skipped", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+      "POST /api/student/assignments/1/hand-in": () => ok({ id: 5, status: "queued", pages: [], ignored: [] }, 202),
+    });
+    render(app("/s/a/1/hand-in"));
+    await userEvent.upload(await screen.findByLabelText("Choose from gallery"), [jpg("page1.jpg")]);
+    await userEvent.click(screen.getByRole("button", { name: /Hand in/ }));
+    expect(await screen.findByText(/Handed in/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Skipped:/)).not.toBeInTheDocument();
+  });
+
+  it("holds the hand-in to 20 items, not the teacher's 60", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+    });
+    render(app("/s/a/1/hand-in"));
+    const gallery = await screen.findByLabelText("Choose from gallery");
+    await userEvent.upload(gallery, Array.from({ length: 21 }, (_, i) => jpg(`p${i + 1}.jpg`)));
+    expect(await screen.findByText("You can hand in at most 20 pages or files.")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(20);
+  });
+
   it("redirects to the assignment page when it is no longer waiting to be handed in", async () => {
     mockFetch({
       "GET /api/student/me": () => ok(me),

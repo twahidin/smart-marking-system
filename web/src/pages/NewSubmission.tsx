@@ -37,6 +37,10 @@ export function NewSubmission() {
   const [saveTitle, setSaveTitle] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  // What the server dropped out of a zip, and the script it made anyway. Nothing was lost that could
+  // have been marked, but the teacher should hear it here rather than wonder on the detail page — so
+  // the upload stops on this notice instead of navigating straight through.
+  const [uploaded, setUploaded] = useState<{ id: number; ignored: string[] } | null>(null);
 
   useEffect(() => { api.get<Settings>("/api/settings").then(setSettings).catch(() => setSettings(null)); }, []);
   useEffect(() => { api.get<AssignmentTemplate[]>("/api/assignments").then(setTemplates).catch(() => setTemplates([])); }, []);
@@ -91,7 +95,12 @@ export function NewSubmission() {
     fd.set("label", label.trim()); fd.set("subject", subject); fd.set("context", context.trim()); fd.set("rubric", rubricJson());
     if (assignmentId !== null) fd.set("assignment_id", String(assignmentId));
     files.forEach((f) => fd.append("files", f.file, f.file.name));
-    try { const r = await api.postForm<{ id: number }>("/api/submissions", fd); nav(`/submissions/${r.id}`); }
+    try {
+      const r = await api.postForm<{ id: number; ignored?: string[] }>("/api/submissions", fd);
+      const ignored = r.ignored ?? [];
+      if (ignored.length === 0) { nav(`/submissions/${r.id}`); return; }
+      setUploaded({ id: r.id, ignored }); setBusy(false);
+    }
     catch (e) { setError(e instanceof ApiError ? e.message : "Upload failed — check your connection and try again."); setBusy(false); }
   };
 
@@ -172,6 +181,14 @@ export function NewSubmission() {
         </div>
       </div>
       {error && <div style={{ marginTop: 16 }}><Notice kind="error">{error}</Notice></div>}
+      {uploaded && (
+        <div style={{ marginTop: 16 }}>
+          <Notice>{`Skipped: ${uploaded.ignored.join(", ")}`}</Notice>
+          <div className="actions" style={{ marginTop: 12 }}>
+            <Button variant="primary" onClick={() => nav(`/submissions/${uploaded.id}`)}>Open the script</Button>
+          </div>
+        </div>
+      )}
       <hr className="rule-2" style={{ marginTop: 24 }} />
       <div className="actions" style={{ marginTop: 16, alignItems: "center" }}>
         <Button variant="primary" size="lg" onClick={submit} disabled={busy || !!problem || !settings?.has_key} title={problem ?? undefined}>{busy ? "Uploading…" : "Start marking"}</Button>

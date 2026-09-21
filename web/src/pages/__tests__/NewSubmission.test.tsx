@@ -142,4 +142,25 @@ describe("NewSubmission — pages and files", () => {
     // A program file goes up byte for byte, under its own name.
     expect(posted[0].getAll("files").map((f) => (f as File).name)).toEqual(["prog.py"]);
   });
+
+  it("names what the server skipped out of a zip before moving on", async () => {
+    const posted: FormData[] = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/settings") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
+      if (path === "/api/assignments") return Promise.resolve(new Response(JSON.stringify([...templates, computing]), { status: 200 }));
+      if (path === "/api/submissions") {
+        posted.push(init!.body as FormData);
+        return Promise.resolve(new Response(JSON.stringify({ id: 12, status: "queued", pages: [], ignored: ["notes.txt", "data.csv"] }), { status: 201 }));
+      }
+      return Promise.reject(new Error(`Unexpected fetch to ${path}`));
+    }));
+    render(<MemoryRouter><NewSubmission /></MemoryRouter>);
+    await userEvent.selectOptions(await screen.findByLabelText("Use a saved assignment"), "9");
+    await userEvent.type(screen.getByLabelText("Label"), "Tan Wei Ling");
+    await userEvent.upload(dropInput(), new File(["zip"], "work.zip", { type: "application/zip" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start marking" }));
+    expect(await screen.findByText("Skipped: notes.txt, data.csv")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the script" })).toBeInTheDocument();
+  });
 });
