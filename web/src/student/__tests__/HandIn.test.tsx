@@ -165,6 +165,40 @@ describe("HandIn", () => {
     expect(vi.mocked(downscale).mock.calls[0][0].name).toBe("page1.jpg");
   });
 
+  it("keeps at most 12 program files, and a photo still fits after them", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+    });
+    render(app("/s/a/1/hand-in"));
+    const add = await screen.findByLabelText("Add files");
+    await userEvent.upload(add, Array.from({ length: 15 }, (_, i) => new File(["x"], `p${i + 1}.py`, { type: "text/x-python" })));
+    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+    expect(screen.getByRole("status")).toHaveTextContent("You can hand in at most 12 files.");
+    // The 12 is a cap on program files, not on the hand-in: a photo still goes in.
+    await userEvent.upload(screen.getByLabelText("Choose from gallery"), [jpg("page1.jpg")]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(13);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hand in 1 page and 12 files" })).toBeInTheDocument();
+  });
+
+  it("says so rather than silently dropping a file the assignment cannot take", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(detail),
+    });
+    render(app("/s/a/1/hand-in"));
+    const gallery = await screen.findByLabelText("Choose from gallery");
+    // The accept list would normally keep a .py out; a phone's Files app can still hand one over.
+    await userEvent.setup({ applyAccept: false }).upload(gallery, [new File(["print(1)"], "prog.py", { type: "text/x-python" })]);
+    expect(screen.getByRole("alert")).toHaveTextContent("This assignment takes photos only.");
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    // Picking a photo afterwards clears the complaint.
+    await userEvent.upload(gallery, [jpg("page1.jpg")]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
   it("offers no files button for a subject the marker cannot read files for", async () => {
     mockFetch({
       "GET /api/student/me": () => ok(me),

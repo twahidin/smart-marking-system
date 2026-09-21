@@ -149,6 +149,23 @@ describe("ClassAssignmentPage", () => {
     expect(input.accept).toContain(".py,.sb3,.xlsx,.zip");
     await userEvent.upload(input, [new File(["print(1)"], "prog.py", { type: "text/x-python" })]);
     expect(screen.getByText(/prog\.py/)).toHaveTextContent("8 B");
+    expect(screen.getByText(/up to 20 pages and 12 files/)).toBeInTheDocument();
+  });
+
+  it("holds the teacher to the same two caps the server enforces", async () => {
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify({ ...detail, subject: "computing" }), { status: 200 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Upload pages" }));
+    const input = screen.getByLabelText("Choose pages for Priya Nair") as HTMLInputElement;
+    await userEvent.upload(input, Array.from({ length: 15 }, (_, i) => new File(["x"], `p${i + 1}.py`, { type: "text/x-python" })));
+    expect(await screen.findByRole("status")).toHaveTextContent("You can hand in at most 12 files.");
+    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+    await userEvent.upload(input, Array.from({ length: 12 }, (_, i) => new File(["x"], `q${i + 1}.png`, { type: "image/png" })));
+    expect(await screen.findByText(/at most 20 pages or files/)).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(20);
   });
 
   it("shows the insights panel instead of the roster on ?tab=insights", async () => {

@@ -193,7 +193,8 @@ export interface StudentAssignment { id: number; title: string; due_at: string |
 export interface StudentFeedback { summary: string; strengths: string[]; improvement_plan: string[]; next_steps: string[]; total: number | null; max: number | null; questions: { label: string; mark: number; max: number; comment: string; try_next: string; transcription: string }[]; pages: number[] }
 export interface StudentAssignmentDetail extends StudentAssignment {
   feedback: StudentFeedback | null;
-  subject: Subject;
+  /** Null when the teacher deleted the assignment template this was set from. */
+  subject: Subject | null;
   /** True for Computing: the hand-in page offers *Add files* beside the photo buttons. */
   accepts_files: boolean;
 }

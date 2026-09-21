@@ -10,7 +10,7 @@ import { Notice } from "../components/Notice";
 import { ProgressStrip, type StripBucket } from "../components/ProgressStrip";
 import { PAGE_ACCEPT } from "../components/DropZone";
 import { downloadFile } from "../lib/download";
-import { fmtSize, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
+import { capUploads, fmtSize, MAX_PROGRAM_FILES, MAX_UPLOAD_ITEMS, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { fmtDate } from "../lib/format";
 import { qLabel, totalLabel } from "../lib/marks";
 
@@ -213,9 +213,21 @@ function UploadDialog({ base, student, accept, onClose, onDone }: { base: string
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [overItems, setOverItems] = useState(false);
+  const [overFiles, setOverFiles] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  // Photos are shrunk as they are picked, so the list shows the size that will actually go up.
-  const add = (picked: File[]) => { prepareUploads(picked).then((ready) => setFiles((cur) => [...cur, ...ready])); };
+  // The same two caps the server enforces, checked as work is picked; photos are shrunk on the way in,
+  // so the list shows the size that will actually go up.
+  // `accepted` counts against the caps straight away — the shrink is async, and two quick picks must
+  // not both measure themselves against the same stale list.
+  const accepted = useRef<File[]>([]);
+  const add = (picked: File[]) => {
+    const { kept, overItems: tooMany, overFiles: tooManyFiles } = capUploads(picked, accepted.current);
+    setOverItems(tooMany); setOverFiles(tooManyFiles);
+    if (kept.length === 0) return;
+    accepted.current = [...accepted.current, ...kept];
+    prepareUploads(kept).then((ready) => setFiles((cur) => [...cur, ...ready]));
+  };
   const takesFiles = accept.includes(PROGRAM_ACCEPT);
   const start = async () => {
     if (!files.length) return;
@@ -235,12 +247,14 @@ function UploadDialog({ base, student, accept, onClose, onDone }: { base: string
         <Upload size={32} aria-hidden />
         <h3>Drop {student.name}'s work here</h3>
         <p className="help">{takesFiles
-          ? "PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to 20 in all. The script is marked as handed in by you."
-          : "PDF, JPG, PNG or HEIC — up to 20 pages. The script is marked as handed in by you."}</p>
+          ? `PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to ${MAX_UPLOAD_ITEMS} pages and ${MAX_PROGRAM_FILES} files. The script is marked as handed in by you.`
+          : `PDF, JPG, PNG or HEIC — up to ${MAX_UPLOAD_ITEMS} pages. The script is marked as handed in by you.`}</p>
         <button type="button" className="btn btn-secondary" onClick={() => input.current?.click()}>Choose files</button>
         <input ref={input} type="file" multiple accept={accept} hidden aria-label={`Choose pages for ${student.name}`}
           onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
+      {overItems && <p role="status" className="notice">{`You can hand in at most ${MAX_UPLOAD_ITEMS} ${takesFiles ? "pages or files" : "pages"}.`}</p>}
+      {overFiles && <p role="status" className="notice">{`You can hand in at most ${MAX_PROGRAM_FILES} files.`}</p>}
       {files.length > 0 && (
         <ul className="help" style={{ margin: "12px 0 0", paddingLeft: 20 }}>
           {files.map((f, i) => <li key={`${f.name}-${i}`}>{f.name} · {fmtSize(f.size)}</li>)}

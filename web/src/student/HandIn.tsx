@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import type { StudentAssignmentDetail } from "../api/types";
-import { canThumbnail, fmtSize, isProgramFile, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
+import { canThumbnail, capUploads, fmtSize, isProgramFile, MAX_PROGRAM_FILES, MAX_UPLOAD_ITEMS, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { fmtDate } from "../lib/format";
 import { studentApi as api } from "./api";
 
@@ -18,7 +18,8 @@ export function handInLabel(pages: Page[]): string {
   return `Hand in ${bits.join(" and ")}`;
 }
 
-const MAX_PAGES = 20;
+const MAX_PAGES = MAX_UPLOAD_ITEMS;
+const PHOTOS_ONLY = "This assignment takes photos only.";
 const OFFLINE = "Couldn't hand in — check your signal and try again.";
 const UNREACHABLE = "Can't reach Smart Marking — check your signal and try again.";
 
@@ -29,6 +30,7 @@ export function HandIn() {
   const [pages, setPages] = useState<Page[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [overLimit, setOverLimit] = useState(false);
+  const [overFiles, setOverFiles] = useState(false);
   const [busy, setBusy] = useState(false);
   const [doneAt, setDoneAt] = useState<string | null>(null);
   const camera = useRef<HTMLInputElement>(null);
@@ -52,13 +54,18 @@ export function HandIn() {
 
   // Object URLs are created outside the state updater — StrictMode runs updaters twice in dev and would leak one per file.
   const add = (picked: File[]) => {
-    // Program files are only marked where the marker can read them; elsewhere the accept lists never
-    // offer them, and this is the belt-and-braces for a file dropped in some other way.
+    // Program files are only marked where the marker can read them. The accept lists never offer them
+    // elsewhere, but a phone's Files app can still reach one, so say no out loud rather than silently.
     const usable = detail?.accepts_files ? picked : picked.filter((f) => !isProgramFile(f));
-    if (usable.length === 0) return;
+    if (usable.length === 0) {
+      if (picked.length > 0) setError(PHOTOS_ONLY);
+      return;
+    }
     setError(null);
-    const kept = usable.slice(0, Math.max(0, MAX_PAGES - pages.length));
-    setOverLimit(kept.length < usable.length);
+    // Both caps are the server's, checked here so nobody learns about them after a long upload.
+    const { kept, overItems, overFiles: tooManyFiles } = capUploads(usable, pages.map((p) => p.file));
+    setOverLimit(overItems);
+    setOverFiles(tooManyFiles);
     if (kept.length === 0) return;
     const built: Page[] = kept.map((file) => ({
       id: String(nextId.current++), file, url: canThumbnail(file) ? URL.createObjectURL(file) : "",
@@ -67,7 +74,7 @@ export function HandIn() {
     setPages((cur) => [...cur, ...built]);
   };
   const remove = (i: number) => {
-    setError(null); setOverLimit(false);
+    setError(null); setOverLimit(false); setOverFiles(false);
     const gone = pages[i];
     if (gone?.url) URL.revokeObjectURL(gone.url);
     setPages((cur) => cur.filter((p) => p !== gone));
@@ -140,6 +147,7 @@ export function HandIn() {
         ? `Your .py, .sb3, .xlsx or .zip files, and a photo of anything you wrote on paper — up to ${MAX_PAGES} in all. Photos are shrunk on your phone before they're sent.`
         : `One photo per page, in order — up to ${MAX_PAGES} pages. Photos are shrunk on your phone before they're sent.`}</p>
       {overLimit && <p role="status" className="notice">{`You can hand in at most ${MAX_PAGES} ${detail.accepts_files ? "pages or files" : "pages"}.`}</p>}
+      {overFiles && <p role="status" className="notice">{`You can hand in at most ${MAX_PROGRAM_FILES} files.`}</p>}
       {n > 0 && (
         <ol className="student-pages" aria-label={detail.accepts_files ? "Pages and files" : "Pages"}>
           {pages.map((p, i) => (

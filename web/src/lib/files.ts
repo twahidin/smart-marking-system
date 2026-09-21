@@ -25,6 +25,26 @@ export function fmtSize(bytes: number): string {
   return `${(bytes / MB).toFixed(1)} MB`;
 }
 
+/** The two caps the server enforces on a hand-in — pages and files together, and program files on
+ *  their own. Both are checked as work is picked so nobody finds out after uploading 15 files. */
+export const MAX_UPLOAD_ITEMS = 20;
+export const MAX_PROGRAM_FILES = 12;
+
+/** What of `picked` still fits beside `already`, and which cap turned the rest away. The file cap is
+ *  applied first, so a photo is never dropped to make room for a file that cannot go up anyway. */
+export function capUploads(picked: File[], already: File[]): { kept: File[]; overItems: boolean; overFiles: boolean } {
+  let fileRoom = Math.max(0, MAX_PROGRAM_FILES - already.filter(isProgramFile).length);
+  let overFiles = false;
+  const fits = picked.filter((f) => {
+    if (!isProgramFile(f)) return true;
+    if (fileRoom > 0) { fileRoom--; return true; }
+    overFiles = true;
+    return false;
+  });
+  const kept = fits.slice(0, Math.max(0, MAX_UPLOAD_ITEMS - already.length));
+  return { kept, overItems: kept.length < fits.length, overFiles };
+}
+
 /** Everything leaving the browser goes through here: phone and camera photos are 3–5 MB each and the
  *  marker only needs ~2000 px, so they are shrunk first. PDFs (split server-side) and program files
  *  (marked byte for byte) are passed through untouched — re-encoding either would destroy them. */

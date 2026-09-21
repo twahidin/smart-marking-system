@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { canThumbnail, fmtSize, isProgramFile, PROGRAM_ACCEPT, prepareUploads } from "../files";
+import { canThumbnail, capUploads, fmtSize, isProgramFile, MAX_PROGRAM_FILES, MAX_UPLOAD_ITEMS, PROGRAM_ACCEPT, prepareUploads } from "../files";
 
 vi.mock("../image", () => ({
   // A stand-in for the real canvas resize: the name says the photo went through it.
@@ -43,6 +43,45 @@ describe("fmtSize", () => {
     expect(fmtSize(1234)).toBe("1.2 KB");
     expect(fmtSize(1024 * 1024)).toBe("1.0 MB");
     expect(fmtSize(3.5 * 1024 * 1024)).toBe("3.5 MB");
+  });
+});
+
+describe("capUploads", () => {
+  const py = (name: string) => new File(["x"], name, { type: "text/x-python" });
+  const jpg = (name: string) => new File(["x"], name, { type: "image/jpeg" });
+
+  it("matches the two caps the server enforces", () => {
+    expect(MAX_UPLOAD_ITEMS).toBe(20);
+    expect(MAX_PROGRAM_FILES).toBe(12);
+  });
+
+  it("keeps the first 12 program files and blames the file cap, not the item cap", () => {
+    const r = capUploads(Array.from({ length: 15 }, (_, i) => py(`p${i}.py`)), []);
+    expect(r.kept).toHaveLength(12);
+    expect(r.overFiles).toBe(true);
+    expect(r.overItems).toBe(false);
+  });
+
+  it("counts the files already picked against the same cap, and lets a photo through", () => {
+    const already = Array.from({ length: 12 }, (_, i) => py(`p${i}.py`));
+    const r = capUploads([py("more.py"), jpg("a.jpg")], already);
+    expect(r.kept.map((f) => f.name)).toEqual(["a.jpg"]);
+    expect(r.overFiles).toBe(true);
+  });
+
+  it("caps the whole hand-in at 20 items", () => {
+    const r = capUploads(Array.from({ length: 21 }, (_, i) => jpg(`p${i}.jpg`)), []);
+    expect(r.kept).toHaveLength(20);
+    expect(r.overItems).toBe(true);
+    expect(r.overFiles).toBe(false);
+  });
+
+  it("passes an ordinary hand-in through untouched", () => {
+    const picked = [jpg("a.jpg"), py("prog.py")];
+    const r = capUploads(picked, []);
+    expect(r.kept).toEqual(picked);
+    expect(r.overItems).toBe(false);
+    expect(r.overFiles).toBe(false);
   });
 });
 

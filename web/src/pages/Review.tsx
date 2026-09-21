@@ -141,7 +141,8 @@ export function Review() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div className="label-caps">Page {page + 1}</div><PagePager count={item.page_ids.length} current={page} onSelect={setPage} /></div>
                 {item.page_ids[page] && <div className="page-view" style={{ maxHeight: 420, overflow: "auto" }}><img className="grayscale" src={`/api/pages/${item.page_ids[page]}`} alt={`Page ${page + 1}`} /></div>}
               </>
-            : <p className="help">{item.input_kind === "pages"
+            : <p className="help">{item.input_kind !== "files"
+                // A mixed script has pages too, so an empty crop means they were deleted after marking.
                 ? "Pages deleted after marking — the transcription below is what was read."
                 : "Handed in as files — the transcription below is what was read."}</p>}
           <div className="label-caps" style={{ marginTop: 16 }}>What we read</div>

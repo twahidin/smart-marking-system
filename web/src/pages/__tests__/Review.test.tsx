@@ -152,6 +152,12 @@ describe("Review — per-part items (v2)", () => {
     expect(screen.getByText("Pages deleted after marking — the transcription below is what was read.")).toBeInTheDocument();
   });
 
+  it("keeps the deletion explanation for a mixed script whose pages are gone", async () => {
+    setup([{ ...partItem, page_ids: [], input_kind: "mixed" }]);
+    await screen.findByText("Question 1(b)");
+    expect(screen.getByText("Pages deleted after marking — the transcription below is what was read.")).toBeInTheDocument();
+  });
+
   it("v1 items still use the criteria table, show the teacher-facing reason and post criterion_scores", async () => {
     const posted = setup([v1Item]);
     await screen.findByText("Question 2");
