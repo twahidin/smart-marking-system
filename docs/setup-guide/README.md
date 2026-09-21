@@ -50,6 +50,8 @@ Give it a title, drop the **question paper** (PDF or photos) and click **Read qu
 
 Saved assignments go into a bank you can reuse across classes and years.
 
+**Subjects.** Maths, English and Science as before, plus **MT** (Mother Tongue — pick Chinese, Malay or Tamil; the script is read in that language and the student's feedback is written in it, while everything you see stays in English) and **Computing**, whose students can hand in program files as well as photos.
+
 ![The assignment editor after Read questions and Read mark scheme. Every cell is editable.](images/03b-assignment-editor-full.jpg)
 
 *The assignment editor after Read questions and Read mark scheme. Every cell is editable.*
@@ -58,15 +60,29 @@ Saved assignments go into a bank you can reuse across classes and years.
 
 *The assignment bank.*
 
+![A Computing assignment: students may hand in .py, .sb3 and .xlsx files.](images/50-editor-computing.jpg)
+
+*A Computing assignment: students may hand in .py, .sb3 and .xlsx files.*
+
+![An MT assignment names its language.](images/51-editor-mt-language.jpg)
+
+*An MT assignment names its language.*
+
 ## 6. Choose the model per assignment
 
 Every assignment follows Settings by default (*Auto — follow Settings*): change the model in Settings and every assignment changes with it. For one assignment that deserves something different — a hard paper for a stronger model, a quick quiz for a cheap one — open it, go to **Model** and pick *Choose a model*. Only providers with a saved key can be selected; choose the model, optionally a different one for reading pages, and **Save**. The assignment bank shows the choice as a small caption.
 
 Removing a provider's key while assignments still use it asks you to confirm first — those assignments would fail to mark until you point them at another model.
 
+**A default per subject.** Under **Settings → By subject** you can give each subject its own default — a model that reads Chinese, Malay or Tamil handwriting well for MT, one that is strong at code for Computing — and new assignments in that subject follow it. The order is always: the assignment's own choice, then its subject's default, then Settings.
+
 ![The Model section of an assignment: Auto, or a provider and model of your own.](images/41-assignment-model.jpg)
 
 *The Model section of an assignment: Auto, or a provider and model of your own.*
+
+![Settings → By subject: one default model per subject, Auto by default.](images/52-settings-by-subject.jpg)
+
+*Settings → By subject: one default model per subject, Auto by default.*
 
 ## 7. Create a class and load the classlist
 
@@ -113,13 +129,37 @@ A student opens the class link, types their register number and confirms their n
 ![Done.](images/25-student-handed-in.jpg) 
 ![Waiting for the teacher.](images/26-student-waiting.jpg) 
 
-## 10. Marking, and the parts that need you
+## 10. Computing: hand in files, not just photos
+
+For a Computing assignment the hand-in page has a third button, **Add files**: Python (`.py`), Scratch (`.sb3`) and Excel (`.xlsx`) files, or a `.zip` of them, alone or together with photos of anything written on paper — up to 20 items and 12 files per hand-in, 2 MB per file. Teachers can drop the same files for a student from the class page.
+
+The app *reads* the work; it never runs it. Python is shown with line numbers and a syntax check, Scratch projects as their blocks in words (*when green flag clicked · repeat (10) · move (10) steps*), and spreadsheets cell by cell with the formula and its value. The marker cites the file and line for every mark, and the submission page keeps that text even after the files are deleted.
+
+![A marked Python file: the rendered text, the marks with their citations, and the feedback.](images/55-submission-detail-files.jpg)
+
+*A marked Python file: the rendered text, the marks with their citations, and the feedback.*
+
+![Add files sits next to the camera buttons.](images/54-student-hand-in-files.jpg) 
+
+## 11. Bulk upload a whole class
+
+Instead of uploading student by student, put the whole class's work in one `.zip` where each file or folder starts with the register number — `07_amirah.py`, `07/…`, `7 - amirah/` — and click **Bulk upload** on the class assignment page. The preview shows who was matched, which files were skipped and what could not be matched, before anything is saved.
+
+Students who have already handed in are skipped unless you tick **Replace existing hand-ins**. Photos in a bulk zip are not shrunk in the browser, so keep the zip under 50 MB unpacked or split the class in two.
+
+![The bulk-upload preview: matched students, skipped files, unmatched entries.](images/53-bulk-upload-preview.jpg)
+
+*The bulk-upload preview: matched students, skipped files, unmatched entries.*
+
+## 12. Marking, and the parts that need you
 
 The assignment page shows the roster: who has handed in, what is being marked, and what is ready. You can also **Upload pages** for a student yourself (scanned booklets) and **Remove hand-in** so a student can redo it.
 
 Each script is read by one model, marked against the scheme by a second pass, and checked by an independent reviewer. Anything illegible, not covered by the scheme, or where marker and reviewer disagree goes to **Review** with the reason. There you tick the allocations the student earned (or pick the band for an essay) and give a one-line reason — that reason feeds the nightly learning step, so the marker gets closer to your judgement over time.
 
 Click a student's name to see the per-part marks, the transcription and the justification for each mark.
+
+**An error costs marks once.** If the same slip would lose marks in two places, the reviewer flags it and the app keeps the deduction where it first happened, restoring the later one — or sends it to Review as *double penalty* when it cannot tell which allocation to restore.
 
 ![The roster after marking: 1 ready, 0 needing you.](images/31-roster-marked.jpg)
 
@@ -129,7 +169,7 @@ Click a student's name to see the per-part marks, the transcription and the just
 
 *A marked script, part by part.*
 
-## 11. Release feedback
+## 13. Release feedback
 
 Until you release, students see "Marked — your teacher is checking". **Release feedback** is one action for the whole class and needs every "Needs you" part cleared first. After release students see their total, a short summary, what they did well, each question with a comment and a "Try next", and what to work on.
 
@@ -142,7 +182,7 @@ Releasing closes student hand-ins for that assignment; pages you upload for a st
 ![What the student sees.](images/36-student-feedback.jpg) 
 ![A question expanded.](images/37-student-feedback-expanded.jpg) 
 
-## 12. Insights: where the class lost marks
+## 14. Insights: where the class lost marks
 
 Once the first script is marked, the assignment's **Insights** tab shows the class as a whole: marks by part with the weakest highlighted, the allocations most often lost, a score distribution, and which students are struggling on which parts.
 
@@ -152,7 +192,7 @@ When the whole set has been marked, and again when you release, the app asks the
 
 *The Insights tab: numbers first, then the narrative and the students to support.*
 
-## 13. Telegram notifications (optional)
+## 15. Telegram notifications (optional)
 
 Get a message when scripts come in and when marking finishes, plus a daily report. In Telegram, message **@BotFather**, send `/newbot`, and copy the token it gives you. In **Settings → Notifications** paste the token and **Save**, then open your new bot in Telegram and press **Start** — within a few seconds the status changes to *Linked ✓*. **Test connection** sends a test message.
 
@@ -162,11 +202,11 @@ You get an instant message for new hand-ins (batched) and one when a class set f
 
 *Settings → Notifications: token, link status, instant messages, daily report time and time zone.*
 
-## 14. Marks and records
+## 16. Marks and records
 
 From the assignment page, **Download marks CSV** gives one row per student with a column per question part, and **Download marking records** gives a Word document per student — mark scheme row by row, the student's answer, the awarded mark and a blank "Teacher's mark" column for moderation — plus a markbook spreadsheet.
 
-## 15. Good to know
+## 17. Good to know
 
 **Student pages are deleted as soon as a script is done** (marked with nothing to check, or the last part resolved); the marking record keeps the transcription and every mark. Turn this off under Settings or per assignment if you want to keep the images.
 
@@ -174,9 +214,9 @@ From the assignment page, **Download marks CSV** gives one row per student with 
 
 **Changing the password or the secret.** The password is the `TEACHER_PASSWORD` variable on Railway. Leave `SECRET_KEY` alone — it encrypts the stored API keys; changing it means re-entering them.
 
-**Telegram and Insights are optional.** Nothing is sent to Telegram until you link a bot, and Insights only use the model you already configured — no extra keys.
+**File limits.** 12 files per submission, 2 MB per program file, 20 MB per zip and 50 MB per upload; `.xlsm` and macros are refused, and nothing you upload is ever executed.
 
-**Computing and Mother Tongue.** Computing assignments accept `.py`, `.sb3` and `.xlsx` files, alone or with photos; MT assignments give feedback in the script's language.
+**Telegram and Insights are optional.** Nothing is sent to Telegram until you link a bot, and Insights only use the model you already configured — no extra keys.
 
 **Updates.** Redeploying the `web` service picks up the latest version from GitHub; the database and stored keys are kept.
 
