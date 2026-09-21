@@ -13,7 +13,7 @@ Railway CLI (5.57+):
 
 ```bash
 railway templates update ebe2b845-a462-4ef4-989e-b02375fc4bc2 --category AI/ML \
-  --description "AI marking for handwritten scripts, with teacher review before release" \
+  --description "AI marking for scripts and Computing files, teacher-checked before release" \
   --readme-file docs/railway-template/overview.md
 ```
 
