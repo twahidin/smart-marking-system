@@ -478,3 +478,52 @@ def test_bulk_upload_a_student_level_crash_does_not_abort_the_batch(auth, app, m
     assert _regs(result["created"]) == [12]
     assert len(result["failed"]) == 1 and result["failed"][0]["reg_no"] == 7
     assert result["failed"][0]["error"] and "Previous hand-in removed" not in result["failed"][0]["error"]
+
+
+def test_bulk_zip_takes_more_than_one_submission_s_20_mb_unpacked(auth, app):
+    """A class's photos are not downsized in the browser the way one hand-in's are, so the bulk
+    archive's decompressed cap is the 50 MB body cap, not the 20 MB a single submission's zip gets."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("7/scan.jpg", b"0" * (21 * 1024 * 1024))
+    c, ca = _bulk_setup(auth)
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk/preview",
+                  files=[("zip", ("bulk.zip", buf.getvalue(), "application/zip"))])
+    assert r.status_code == 200 and _regs(r.json()["matched"]) == [7]
+
+
+def test_bulk_zip_over_fifty_mb_unpacked_is_too_large_not_a_zip_bomb(auth, app):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("7/scan.jpg", b"0" * (51 * 1024 * 1024))
+    c, ca = _bulk_setup(auth)
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk/preview",
+                  files=[("zip", ("bulk.zip", buf.getvalue(), "application/zip"))])
+    assert r.status_code == 400
+    err = r.json()["error"]
+    assert err["code"] == "too_large"
+    assert err["message"] == ("bulk zip is over 50 MB unpacked — downsize the photos or split the "
+                             "class into two zips")
+
+
+def _zip_with_one_unreadable_entry():
+    """A stored entry whose bytes are altered after the fact: reading it fails the CRC, which is
+    what a password-protected or oddly compressed entry looks like from here. Its extension is one
+    `classify_uploads` skips without reading, so only `_read_bulk_zip` ever opens it."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("7/prog.py", b"print(1)\n")
+        z.writestr("7/notes.txt", b"A" * 32)
+    return buf.getvalue().replace(b"A" * 32, b"B" * 32)
+
+
+def test_bulk_zip_with_an_unreadable_entry_is_a_400_not_a_500(auth, app):
+    _with_key(auth)
+    c, ca = _bulk_setup(auth)
+    for path in ("bulk/preview", "bulk"):
+        r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/{path}",
+                      files=[("zip", ("bulk.zip", _zip_with_one_unreadable_entry(), "application/zip"))])
+        assert r.status_code == 400, path
+        err = r.json()["error"]
+        assert err["code"] == "bad_file" and "bulk.zip" in err["message"]
+        assert "could not be unpacked" in err["message"]

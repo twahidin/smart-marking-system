@@ -10,10 +10,10 @@ from pathlib import PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sms.files.bulk import BulkPlan, match_entries
-from sms.files.intake import FILE_EXTS, PAGE_EXTS, IntakeError, _junk, _traversal, classify_uploads
+from sms.files.intake import FILE_EXTS, PAGE_EXTS, IntakeError, _junk, _read_entry, _traversal, classify_uploads
 from sms.memory.db import Database
 from sms.schemas.scheme import q_label
-from sms.storage import PageStorage
+from sms.storage import MAX_UPLOAD_BYTES, PageStorage
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 from sms.web.services.assignments import get_template
@@ -30,6 +30,11 @@ log = logging.getLogger("sms.class_assignments")
 # per-student file-count/size caps are re-checked for real, per student, when each student's own
 # files are handed in below, not against the whole class's zip at once.
 _UNLIMITED = 10 ** 9
+# The name every archive-wide error about the bulk zip is reported against; the teacher uploaded one
+# zip, so naming their own file back at them adds nothing the dialog does not already say.
+BULK_ZIP_NAME = "bulk.zip"
+BULK_ZIP_TOO_LARGE = (f"bulk zip is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB unpacked — "
+                      "downsize the photos or split the class into two zips")
 
 STATUSES = ("draft", "open", "released")
 
@@ -202,14 +207,22 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
 # --- bulk upload: one zip for a whole class -----------------------------------------------------
 
 def _validate_bulk_zip(zip_bytes: bytes) -> None:
-    """The archive-wide checks only: not-a-zip, password/damage, the 20 MB decompressed zip-bomb
-    cap, and "nothing usable at all" (`classify_uploads`, Task 3). File-count/size caps are disabled
-    for this call — they belong to each student's own hand-in below, not to the class zip as a
-    whole, so a legitimate class of many students isn't rejected for a limit never meant to apply
-    to the whole zip at once."""
+    """The archive-wide checks only: not-a-zip, password/damage, the decompressed cap, and "nothing
+    usable at all" (`classify_uploads`, Task 3). File-count/size caps are disabled for this call —
+    they belong to each student's own hand-in below, not to the class zip as a whole, so a
+    legitimate class of many students isn't rejected for a limit never meant to apply to the whole
+    zip at once.
+
+    The per-archive decompressed cap is raised from one submission's 20 MB to `MAX_UPLOAD_BYTES`
+    (50 MB) for the same reason: a class's photos are not downsized in the browser the way a single
+    hand-in's are, so 30 students' worth of scans legitimately unpacks to far more than 20 MB. Over
+    that it is a `too_large` upload to downsize or split, not a `zip_bomb` to accuse anyone of."""
     try:
-        classify_uploads([("bulk.zip", zip_bytes)], max_files=_UNLIMITED, max_file_bytes=_UNLIMITED)
+        classify_uploads([(BULK_ZIP_NAME, zip_bytes)], max_files=_UNLIMITED, max_file_bytes=_UNLIMITED,
+                         max_zip_bytes=MAX_UPLOAD_BYTES)
     except IntakeError as e:
+        if e.code == "zip_bomb":
+            raise ApiError(400, "too_large", BULK_ZIP_TOO_LARGE)
         raise ApiError(400, e.code, e.message)
 
 
@@ -217,13 +230,21 @@ def _read_bulk_zip(zip_bytes: bytes) -> Dict[str, bytes]:
     """Original entry path -> bytes for every non-directory, non-traversal, non-junk entry. Paths
     are kept as-is (not flattened) because a folder prefix — "12/prog.py" — is where a student's
     register number lives; `classify_uploads` would flatten it away, which is why matching reads
-    the zip directly instead."""
+    the zip directly instead.
+
+    Entries go through `intake._read_entry`, not `z.read`, so a password-protected or oddly
+    compressed entry is the same 400 `bad_file` the single-upload door gives rather than a 500:
+    `_validate_bulk_zip` never reads the entries `classify_uploads` skips by extension, so an
+    unreadable `notes.txt` would otherwise surface here for the first time."""
     out: Dict[str, bytes] = {}
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        for info in z.infolist():
-            if info.is_dir() or _traversal(info.filename) or _junk(info.filename):
-                continue
-            out[info.filename] = z.read(info)
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            for info in z.infolist():
+                if info.is_dir() or _traversal(info.filename) or _junk(info.filename):
+                    continue
+                out[info.filename] = _read_entry(z, BULK_ZIP_NAME, info)
+    except IntakeError as e:
+        raise ApiError(400, e.code, e.message)
     return out
 
 

@@ -198,7 +198,9 @@ work at once — a top-level file or folder per student, named starting with the
 students and what each one will get, entries that didn't match a register number, and register numbers
 that matched more than one student. Ticking **Replace existing hand-ins** lets the upload overwrite a
 student who has already handed in; left unticked, that student is skipped and everyone else still goes
-through.
+through. Photos inside a bulk zip are **not** downsized in the browser the way a single upload's are,
+so the whole archive may unpack to at most 50 MB — past that, downsize the photos or split the class
+into two zips.
 
 ### Settings
 

@@ -46,6 +46,19 @@ def test_zip_bomb_cap():
     assert e.value.code == "zip_bomb"
 
 
+def test_the_per_archive_cap_is_a_parameter_defaulting_to_20_mb():
+    """One submission's zip keeps its 20 MB; the bulk class upload raises it (50 MB) because a whole
+    class's photos legitimately unpack to more than one student's do."""
+    z = _zip([("a.png", b"0" * (3 * 1024 * 1024))])
+    with pytest.raises(IntakeError) as e:
+        classify_uploads([("z.zip", z)], max_zip_bytes=1024)
+    assert e.value.code == "zip_bomb" and "z.zip" in e.value.message
+    # the default is unchanged: 3 MB is fine, 21 MB is not
+    assert len(classify_uploads([("z.zip", z)]).pages) == 1
+    with pytest.raises(IntakeError):
+        classify_uploads([("z.zip", _zip([("a.png", b"0" * (21 * 1024 * 1024))]))])
+
+
 # --- beyond the brief: the caps live here, so prove they hold inside a zip too ----------------
 
 def test_zip_entries_obey_the_per_file_and_count_caps():
@@ -127,13 +140,26 @@ def test_decompressed_bytes_are_capped_across_the_whole_upload():
     one = _zip([(f"p{i}.png", b"0" * 1_800_000) for i in range(10)])
     with pytest.raises(IntakeError) as e:
         classify_uploads([("a.zip", one), ("b.zip", one), ("c.zip", one)])
-    assert e.value.code == "too_large" and e.value.message == "upload is over 50 MB once unpacked"
+    assert e.value.code == "too_large" and e.value.message == "That upload is over 50 MB in total"
+
+
+def test_the_two_too_large_cases_read_differently():
+    """Same code, two different things to fix: the whole upload is too big, or one program file is.
+    The student route shows the intake message as-is, so they must not be interchangeable."""
+    one = _zip([(f"p{i}.png", b"0" * 1_800_000) for i in range(10)])
+    with pytest.raises(IntakeError) as e:
+        classify_uploads([("a.zip", one), ("b.zip", one), ("c.zip", one)])
+    aggregate = e.value.message
+    with pytest.raises(IntakeError) as e:
+        classify_uploads([("big.py", b"x" * (2 * 1024 * 1024 + 1))])
+    assert e.value.message == "big.py is over 2 MB"
+    assert aggregate != e.value.message and "big.py" not in aggregate
 
 
 def test_aggregate_cap_is_overridable_and_counts_loose_uploads_too():
     with pytest.raises(IntakeError) as e:
         classify_uploads([("a.py", b"x" * 60), ("b.py", b"x" * 60)], max_total_bytes=100)
-    assert e.value.code == "too_large" and "once unpacked" in e.value.message
+    assert e.value.code == "too_large" and "in total" in e.value.message
     it = classify_uploads([("a.py", b"x" * 60)], max_total_bytes=100)
     assert it.total_bytes == 60
 

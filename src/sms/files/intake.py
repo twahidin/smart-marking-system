@@ -96,10 +96,14 @@ def _unique(name: str, into: "Intake") -> str:
 # --- limits ------------------------------------------------------------------------------------
 
 def _charge(name: str, size: int, into: Intake, max_total_bytes: int) -> None:
-    """Add an entry's bytes to the running total for the whole upload and stop at the budget."""
+    """Add an entry's bytes to the running total for the whole upload and stop at the budget.
+
+    The message says "that upload", not the entry's name: the entry that tipped the total over is
+    rarely the one to remove, and the two `too_large` cases (this one and a single program file over
+    2 MB in `_add_file`) must read differently — the student route shows the intake message as-is."""
     into.total_bytes += size
     if into.total_bytes > max_total_bytes:
-        raise IntakeError("too_large", name, f"upload is over {max_total_bytes // (1024 * 1024)} MB once unpacked")
+        raise IntakeError("too_large", name, f"That upload is over {max_total_bytes // (1024 * 1024)} MB in total")
 
 
 def _add_page(name: str, data: bytes, into: Intake, max_total_bytes: int) -> None:
@@ -135,7 +139,7 @@ def _read_entry(z: zipfile.ZipFile, zip_name: str, info: zipfile.ZipInfo) -> byt
 
 
 def _expand_zip(name: str, data: bytes, into: Intake, max_files: int, max_file_bytes: int,
-                max_total_bytes: int) -> None:
+                max_total_bytes: int, max_zip_bytes: int) -> None:
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
@@ -143,8 +147,8 @@ def _expand_zip(name: str, data: bytes, into: Intake, max_files: int, max_file_b
     with z:
         # Trust the central directory only for the cheap bomb check; the per-entry size cap and the
         # running total below measure the bytes actually read, so a lying header gains nothing.
-        if sum(i.file_size for i in z.infolist()) > MAX_ZIP_DECOMPRESSED:
-            raise IntakeError("zip_bomb", name, f"{name} expands past {MAX_ZIP_DECOMPRESSED // (1024 * 1024)} MB")
+        if sum(i.file_size for i in z.infolist()) > max_zip_bytes:
+            raise IntakeError("zip_bomb", name, f"{name} expands past {max_zip_bytes // (1024 * 1024)} MB")
         usable = 0
         for info in z.infolist():
             if info.is_dir():
@@ -173,15 +177,20 @@ def _expand_zip(name: str, data: bytes, into: Intake, max_files: int, max_file_b
 
 def classify_uploads(files: List[Tuple[str, bytes]], *, max_files: int = MAX_FILES,
                      max_file_bytes: int = MAX_FILE_BYTES,
-                     max_total_bytes: int = MAX_UPLOAD_BYTES) -> Intake:
-    """Split an upload into pages (images/PDFs) and program files, expanding zips. Order is kept."""
+                     max_total_bytes: int = MAX_UPLOAD_BYTES,
+                     max_zip_bytes: int = MAX_ZIP_DECOMPRESSED) -> Intake:
+    """Split an upload into pages (images/PDFs) and program files, expanding zips. Order is kept.
+
+    `max_zip_bytes` is the per-archive decompressed cap. It defaults to the 20 MB one submission's
+    zip gets; the bulk class upload raises it, because one zip legitimately carries a whole class's
+    photos (see `class_assignments._validate_bulk_zip`)."""
     it = Intake()
     for raw_name, data in files:
         name = _basename(raw_name) or raw_name
         ext = PurePosixPath(name).suffix.lower()
         if ext == ".zip":
             _charge(name, len(data), it, max_total_bytes)
-            _expand_zip(name, data, it, max_files, max_file_bytes, max_total_bytes)
+            _expand_zip(name, data, it, max_files, max_file_bytes, max_total_bytes, max_zip_bytes)
         elif ext in PAGE_EXTS:
             _add_page(name, data, it, max_total_bytes)
         elif ext in FILE_EXTS:
