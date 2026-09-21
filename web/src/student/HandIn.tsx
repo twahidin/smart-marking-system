@@ -141,7 +141,7 @@ export function HandIn() {
         : `One photo per page, in order — up to ${MAX_PAGES} pages. Photos are shrunk on your phone before they're sent.`}</p>
       {overLimit && <p role="status" className="notice">{`You can hand in at most ${MAX_PAGES} ${detail.accepts_files ? "pages or files" : "pages"}.`}</p>}
       {n > 0 && (
-        <ol className="student-pages" aria-label="Pages">
+        <ol className="student-pages" aria-label={detail.accepts_files ? "Pages and files" : "Pages"}>
           {pages.map((p, i) => (
             <li key={p.id} className="student-page">
               <span className="student-page-no" aria-hidden>{i + 1}</span>
