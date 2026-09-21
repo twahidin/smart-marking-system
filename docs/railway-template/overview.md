@@ -2,7 +2,7 @@
 
 **📘 Smart Marking Setup Guide** — step by step with screenshots of the real app: [read online](https://claude.ai/artifact/Fu6LVAMCYYxg2fPb3oFsFw) · [download the PDF](https://github.com/twahidin/smart-marking-system/raw/main/docs/setup-guide/Smart-Marking-Setup-Guide.pdf) · [on GitHub](https://github.com/twahidin/smart-marking-system/blob/main/docs/setup-guide/README.md)
 
-Smart Marking marks handwritten scripts that students photograph or scan, against **your** mark scheme (maths/science) or rubric (essays). An extractor reads the pages, a marker awards each allocation or band, and an independent reviewer checks it; anything illegible, out of scheme or disputed lands in a **Review** queue for the teacher. Students hand in from their phone with a class code and register number; feedback is shown only after the teacher releases it. Bring your own LLM key (TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot, Qwen or Google Gemini).
+Smart Marking marks handwritten scripts that students photograph or scan, against **your** mark scheme (maths/science) or rubric (essays). An extractor reads the pages, a marker awards each allocation or band, and an independent reviewer checks it; anything illegible, out of scheme or disputed lands in a **Review** queue for the teacher. Students hand in from their phone with a class code and register number; feedback is shown only after the teacher releases it. Computing classes can hand in Python, Scratch and Excel files (alone or with photos), marked by reading them — never running them; Mother Tongue scripts (Chinese, Malay, Tamil) get feedback in the script's language. Bring your own LLM key (TokenRouter, OpenRouter, OpenAI, Anthropic, Moonshot, Qwen or Google Gemini), with a default model per subject.
 
 ## About Hosting Smart Marking
 
@@ -16,6 +16,8 @@ The template deploys two services: `web` (FastAPI + React, built from the Docker
 - Producing per-student `.docx` marking records and a marks CSV for moderation and departmental records
 - Getting an Insights report — marks by part, an AI narrative, a PDF — as soon as a class set finishes marking
 - Getting Telegram messages for hand-ins, marking finished and a daily digest, linked with a `/start` (no webhook to expose)
+- Marking Computing work handed in as `.py`, `.sb3` or `.xlsx` files — or a whole class at once from one zip matched by register number
+- Marking Mother Tongue compositions with feedback written in Chinese, Malay or Tamil, and choosing a different model per subject
 
 ## Dependencies for Smart Marking Hosting
 

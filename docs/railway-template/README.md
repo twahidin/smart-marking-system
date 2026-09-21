@@ -45,6 +45,8 @@ The CLI requires the sections `## About Hosting …`, `## Common Use Cases`, `##
 - **Release when you're ready.** Students see marks and feedback only after you release; download a marks CSV or a `.docx` marking record per student (with a blank "Teacher's mark" column for moderation).
 - **Insights.** Once a class set is marked, get a chart of marks by part, an AI narrative (strengths, gaps, what to teach next) and a downloadable PDF — student names never reach the model.
 - **Telegram notifications.** Paste a bot token, press `/start` in your bot (no webhook needed) and get instant hand-in / marking-finished messages plus a daily digest.
+- **Files, not just photos.** Computing classes hand in `.py`, `.sb3` and `.xlsx` files (alone or with photos), marked by reading them — never running them; a whole class can be uploaded from one zip matched by register number.
+- **Mother Tongue and a model per subject.** MT scripts (Chinese, Malay, Tamil) get feedback in the script's language; each subject can have its own default model, and an error is never penalised twice.
 - **Learns from your corrections.** A nightly reflection distils rubric notes and exemplar cases from what you changed — approved notes shape the next run.
 
 ### What's in the template
