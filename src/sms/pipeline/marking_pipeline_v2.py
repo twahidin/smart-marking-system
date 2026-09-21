@@ -284,16 +284,18 @@ class MarkingPipelineV2:
     def _segment(self, sources: List[TextSource], subject: str, questions: List[Question],
                  notes: str) -> ExtractedScript:
         """The files counterpart of `_extract`: same cache, same output shape, no vision call. The key
-        covers every source's name and text and the labels they are segmented by, so re-marking the
-        same submission is free but an edited file is a fresh segmentation."""
+        covers every source's name and text, the labels they are segmented by, and the context — which
+        carries the teacher's notes, exactly as `_extract`'s does — so re-marking the same submission is
+        free, but an edited file or changed notes is a fresh segmentation."""
         if self.segmenter is None:
             raise RuntimeError("This assignment's model set-up cannot read files yet — the segmenter is missing")
+        context = f"{subject} submission, {len(questions)} part(s)" + (f". Notes: {notes}" if notes else "")
         digest = self.cache.hash_image(("|".join(f"{s.name}:{self.cache.hash_image(s.text.encode())}" for s in sources)
-                                        + "#seg#" + ",".join(q.q_id for q in questions)).encode())
+                                        + "#seg#" + ",".join(q.q_id for q in questions)
+                                        + "#" + context).encode())
         cached = self.cache.get(digest, subject)
         if cached is not None:
             return ExtractedScript.model_validate(cached)
-        context = f"{subject} submission, {len(questions)} part(s)" + (f". Notes: {notes}" if notes else "")
         extracted = self.segmenter.run(TextSegmentInput(assignment_context=context, questions=questions,
                                                         sources=sources))
         self.cache.put(digest, subject, extracted.model_dump())
@@ -357,14 +359,19 @@ class MarkingPipelineV2:
         in, first occurrence first. The first deduction stands; every later one is restored (the single
         lost allocation is un-lost, for a rubric the band and marks are untouched) unless it is already
         escalated for a stronger reason, or which allocation to restore is ambiguous (more than one lost
-        allocation on a mark-scheme part) — that case is escalated instead of guessed."""
-        by_key = {_key(m): m for m in final}
+        allocation on a mark-scheme part) — that case is escalated instead of guessed.
+
+        A mark-scheme part is looked up by its normalised q_id on both sides: the reviewer may answer
+        "1(a)" where the scheme row is "1a" (or the other way round), and matching the two raw spellings
+        would make the whole rule a silent no-op. Escalations and the message keep the raw ids, which is
+        what the record and the review queue are keyed and read by."""
+        by_key = {(norm_qid(_key(m)) if self.kind == "mark_scheme" else _key(m)): m for m in final}
         for dp in reviewed.double_penalties:
             keys = [norm_qid(q) if self.kind == "mark_scheme" else q for q in dp.q_ids]
-            first, later = keys[0], keys[1:]
+            first, later = dp.q_ids[0], keys[1:]
             for key in later:
                 m = by_key.get(key)
-                if m is None or key in escalations:
+                if m is None or _key(m) in escalations:
                     continue
                 if isinstance(m, PartMark):
                     lost = [a for a in m.awarded if not a.got]
@@ -375,7 +382,7 @@ class MarkingPipelineV2:
                         m.justification = (m.justification + f" {lost[0].label} restored: '{dp.error}' already "
                                           f"penalised in {first}.").strip()
                     elif lost:
-                        escalations[key] = DOUBLE_PENALTY  # which allocation to restore is the teacher's call
+                        escalations[_key(m)] = DOUBLE_PENALTY  # which allocation to restore is the teacher's call
                 else:
                     m.justification = (m.justification + f" Reviewer: '{dp.error}' already penalised under "
                                        f"{first}; band kept.").strip()

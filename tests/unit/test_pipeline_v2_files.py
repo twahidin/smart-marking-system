@@ -159,6 +159,19 @@ def test_segment_is_cached_by_source_hashes(db):
     assert len(seg.calls) == 1
 
 
+def test_changed_notes_is_a_different_segmentation(db):
+    """The notes reach the segmenter inside its context, so they belong in the cache digest — as they
+    already do for `_extract`. The same file marked under different notes is segmented twice."""
+    seg = Fake(EX)
+    p = _pipeline(db, Fake(EX), seg)
+    f = [Rendered("prog.py", "py", "x", "1 line", False)]
+    t = _template()
+    p.run(images=[], template={**t, "context": "Sec 3 · loops"}, files=f)
+    p.run(images=[], template={**t, "context": "Sec 3 · loops, ignore the comments"}, files=f)
+    assert len(seg.calls) == 2
+    assert seg.calls[0].assignment_context != seg.calls[1].assignment_context
+
+
 def test_changed_file_text_is_a_different_segmentation(db):
     seg = Fake(EX)
     p = _pipeline(db, Fake(EX), seg)

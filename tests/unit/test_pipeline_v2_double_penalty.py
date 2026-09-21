@@ -53,6 +53,21 @@ def test_double_penalty_restores_the_later_part(db):
     assert "1b" not in res.escalations
 
 
+def test_double_penalty_matches_a_scheme_that_spells_ids_with_brackets(db):
+    """The reviewer's q_ids are normalised before lookup ("1(b)" -> "1b"), so a scheme written "1(a)"
+    is matched rather than silently missed — and the restored part still names the raw "1(a)"."""
+    marked = MarkedScriptV2(kind="mark_scheme", parts=[_part("1(a)", [("M1", 1, True), ("A1", 1, False)]),
+                                                        _part("1(b)", [("B1", 1, False)])])
+    reviewed = ReviewedScriptV2(verdicts=[], double_penalties=[DoublePenalty(error="sign error in 1(a)",
+                                                                             q_ids=["1(a)", "1(b)"])])
+    p = _pipeline_with(db, marked, reviewed)
+    res = p.run(images=[b"x"], template=_template(parts=["1(a)", "1(b)"]))
+    b = next(x for x in res.final.parts if x.q_id == "1(b)")
+    assert b.total == 1 and b.awarded[0].got and b.awarded[0].why == "already penalised in 1(a)"
+    assert "already penalised in 1(a)." in b.justification
+    assert "1(b)" not in res.escalations
+
+
 def test_double_penalty_ambiguous_escalates(db):
     marked = MarkedScriptV2(kind="mark_scheme", parts=[_part("1a", [("A1", 1, False)]),
                                                         _part("1b", [("M1", 1, False), ("A1", 1, False)])])
