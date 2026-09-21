@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { ClassAssignment, ClassAssignmentDetail, ClassRow, RosterRow, RosterStatus } from "../api/types";
+import { BulkUploadDialog } from "../components/BulkUpload";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { InsightsPanel } from "../components/InsightsPanel";
@@ -51,6 +52,7 @@ export function ClassAssignmentPage() {
   const [filter, setFilter] = useState<StripBucket | null>(null);
   const [releasing, setReleasing] = useState(false);
   const [uploading, setUploading] = useState<RosterRow | null>(null);
+  const [bulking, setBulking] = useState(false);
   const [removing, setRemoving] = useState<RosterRow | null>(null);
   const [busy, setBusy] = useState<"release" | "csv" | "records" | "remove" | null>(null);
   const live = useRef(true);
@@ -125,6 +127,8 @@ export function ClassAssignmentPage() {
           </p>
         </div>
         <div className="actions">
+          <Button variant="secondary" icon={<Upload size={16} aria-hidden />} onClick={() => setBulking(true)} disabled={detail.template_deleted}
+            title={detail.template_deleted ? "Set the assignment again before uploading." : undefined}>Bulk upload</Button>
           <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={downloadCsv} disabled={busy !== null}>{busy === "csv" ? "Preparing…" : "Download marks CSV"}</Button>
           <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={downloadRecords} disabled={busy !== null || recordIds.length === 0}
             title={recordIds.length === 0 ? "No marked scripts to download yet." : undefined}>{busy === "records" ? "Preparing…" : "Download marking records"}</Button>
@@ -196,6 +200,8 @@ export function ClassAssignmentPage() {
           <p>Students will see their marks and feedback. Students can no longer hand in. Pages you upload for a student later are marked and shown to them automatically.</p>
         </Dialog>
       )}
+      {/* The roster refreshes behind the result, so the dialog can still say what came of the zip. */}
+      {bulking && <BulkUploadDialog base={base} onClose={() => setBulking(false)} onDone={load} />}
       {uploading && <UploadDialog base={base} student={uploading} accept={detail.subject === "computing" ? `${PAGE_ACCEPT},${PROGRAM_ACCEPT}` : PAGE_ACCEPT}
         onClose={() => setUploading(null)} onDone={() => { setUploading(null); load(); }} />}
       {removing && (

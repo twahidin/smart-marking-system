@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ClassAssignmentDetail, ClassRow, InsightsPayload } from "../../api/types";
+import type { BulkPreview, BulkResult, ClassAssignmentDetail, ClassRow, InsightsPayload } from "../../api/types";
 import { ClassAssignmentPage } from "../ClassAssignmentPage";
 
 // Stands in for the canvas resize jsdom cannot run: a 4000 px photo comes back small, and renamed.
@@ -52,6 +52,35 @@ const insights: InsightsPayload = {
     students: [{ student_id: 1, reg_no: 1, name: "Tan Wei Ling", total: 15, max: 25, weak_parts: ["3"] }] },
   report: null, n_marked: 2, provider: null, model: null, generated_at: null, error: null, job: null,
 };
+
+/* ---- bulk upload fixtures ---- */
+const zipFile = () => new File(["PK"], "4e2-handins.zip", { type: "application/zip" });
+const preview: BulkPreview = {
+  matched: [
+    { student_id: 3, reg_no: 3, name: "Priya Nair", files: ["03_a.py", "3.jpg"], ignored: ["notes.txt"], already_handed_in: false },
+    { student_id: 2, reg_no: 2, name: "Muhammad Danish", files: ["02.pdf"], ignored: [], already_handed_in: true },
+    { student_id: 4, reg_no: 4, name: "Lim Jun Hao", files: [], ignored: ["thumbs.db"], already_handed_in: false },
+  ],
+  ambiguous: ["7 or 17.pdf"],
+  unmatched: ["scan copy.pdf"],
+};
+const result: BulkResult = {
+  created: [{ reg_no: 3, ignored: ["notes.txt"] }], skipped: [{ reg_no: 2 }],
+  failed: [{ reg_no: 4, error: "no usable files (only: thumbs.db)" }],
+  unmatched: ["scan copy.pdf"], ambiguous: ["7 or 17.pdf"],
+};
+const bulkHandlers = {
+  ...clsHandler,
+  "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+  "POST /api/classes/1/assignments/3/bulk/preview": () => new Response(JSON.stringify(preview), { status: 200 }),
+};
+/** Open the dialog and hand it the zip — every bulk test starts here. */
+async function pickZip() {
+  render(app());
+  await userEvent.click(await screen.findByRole("button", { name: "Bulk upload" }));
+  await userEvent.upload(screen.getByLabelText("Choose a zip of hand-ins"), zipFile());
+  return screen.getByRole("dialog", { name: "Bulk upload" });
+}
 
 describe("ClassAssignmentPage", () => {
   it("renders the strip, filters the roster, and disables release while parts need you", async () => {
@@ -195,5 +224,57 @@ describe("ClassAssignmentPage", () => {
     expect(await screen.findByRole("link", { name: "Tan Wei Ling" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("radio", { name: "Insights" }));
     expect(await screen.findByRole("heading", { name: "Marks by part" })).toBeInTheDocument();
+  });
+
+  it("previews a zip of hand-ins and says what matched, what was skipped and what didn't match", async () => {
+    const calls = mockFetch(bulkHandlers);
+    const dlg = await pickZip();
+    expect(await screen.findByText("#3 Priya Nair — 03_a.py, 3.jpg (skipped: notes.txt)")).toBeInTheDocument();
+    expect(screen.getByText("#2 Muhammad Danish — 02.pdf · already handed in — will be skipped")).toBeInTheDocument();
+    // A student the zip had nothing usable for is held out of the matched list — the commit would fail for them.
+    expect(within(dlg).getByRole("heading", { name: "No usable files" })).toBeInTheDocument();
+    expect(screen.getByText("#4 Lim Jun Hao (only: thumbs.db)")).toBeInTheDocument();
+    expect(within(dlg).getByRole("heading", { name: "Not matched" })).toBeInTheDocument();
+    expect(screen.getByText("scan copy.pdf")).toBeInTheDocument();
+    expect(within(dlg).getByRole("heading", { name: "More than one student" })).toBeInTheDocument();
+    expect(screen.getByText("7 or 17.pdf")).toBeInTheDocument();
+    const form = calls.find((c) => c.path.endsWith("/bulk/preview"))!.init!.body as FormData;
+    expect((form.get("zip") as File).name).toBe("4e2-handins.zip");
+  });
+
+  it("uploads the zip, reports what came of it and refreshes the roster", async () => {
+    const calls = mockFetch({ ...bulkHandlers, "POST /api/classes/1/assignments/3/bulk?replace=0": () => new Response(JSON.stringify(result), { status: 200 }) });
+    await pickZip();
+    await userEvent.click(await screen.findByRole("button", { name: "Upload" }));
+    expect(await screen.findByText("Created 1 · Skipped 1 · Failed 1 · Not matched 1")).toBeInTheDocument();
+    expect(screen.getByText("#4 — no usable files (only: thumbs.db)")).toBeInTheDocument();
+    const form = calls.find((c) => c.path.includes("/bulk?"))!.init!.body as FormData;
+    expect((form.get("zip") as File).name).toBe("4e2-handins.zip");
+    await waitFor(() => expect(calls.filter((c) => c.method === "GET" && c.path === "/api/classes/1/assignments/3")).toHaveLength(2));
+  });
+
+  it("replaces existing hand-ins when asked, and leaves Failed out when nothing failed", async () => {
+    const calls = mockFetch({
+      ...bulkHandlers,
+      "POST /api/classes/1/assignments/3/bulk?replace=1": () =>
+        new Response(JSON.stringify({ ...result, created: [{ reg_no: 3, ignored: [] }, { reg_no: 2, ignored: [] }], skipped: [], failed: [] }), { status: 200 }),
+    });
+    await pickZip();
+    await userEvent.click(await screen.findByRole("checkbox", { name: "Replace existing hand-ins" }));
+    expect(screen.getByText("#2 Muhammad Danish — 02.pdf · already handed in — will be replaced")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(await screen.findByText("Created 2 · Skipped 0 · Not matched 1")).toBeInTheDocument();
+    expect(calls.some((c) => c.path.endsWith("/bulk?replace=1"))).toBe(true);
+  });
+
+  it("shows the server's message when the zip can't be read", async () => {
+    mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+      "POST /api/classes/1/assignments/3/bulk/preview": () => new Response(JSON.stringify({ error: { code: "bad_zip", message: "That file isn't a zip we can open." } }), { status: 400 }),
+    });
+    await pickZip();
+    expect(await screen.findByText("That file isn't a zip we can open.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
   });
 });
