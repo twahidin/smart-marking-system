@@ -198,3 +198,14 @@ export interface StudentAssignmentDetail extends StudentAssignment {
   /** True for Computing: the hand-in page offers *Add files* beside the photo buttons. */
   accepts_files: boolean;
 }
+
+/* ---- bulk upload (slice 4): one zip of a whole class's hand-ins, matched by register number ---- */
+/** One student the zip was matched to: `files` is what would be handed in for them, `ignored` what the
+ *  zip carried for them that the marker can't take. `files: []` means nothing usable — the commit fails. */
+export interface BulkMatch { student_id: number; reg_no: number; name: string; files: string[]; ignored: string[]; already_handed_in: boolean }
+/** `ambiguous` and `unmatched` are filenames, not students: names that fit more than one register number, and none. */
+export interface BulkPreview { matched: BulkMatch[]; ambiguous: string[]; unmatched: string[] }
+export interface BulkResult {
+  created: { reg_no: number; ignored: string[] }[]; skipped: { reg_no: number }[]; failed: { reg_no: number; error: string }[];
+  unmatched: string[]; ambiguous: string[];
+}
