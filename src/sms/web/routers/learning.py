@@ -12,6 +12,13 @@ from sms.web.services.submissions import iso_utc
 router = APIRouter(prefix="/api", tags=["learning"], dependencies=[Depends(require_teacher)])
 
 
+def _subject_list() -> str:
+    """"math, language, science, mt or computing" — from the router, so nothing is left behind when
+    a subject is added."""
+    known = list(SubjectRouter.KNOWN_SUBJECTS)
+    return ", ".join(known[:-1]) + " or " + known[-1]
+
+
 def _with_iso_created_at(rows):
     out = []
     for r in rows:
@@ -66,7 +73,9 @@ def reflect(body: ReflectBody, jobs=Depends(get_jobs)):
     try:
         subject = SubjectRouter().resolve(body.subject)
     except KeyError:
-        raise ApiError(400, "bad_subject", "Subject must be math, language or science")
+        # Named from the router's own list, so MT and Computing — reflectable since slice 4 — are not
+        # left out of the message the way they were out of the stale hard-coded three.
+        raise ApiError(400, "bad_subject", "Subject must be " + _subject_list())
     # The 409 is decided by the insert itself (partial unique index on dedupe_key), so two racing
     # requests — or a request racing the nightly scheduler — cannot both create a job.
     job_id = jobs.enqueue_unique("reflect", {"subject": subject, "lookback_days": body.lookback_days},

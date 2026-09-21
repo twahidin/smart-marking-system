@@ -8,9 +8,10 @@ from pydantic import BaseModel
 from sms.records.insights_pdf import render_insights_pdf
 from sms.web.deps import get_db, get_jobs, get_settings_store, get_storage, require_teacher
 from sms.web.errors import ApiError
-from sms.web.services.class_assignments import (delete_class_assignment, get_student, hand_in, list_class_assignments,
-                                                marks_csv, release, remove_hand_in, require_class_assignment, roster,
-                                                set_assignment, slug, update_class_assignment)
+from sms.web.services.class_assignments import (bulk_commit, bulk_preview, delete_class_assignment, get_student,
+                                                hand_in, list_class_assignments, marks_csv, release, remove_hand_in,
+                                                require_class_assignment, roster, set_assignment, slug,
+                                                update_class_assignment)
 from sms.web.services.insights import insights_payload
 from sms.web.uploads import check_content_length, read_upload_files
 from sms.worker.insights_job import enqueue_insights
@@ -130,3 +131,27 @@ def remove(class_id: int, caid: int, student_id: int, db=Depends(get_db), storag
     require_class_assignment(db, class_id, caid)
     remove_hand_in(db, storage, caid, student_id)
     return Response(status_code=204)
+
+
+@router.post("/{caid}/bulk/preview")
+async def bulk_preview_route(class_id: int, caid: int, request: Request, zip: UploadFile = File(...), db=Depends(get_db)):
+    check_content_length(request)
+    ca = require_class_assignment(db, class_id, caid)
+    payload = await read_upload_files(request, [zip])
+    zip_bytes = payload[0][1]
+    # Reading every matched student out of the zip is CPU/IO-bound; keep it off the event loop.
+    return await run_in_threadpool(bulk_preview, db, ca, zip_bytes)
+
+
+@router.post("/{caid}/bulk", status_code=202)
+async def bulk_commit_route(class_id: int, caid: int, request: Request, zip: UploadFile = File(...), replace: bool = False,
+                            db=Depends(get_db), storage=Depends(get_storage), jobs=Depends(get_jobs),
+                            settings=Depends(get_settings_store)):
+    check_content_length(request)
+    ca = require_class_assignment(db, class_id, caid)
+    if not await run_in_threadpool(lambda: settings.load().has_key):
+        raise ApiError(400, "no_key", "Add an API key under Settings before marking")
+    payload = await read_upload_files(request, [zip])
+    zip_bytes = payload[0][1]
+    # Unpacking the zip and rasterising/normalising each student's files is CPU-bound.
+    return await run_in_threadpool(bulk_commit, db, storage, jobs, ca, zip_bytes, replace)

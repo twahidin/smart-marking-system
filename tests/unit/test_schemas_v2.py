@@ -6,6 +6,7 @@ from sms.schemas.extraction import ExtractedQuestion, ExtractedScript
 from sms.schemas.marking import ReviewVerdict
 from sms.schemas.marking_v2 import (
     AllocationMark,
+    DoublePenalty,
     MarkedScriptV2,
     MarkingInputV2,
     PartMark,
@@ -98,6 +99,21 @@ def test_review_schemas_v2():
     assert ReviewedScriptV2(verdicts=[v, rv, plain]).verdicts[2].verdict is ReviewVerdict.APPROVE
 
 
+def test_double_penalty_needs_at_least_two_parts():
+    dp = DoublePenalty(error="sign error in 1a", q_ids=["1a", "1b"])
+    assert dp.q_ids == ["1a", "1b"]
+    with pytest.raises(ValidationError):
+        DoublePenalty(error="sign error", q_ids=["1a"])
+
+
+def test_reviewed_script_v2_double_penalties_defaults_empty():
+    empty = ReviewedScriptV2(verdicts=[])
+    assert empty.double_penalties == []
+    flagged = ReviewedScriptV2(verdicts=[], double_penalties=[DoublePenalty(error="carried the same slip twice",
+                                                                             q_ids=["1a", "1b"])])
+    assert flagged.double_penalties[0].error == "carried the same slip twice"
+
+
 def test_scheme_prompt_configs_have_marker_and_reviewer_keys():
     keys = {"background", "steps", "output_instructions", "reviewer_background", "reviewer_steps",
             "reviewer_output_instructions"}
@@ -105,7 +121,10 @@ def test_scheme_prompt_configs_have_marker_and_reviewer_keys():
         assert keys <= set(cfg) and all(cfg[k] for k in keys)
     joined = " ".join(" ".join(v) for v in scheme_prompts.MARK_SCHEME.values()).lower()
     assert "in_scheme" in joined and "never invent" in joined and "method" in joined
-    assert "band" in " ".join(" ".join(v) for v in scheme_prompts.RUBRIC.values()).lower()
+    assert "double_penalties" in joined and "never deduct the same slip twice" in joined
+    rubric_joined = " ".join(" ".join(v) for v in scheme_prompts.RUBRIC.values()).lower()
+    assert "band" in rubric_joined
+    assert "a weakness counts once" in rubric_joined and "double_penalties" in rubric_joined
 
 
 def test_router_scheme_prompt_config():
@@ -114,3 +133,34 @@ def test_router_scheme_prompt_config():
     assert router.scheme_prompt_config("rubric") is scheme_prompts.RUBRIC
     with pytest.raises(KeyError):
         router.scheme_prompt_config("criteria")
+
+
+def test_text_segment_input_carries_every_source_and_the_paper_parts():
+    from sms.schemas.segment import TextSegmentInput, TextSource
+
+    inp = TextSegmentInput(assignment_context="computing submission, 1 part(s)",
+                           questions=[Question(q_id="1", text="Print 1", max_marks=1)],
+                           sources=[TextSource(name="handwritten pages", text="[1] plan"),
+                                    TextSource(name="prog.py", text="   1 | print(1)")])
+    assert [s.name for s in inp.sources] == ["handwritten pages", "prog.py"]
+    assert isinstance(inp.questions[0], Question) and inp.model_dump()["sources"][1]["text"] == "   1 | print(1)"
+    # questions is optional (a paper with no listed parts), sources is not
+    assert TextSegmentInput(assignment_context="c", sources=[]).questions == []
+    with pytest.raises(ValidationError):
+        TextSegmentInput(assignment_context="c")
+
+
+def test_text_segmenter_asks_for_the_source_tag_the_detail_page_matches_on():
+    """get_submission marks a file as used when the transcription contains "[<file name>", so the
+    segmenter's instructions must ask for exactly that prefix."""
+    import instructor
+    import openai
+
+    from sms.agents.text_segmenter import build_text_segmenter
+    from sms.schemas.segment import TextSegmentInput
+
+    agent = build_text_segmenter(client=instructor.from_openai(openai.OpenAI(api_key="x")), model="m")
+    assert agent.input_schema is TextSegmentInput and agent.output_schema is ExtractedScript
+    prompt = agent.system_prompt_generator.generate_prompt()
+    assert "[prog.py L12-30]" in prompt and "[results.xlsx Marks!B4]" in prompt and "[handwritten pages]" in prompt
+    assert "verbatim" in prompt.lower() and "one ExtractedQuestion per listed part" in prompt

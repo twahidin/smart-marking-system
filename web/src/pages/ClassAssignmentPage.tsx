@@ -3,17 +3,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { ClassAssignment, ClassAssignmentDetail, ClassRow, RosterRow, RosterStatus } from "../api/types";
+import { BulkUploadDialog } from "../components/BulkUpload";
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { InsightsPanel } from "../components/InsightsPanel";
 import { Notice } from "../components/Notice";
 import { ProgressStrip, type StripBucket } from "../components/ProgressStrip";
+import { PAGE_ACCEPT } from "../components/DropZone";
 import { downloadFile } from "../lib/download";
+import { capUploads, fmtSize, MAX_PROGRAM_FILES, MAX_TEACHER_PAGES, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { fmtDate } from "../lib/format";
 import { qLabel, totalLabel } from "../lib/marks";
 
 const POLL_MS = 10_000;
-const ACCEPT = ".pdf,.jpg,.jpeg,.png,.heic,.heif,image/*,application/pdf";
 const msg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
 const HEADER_STATUS: Record<ClassAssignment["derived_status"], { label: string; pill: string }> = {
@@ -50,6 +52,7 @@ export function ClassAssignmentPage() {
   const [filter, setFilter] = useState<StripBucket | null>(null);
   const [releasing, setReleasing] = useState(false);
   const [uploading, setUploading] = useState<RosterRow | null>(null);
+  const [bulking, setBulking] = useState(false);
   const [removing, setRemoving] = useState<RosterRow | null>(null);
   const [busy, setBusy] = useState<"release" | "csv" | "records" | "remove" | null>(null);
   const live = useRef(true);
@@ -87,6 +90,10 @@ export function ClassAssignmentPage() {
     : detail.status !== "open" ? "Open the assignment before releasing feedback."
     : markedCount === 0 ? "Nothing has been marked yet." : undefined;
   const recordIds = roster.rows.filter(hasRecord).map((r) => r.submission_id as number);
+  // Program files are only markable against a Computing assignment with a mark scheme or a rubric: a
+  // quick mark has nothing to line code up with, and the server refuses them — so the per-student
+  // upload dialog must not offer them either.
+  const takesFiles = detail.subject === "computing" && (detail.scheme_kind === "mark_scheme" || detail.scheme_kind === "rubric");
 
   const run = async (kind: NonNullable<typeof busy>, fallback: string, fn: () => Promise<void>) => {
     setBusy(kind); setError(null);
@@ -124,6 +131,8 @@ export function ClassAssignmentPage() {
           </p>
         </div>
         <div className="actions">
+          <Button variant="secondary" icon={<Upload size={16} aria-hidden />} onClick={() => setBulking(true)} disabled={detail.template_deleted}
+            title={detail.template_deleted ? "Set the assignment again before uploading." : undefined}>Bulk upload</Button>
           <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={downloadCsv} disabled={busy !== null}>{busy === "csv" ? "Preparing…" : "Download marks CSV"}</Button>
           <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={downloadRecords} disabled={busy !== null || recordIds.length === 0}
             title={recordIds.length === 0 ? "No marked scripts to download yet." : undefined}>{busy === "records" ? "Preparing…" : "Download marking records"}</Button>
@@ -195,7 +204,10 @@ export function ClassAssignmentPage() {
           <p>Students will see their marks and feedback. Students can no longer hand in. Pages you upload for a student later are marked and shown to them automatically.</p>
         </Dialog>
       )}
-      {uploading && <UploadDialog base={base} student={uploading} onClose={() => setUploading(null)} onDone={() => { setUploading(null); load(); }} />}
+      {/* The roster refreshes behind the result, so the dialog can still say what came of the zip. */}
+      {bulking && <BulkUploadDialog base={base} onClose={() => setBulking(false)} onDone={load} />}
+      {uploading && <UploadDialog base={base} student={uploading} accept={takesFiles ? `${PAGE_ACCEPT},${PROGRAM_ACCEPT}` : PAGE_ACCEPT}
+        onClose={() => setUploading(null)} onDone={load} />}
       {removing && (
         <Dialog title={`Remove ${removing.name}'s hand-in?`} onClose={() => setRemoving(null)}
           footer={<><Button variant="secondary" onClick={() => setRemoving(null)}>Cancel</Button><Button variant="primary" onClick={() => remove(removing)} disabled={busy !== null}>Remove hand-in</Button></>}>
@@ -206,21 +218,56 @@ export function ClassAssignmentPage() {
   );
 }
 
-function UploadDialog({ base, student, onClose, onDone }: { base: string; student: RosterRow; onClose: () => void; onDone: () => void }) {
+function UploadDialog({ base, student, accept, onClose, onDone }: { base: string; student: RosterRow; accept: string; onClose: () => void; onDone: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [overItems, setOverItems] = useState(false);
+  const [overFiles, setOverFiles] = useState(false);
+  // What the server dropped out of a zip. The dialog stays open to say so rather than closing on a
+  // half-taken upload; `onDone` still refreshes the roster behind it.
+  const [ignored, setIgnored] = useState<string[]>([]);
+  const [done, setDone] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const add = (picked: File[]) => setFiles((cur) => [...cur, ...picked]);
+  // The same two caps the server enforces, checked as work is picked; photos are shrunk on the way in,
+  // so the list shows the size that will actually go up.
+  // `accepted` counts against the caps straight away — the shrink is async, and two quick picks must
+  // not both measure themselves against the same stale list.
+  const accepted = useRef<File[]>([]);
+  const add = (picked: File[]) => {
+    const { kept, overItems: tooMany, overFiles: tooManyFiles } = capUploads(picked, accepted.current, MAX_TEACHER_PAGES);
+    setOverItems(tooMany); setOverFiles(tooManyFiles);
+    if (kept.length === 0) return;
+    accepted.current = [...accepted.current, ...kept];
+    prepareUploads(kept).then((ready) => setFiles((cur) => [...cur, ...ready]));
+  };
+  const takesFiles = accept.includes(PROGRAM_ACCEPT);
   const start = async () => {
     if (!files.length) return;
     setBusy(true); setError(null);
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f, f.name));
-    try { await api.postForm(`${base}/students/${student.student_id}/upload`, fd); onDone(); }
+    try {
+      const r = await api.postForm<{ ignored?: string[] }>(`${base}/students/${student.student_id}/upload`, fd);
+      onDone();
+      const skipped = r?.ignored ?? [];
+      // Nothing was dropped: close as before. Otherwise stay open long enough to say what the zip
+      // carried that the marker can't take, since the roster behind will show no sign of it.
+      if (skipped.length === 0) { onClose(); return; }
+      setIgnored(skipped); setDone(true); setBusy(false);
+    }
     catch (e) { setError(e instanceof ApiError && e.code === "no_key" ? "Add an API key under Settings before marking." : msg(e, "Couldn't upload the pages — try again.")); setBusy(false); }
   };
+  if (done) {
+    return (
+      <Dialog title={`Upload pages for ${student.name}`} onClose={onClose}
+        footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
+        <p role="status">Marking has started for {student.name}.</p>
+        <p className="notice">{`Skipped: ${ignored.join(", ")}`}</p>
+      </Dialog>
+    );
+  }
   return (
     <Dialog title={`Upload pages for ${student.name}`} onClose={onClose}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" onClick={start} disabled={busy || files.length === 0}>{busy ? "Uploading…" : "Start marking"}</Button></>}>
@@ -229,15 +276,19 @@ function UploadDialog({ base, student, onClose, onDone }: { base: string; studen
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); add(Array.from(e.dataTransfer.files)); }}>
         <Upload size={32} aria-hidden />
-        <h3>Drop {student.name}'s pages here</h3>
-        <p className="help">PDF, JPG, PNG or HEIC — up to 20 pages. The script is marked as handed in by you.</p>
+        <h3>Drop {student.name}'s work here</h3>
+        <p className="help">{takesFiles
+          ? `PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to ${MAX_TEACHER_PAGES} pages and ${MAX_PROGRAM_FILES} files. The script is marked as handed in by you.`
+          : `PDF, JPG, PNG or HEIC — up to ${MAX_TEACHER_PAGES} pages. The script is marked as handed in by you.`}</p>
         <button type="button" className="btn btn-secondary" onClick={() => input.current?.click()}>Choose files</button>
-        <input ref={input} type="file" multiple accept={ACCEPT} hidden aria-label={`Choose pages for ${student.name}`}
+        <input ref={input} type="file" multiple accept={accept} hidden aria-label={`Choose pages for ${student.name}`}
           onChange={(e) => { add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       </div>
+      {overItems && <p role="status" className="notice">{`You can hand in at most ${MAX_TEACHER_PAGES} ${takesFiles ? "pages or files" : "pages"}.`}</p>}
+      {overFiles && <p role="status" className="notice">{`You can hand in at most ${MAX_PROGRAM_FILES} files.`}</p>}
       {files.length > 0 && (
         <ul className="help" style={{ margin: "12px 0 0", paddingLeft: 20 }}>
-          {files.map((f, i) => <li key={`${f.name}-${i}`}>{f.name}</li>)}
+          {files.map((f, i) => <li key={`${f.name}-${i}`}>{f.name} · {fmtSize(f.size)}</li>)}
         </ul>
       )}
     </Dialog>

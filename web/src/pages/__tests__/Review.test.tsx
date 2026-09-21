@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { QueueItem } from "../../api/types";
 import { Review } from "../Review";
 
-const base = { submission_id: 9, submission_label: "Lim Jun Hao", created_at: "2026-09-15T03:04:05Z", workings: "", evidence: "", reviewer_note: "", criterion_defs: [], proposed_criterion_scores: [], proposed_total: null, page_ids: [3] };
+const base = { submission_id: 9, submission_label: "Lim Jun Hao", created_at: "2026-09-15T03:04:05Z", workings: "", evidence: "", reviewer_note: "", criterion_defs: [], proposed_criterion_scores: [], proposed_total: null, page_ids: [3], input_kind: "pages" as const };
 const partItem: QueueItem = {
   ...base, id: 41, q_id: "1b", reason: "marker/reviewer disagree", reason_text: "Marker and reviewer disagreed", transcription: "y = 2x + 1 = 5", rationale: "M1 for substitution",
   marks_version: 2, scheme_kind: "mark_scheme", label: "1(b)", question_text: "Hence find y",
@@ -135,6 +135,27 @@ describe("Review — per-part items (v2)", () => {
     await userEvent.click(screen.getByRole("button", { name: /Save & next/ }));
     await vi.waitFor(() => expect(posted).toHaveLength(1));
     expect(posted[0]).toEqual({ path: "/api/queue/45/resolve", body: { total: 1, reason: "" } });
+  });
+
+  it("a files-only item reads from the transcription instead of an empty page crop", async () => {
+    setup([{ ...partItem, page_ids: [], input_kind: "files" }]);
+    await screen.findByText("Question 1(b)");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText("Handed in as files — the transcription below is what was read.")).toBeInTheDocument();
+    expect(screen.queryByText(/deleted after marking/i)).not.toBeInTheDocument();
+    expect(screen.getByText("y = 2x + 1 = 5")).toBeInTheDocument();
+  });
+
+  it("still says so when the pages of a photo script were deleted after marking", async () => {
+    setup([{ ...partItem, page_ids: [] }]);
+    await screen.findByText("Question 1(b)");
+    expect(screen.getByText("Pages deleted after marking — the transcription below is what was read.")).toBeInTheDocument();
+  });
+
+  it("keeps the deletion explanation for a mixed script whose pages are gone", async () => {
+    setup([{ ...partItem, page_ids: [], input_kind: "mixed" }]);
+    await screen.findByText("Question 1(b)");
+    expect(screen.getByText("Pages deleted after marking — the transcription below is what was read.")).toBeInTheDocument();
   });
 
   it("v1 items still use the criteria table, show the teacher-facing reason and post criterion_scores", async () => {

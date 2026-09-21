@@ -3,8 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudentAssignmentDetail, StudentMe } from "../../api/types";
+import { downscale } from "../../lib/image";
 import { HandIn } from "../HandIn";
 import { StudentLayout } from "../StudentLayout";
+
+// The real resize needs a canvas jsdom does not have; the spy is how we prove a photo went through it.
+vi.mock("../../lib/image", () => ({ downscale: vi.fn((f: File) => Promise.resolve(f)) }));
 
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
   const calls: { path: string; method: string; init?: RequestInit }[] = [];
@@ -26,11 +30,13 @@ beforeEach(() => {
   // jsdom has no canvas — downscale must fall back to the original file without decoding anything.
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => null);
   vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:x", revokeObjectURL: () => {} });
+  vi.mocked(downscale).mockClear();
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const me: StudentMe = { class_name: "4E2", code: "CE4R", student_name: "Tan Wei Ling", reg_no: 1 };
-const detail: StudentAssignmentDetail = { id: 1, title: "Worksheet 3", due_at: null, status: "to_hand_in", handed_in_at: null, pages: 0, allow_student_uploads: true, feedback: null };
+const detail: StudentAssignmentDetail = { id: 1, title: "Worksheet 3", due_at: null, status: "to_hand_in", handed_in_at: null, pages: 0, allow_student_uploads: true, feedback: null, subject: "math", accepts_files: false };
+const computing: StudentAssignmentDetail = { ...detail, title: "Loops — Task 2", subject: "computing", accepts_files: true };
 const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 function app(path: string) {
@@ -129,6 +135,117 @@ describe("HandIn", () => {
     await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[19]);
     expect(screen.getAllByRole("listitem")).toHaveLength(19);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("takes program files beside photos for a Computing assignment", async () => {
+    const calls = mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+      "POST /api/student/assignments/1/hand-in": () => ok({ id: 5, status: "queued", pages: [] }, 202),
+    });
+    render(app("/s/a/1/hand-in"));
+    const add = await screen.findByLabelText("Add files");
+    expect(add).toHaveAttribute("accept", ".py,.sb3,.xlsx,.zip");
+    expect(screen.getByRole("button", { name: /Add files/ })).toBeInTheDocument();
+    await userEvent.upload(add, [new File(["x".repeat(1234)], "prog.py", { type: "text/x-python" })]);
+    await userEvent.upload(screen.getByLabelText("Choose from gallery"), [jpg("page1.jpg")]);
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("prog.py");
+    expect(items[0]).toHaveTextContent("1.2 KB");
+    expect(items[0].querySelector("img")).toBeNull();
+    expect(items[1]).toHaveTextContent("page1.jpg");
+    expect(items[1].querySelector("img")).toHaveAttribute("src", "blob:x");
+    await userEvent.click(screen.getByRole("button", { name: "Hand in 1 page and 1 file" }));
+    expect(await screen.findByText(/Handed in/)).toBeInTheDocument();
+    const form = calls.filter((c) => c.method === "POST")[0].init?.body as FormData;
+    expect(form.getAll("files").map((f) => (f as File).name)).toEqual(["prog.py", "page1.jpg"]);
+    // Only the photo is worth shrinking; the program file goes up byte for byte.
+    expect(vi.mocked(downscale)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(downscale).mock.calls[0][0].name).toBe("page1.jpg");
+  });
+
+  it("keeps at most 12 program files, and a photo still fits after them", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+    });
+    render(app("/s/a/1/hand-in"));
+    const add = await screen.findByLabelText("Add files");
+    await userEvent.upload(add, Array.from({ length: 15 }, (_, i) => new File(["x"], `p${i + 1}.py`, { type: "text/x-python" })));
+    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+    expect(screen.getByRole("status")).toHaveTextContent("You can hand in at most 12 files.");
+    // The 12 is a cap on program files, not on the hand-in: a photo still goes in.
+    await userEvent.upload(screen.getByLabelText("Choose from gallery"), [jpg("page1.jpg")]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(13);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hand in 1 page and 12 files" })).toBeInTheDocument();
+  });
+
+  it("says so rather than silently dropping a file the assignment cannot take", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(detail),
+    });
+    render(app("/s/a/1/hand-in"));
+    const gallery = await screen.findByLabelText("Choose from gallery");
+    // The accept list would normally keep a .py out; a phone's Files app can still hand one over.
+    await userEvent.setup({ applyAccept: false }).upload(gallery, [new File(["print(1)"], "prog.py", { type: "text/x-python" })]);
+    expect(screen.getByRole("alert")).toHaveTextContent("This assignment takes photos only.");
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    // Picking a photo afterwards clears the complaint.
+    await userEvent.upload(gallery, [jpg("page1.jpg")]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  it("offers no files button for a subject the marker cannot read files for", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(detail),
+    });
+    render(app("/s/a/1/hand-in"));
+    expect(await screen.findByLabelText("Choose from gallery")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Add files")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add files/ })).not.toBeInTheDocument();
+  });
+
+  it("names what the server skipped out of a zip", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+      "POST /api/student/assignments/1/hand-in": () => ok({ id: 5, status: "queued", pages: [], ignored: ["notes.txt", "data.csv"] }, 202),
+    });
+    render(app("/s/a/1/hand-in"));
+    await userEvent.upload(await screen.findByLabelText("Choose from gallery"), [jpg("page1.jpg")]);
+    await userEvent.click(screen.getByRole("button", { name: /Hand in/ }));
+    expect(await screen.findByText(/Handed in/)).toBeInTheDocument();
+    expect(screen.getByText("Skipped: notes.txt, data.csv")).toBeInTheDocument();
+  });
+
+  it("says nothing about skipped files when nothing was skipped", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+      "POST /api/student/assignments/1/hand-in": () => ok({ id: 5, status: "queued", pages: [], ignored: [] }, 202),
+    });
+    render(app("/s/a/1/hand-in"));
+    await userEvent.upload(await screen.findByLabelText("Choose from gallery"), [jpg("page1.jpg")]);
+    await userEvent.click(screen.getByRole("button", { name: /Hand in/ }));
+    expect(await screen.findByText(/Handed in/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Skipped:/)).not.toBeInTheDocument();
+  });
+
+  it("holds the hand-in to 20 items, not the teacher's 60", async () => {
+    mockFetch({
+      "GET /api/student/me": () => ok(me),
+      "GET /api/student/assignments/1": () => ok(computing),
+    });
+    render(app("/s/a/1/hand-in"));
+    const gallery = await screen.findByLabelText("Choose from gallery");
+    await userEvent.upload(gallery, Array.from({ length: 21 }, (_, i) => jpg(`p${i + 1}.jpg`)));
+    expect(await screen.findByText("You can hand in at most 20 pages or files.")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(20);
   });
 
   it("redirects to the assignment page when it is no longer waiting to be handed in", async () => {

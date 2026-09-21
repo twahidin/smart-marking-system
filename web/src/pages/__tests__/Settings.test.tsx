@@ -1,32 +1,13 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Settings } from "../Settings";
-
-const providers = [
-  {
-    id: "tokenrouter", label: "TokenRouter", transport: "openai_compatible", base_url: "https://api.tokenrouter.com/v1", mode: "JSON",
-    default_model: "z-ai/glm-5.3-flash", default_rpm: 60, key_url: "https://www.tokenrouter.com/", note: "", base_url_editable: false, api_params: null,
-    custom_models: false, models: [{ id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", vision: true }],
-  },
-  {
-    id: "google", label: "Google Gemini", transport: "openai_compatible", base_url: "https://generativelanguage.googleapis.com/v1beta/openai/", mode: "JSON",
-    default_model: "gemini-3.8-flash", default_rpm: 10, key_url: "https://aistudio.google.com/apikey", base_url_editable: false, api_params: null,
-    note: "Free tier: no card needed; roughly 10–30 requests a minute.",
-    custom_models: false, models: [{ id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", vision: true }],
-  },
-];
-const settings = {
-  provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0,
-  has_key: true, key_hint: "abcd", keys: { tokenrouter: "abcd" }, auto_reflect: true,
-  telegram_linked: false, telegram_bot_hint: "", telegram_chat_id: null, telegram_instant: true, telegram_daily_time: "07:00",
-  timezone: "Asia/Singapore", app_url: null,
-};
+import { noSubjectModels, providers, settings } from "./settingsFixtures";
 
 /** What the mock server currently holds; a test can swap it before rendering with `serve()`. */
-let served: { providers: any[]; settings: any } = { providers, settings };
-const serve = (p: any[], s: any) => { served = { providers: p, settings: s }; };
+let served: { providers: any[]; settings: any; subjectModels: any } = { providers, settings, subjectModels: noSubjectModels };
+const serve = (p: any[], s: any) => { served = { ...served, providers: p, settings: s }; };
 const calls: { path: string; method: string; body: any }[] = [];
 const saved: any[] = [];
 const deleted: string[] = [];
@@ -45,6 +26,18 @@ function mockFetch(onModels: () => Response) {
       const body = init?.body ? JSON.parse(String(init.body)) : null;
       calls.push({ path, method, body });
       if (path === "/api/providers") return json(served.providers);
+      if (path === "/api/settings/subject-models" && method === "GET") return json(served.subjectModels);
+      if (path.startsWith("/api/settings/subject-models/") && method === "PUT") {
+        const subject = path.slice("/api/settings/subject-models/".length);
+        const row = { provider: body.provider, model: body.model, extractor_model: body.extractor_model ?? null };
+        served.subjectModels = { ...served.subjectModels, [subject]: row };
+        return json(row);
+      }
+      if (path.startsWith("/api/settings/subject-models/") && method === "DELETE") {
+        const subject = path.slice("/api/settings/subject-models/".length);
+        served.subjectModels = { ...served.subjectModels, [subject]: null };
+        return noContent();
+      }
       if (path === "/api/settings" && method !== "PUT") return json(served.settings);
       if (path === "/api/settings" && method === "PUT") {
         saved.push(body);
@@ -85,7 +78,7 @@ function mockFetch(onModels: () => Response) {
   );
 }
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); served = { providers, settings }; calls.length = 0; saved.length = 0; deleted.length = 0; keysInUse = 0; });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); served = { providers, settings, subjectModels: noSubjectModels }; calls.length = 0; saved.length = 0; deleted.length = 0; keysInUse = 0; });
 
 describe("Settings — one key per provider", () => {
   it("shows the saved key for the selected provider only, and removes it on request", async () => {
@@ -227,6 +220,27 @@ describe("Settings — notifications", () => {
     expect(put.telegram_daily_time).toBe("07:00");
     expect(put.timezone).toBe("Asia/Singapore");
     expect(put.app_url).toBeNull();
+  });
+});
+
+describe("Settings \u2014 by subject", () => {
+  it("puts the model-by-subject table under the provider form and saves a row on its own", async () => {
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    expect(await screen.findByRole("heading", { name: "By subject" })).toBeInTheDocument();
+    expect(screen.getByText("New assignments follow their subject's model; each assignment can still pin its own.")).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: "Model by subject" });
+    expect(within(table).getAllByRole("rowheader").map((c) => c.textContent)).toEqual(
+      expect.arrayContaining(["Maths", "English", "Science"]));
+
+    const mt = screen.getByRole("radiogroup", { name: "MT model" }).closest("tr")!;
+    await userEvent.click(within(mt).getByRole("radio", { name: "Choose" }));
+    await userEvent.click(within(mt).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.path === "/api/settings/subject-models/mt")).toBe(true));
+    const put = calls.find((c) => c.method === "PUT" && c.path === "/api/settings/subject-models/mt")!;
+    expect(put.body).toEqual({ provider: "tokenrouter", model: "z-ai/glm-5.3-flash", extractor_model: null });
+    // The page's own Save still submits the settings form, not the row.
+    expect(saved).toHaveLength(0);
   });
 });
 

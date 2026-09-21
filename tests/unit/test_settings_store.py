@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from sms.memory.db import Database
@@ -177,3 +179,66 @@ def test_for_template_keeps_the_base_url_only_for_the_global_provider(store):
 
     other = store.for_template({"provider": "openai", "model": "gpt-5.5", "extractor_model": None})
     assert other.base_url is None and other.api_key == "sk-openai"
+
+
+@pytest.fixture
+def store_with_keys(tmp_path):
+    """A store with a global provider (openrouter, with its own saved key) and a saved key for
+    google — the provider a subject default will point at in these tests."""
+    db = Database(path=str(tmp_path / "s.db"))
+    cipher = KeyCipher("secret")
+    store = SettingsStore(db, cipher)
+    store.save(Settings(provider="openrouter", model="z-ai/glm-5.3-flash", api_key="or-key-1234", rpm_limit=60))
+    db.execute("INSERT INTO provider_keys (provider, api_key_enc) VALUES (:p, :k)",
+               {"p": "google", "k": cipher.encrypt("g-key-5678")})
+    return store, db
+
+
+def test_for_template_uses_subject_default_when_no_pin(store_with_keys):
+    store, db = store_with_keys
+    db.execute("INSERT INTO subject_models (subject, provider, model) VALUES ('mt', 'google', 'gemini-3.8-pro')")
+    s = store.for_template({"subject": "mt", "provider": None, "model": None})
+    assert (s.provider, s.model) == ("google", "gemini-3.8-pro") and s.api_key == store.key_for("google")
+
+
+def test_pin_beats_subject_default(store_with_keys):
+    store, db = store_with_keys
+    db.execute("INSERT INTO subject_models (subject, provider, model) VALUES ('computing', 'google', 'g')")
+    s = store.for_template({"subject": "computing", "provider": "openrouter", "model": "openai/gpt-5.5"})
+    assert (s.provider, s.model) == ("openrouter", "openai/gpt-5.5")
+
+
+def test_keyless_subject_default_is_ignored(store_with_keys, caplog):
+    """No key *row at all* for the subject default's provider: falls back to Settings, logged."""
+    store, db = store_with_keys
+    db.execute("INSERT INTO subject_models (subject, provider, model) VALUES ('mt', 'anthropic', 'claude-x')")
+    with caplog.at_level(logging.INFO, logger="sms.settings"):
+        s = store.for_template({"subject": "mt", "provider": None})
+    assert s.provider == "openrouter" and "no saved key" in caplog.text
+
+
+def test_subject_default_with_undecryptable_key_still_overlays_with_no_key(store_with_keys):
+    """A key row exists for the subject default's provider but this store's cipher cannot decrypt
+    it (wrong SECRET_KEY) — `has_key_for` (row presence, no decryption) is what both the template
+    list and this resolution check, so they must agree: the provider is still overlaid, not
+    silently swapped for Settings. `api_key` comes back None, so the job then fails the same way a
+    pin whose key won't decrypt would — never a silent fallback."""
+    store, db = store_with_keys
+    db.execute("INSERT INTO subject_models (subject, provider, model) VALUES ('mt', 'google', 'gemini-3.8-pro')")
+    wrong_cipher_store = SettingsStore(db, KeyCipher("a-different-secret"))
+    s = wrong_cipher_store.for_template({"subject": "mt", "provider": None})
+    assert s.provider == "google" and s.model == "gemini-3.8-pro" and s.api_key is None
+
+
+def test_subject_default_for_the_global_provider_keeps_base_url_and_rpm(tmp_path):
+    """A subject default pointed at the same provider as global Settings only overrides the model
+    — base_url and rpm_limit belong to the provider connection, not to any one model, so they carry
+    over exactly like a same-provider pin does in `_overlay`."""
+    db = Database(path=str(tmp_path / "s.db"))
+    store = SettingsStore(db, KeyCipher("secret"))
+    custom_url = "https://ws-123.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+    store.save(Settings(provider="qwen", model="qwen3-vl-plus", api_key="qw-key", base_url=custom_url, rpm_limit=30))
+    db.execute("INSERT INTO subject_models (subject, provider, model) VALUES ('science', 'qwen', 'qvq-max')")
+    s = store.for_template({"subject": "science", "provider": None})
+    assert (s.provider, s.model) == ("qwen", "qvq-max")
+    assert s.base_url == custom_url and s.rpm_limit == 30 and s.api_key == "qw-key"

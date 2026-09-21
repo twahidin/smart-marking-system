@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sms.web.deps import (SESSION_MAX_AGE, STUDENT_COOKIE, client_ip, get_db, get_jobs, get_settings_store, get_storage,
                           require_student)
 from sms.web.errors import ApiError
-from sms.web.services.student import (MAX_HAND_IN_PAGES, TOO_MANY_PAGES, lookup_student, open_for_hand_in, public,
+from sms.web.services.student import (MAX_HAND_IN_PAGES, TOO_MANY_UPLOADS, lookup_student, open_for_hand_in, public,
                                       student_assignment, student_assignments, student_hand_in, student_page_path,
                                       touch_last_seen)
 from sms.web.uploads import check_content_length, read_upload_files
@@ -74,10 +74,11 @@ async def hand_in_pages(caid: int, request: Request, files: List[UploadFile] = F
                         student: dict = Depends(require_student), db=Depends(get_db), storage=Depends(get_storage),
                         jobs=Depends(get_jobs), settings=Depends(get_settings_store)):
     check_content_length(request)
-    # Cheap file-count cap before reading the body; the page cap (PDFs rasterise to many pages) is
-    # enforced again inside student_hand_in.
+    # Cheap upload-count cap before reading the body; the page cap (PDFs rasterise to many pages)
+    # and the file caps (12 files, 2 MB each, 20 MB per zip) are enforced again inside
+    # student_hand_in, once the bytes are known.
     if len(files) > MAX_HAND_IN_PAGES:
-        raise ApiError(400, "too_many_pages", TOO_MANY_PAGES)
+        raise ApiError(400, "too_many_pages", TOO_MANY_UPLOADS)
     # Draft -> 404 and closed -> 403 before anything about the teacher's setup, as the teacher route does.
     await run_in_threadpool(open_for_hand_in, db, student, caid)
     if not await run_in_threadpool(lambda: settings.load().has_key):

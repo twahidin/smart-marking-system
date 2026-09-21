@@ -5,6 +5,11 @@ from typing import Dict, Optional
 
 TEACHER_TO_REVIEW = "Teacher to review"
 
+# Reason codes other modules import by name rather than spell out (the rest are defined next to the
+# pipeline that stores them). Every code here needs a sentence in REASON_TEXT below.
+INPUT_TRUNCATED = "input truncated"
+DOUBLE_PENALTY = "double penalty"
+
 # Queue reasons (marking_pipeline_v2 and the v1 pipeline) -> what the teacher reads.
 REASON_TEXT: Dict[str, str] = {
     "illegible": "Unclear handwriting",
@@ -12,6 +17,8 @@ REASON_TEXT: Dict[str, str] = {
     "reviewer escalated": "Marker and reviewer disagreed",
     "marker/reviewer disagree": "Marker and reviewer disagreed",
     "low confidence": "Low confidence",
+    INPUT_TRUNCATED: "The files were too large to read completely — check this part against the original",
+    DOUBLE_PENALTY: "The reviewer found the same error deducted twice — decide which part keeps the deduction",
     # v1 wording (marking_pipeline)
     "low marker confidence": "Low confidence",
     "illegible transcription": "Unclear handwriting",

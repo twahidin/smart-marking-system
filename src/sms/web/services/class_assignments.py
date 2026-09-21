@@ -2,20 +2,39 @@
 import csv
 import io
 import json
+import logging
 import re
+import zipfile
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from sms.files.bulk import BulkPlan, match_entries
+from sms.files.intake import FILE_EXTS, PAGE_EXTS, IntakeError, _junk, _read_entry, _traversal, classify_uploads
 from sms.memory.db import Database
 from sms.schemas.scheme import q_label
-from sms.storage import PageStorage
+from sms.storage import MAX_UPLOAD_BYTES, PageStorage
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 from sms.web.services.assignments import get_template
 from sms.web.services.classes import get_class
+from sms.web.services.classlist import list_students
 from sms.web.services.pages_cleanup import unlink_pages
 from sms.web.services.submissions import create_submission, get_submission, row_key, row_max, submission_totals
 from sms.worker.jobs import JobStore
+
+log = logging.getLogger("sms.class_assignments")
+
+# `bulk_preview`/`bulk_commit` validate the archive as a whole with `classify_uploads` — but only
+# for the zip-bomb and nothing-usable checks (both enforced regardless of these two kwargs); the
+# per-student file-count/size caps are re-checked for real, per student, when each student's own
+# files are handed in below, not against the whole class's zip at once.
+_UNLIMITED = 10 ** 9
+# The name every archive-wide error about the bulk zip is reported against; the teacher uploaded one
+# zip, so naming their own file back at them adds nothing the dialog does not already say.
+BULK_ZIP_NAME = "bulk.zip"
+BULK_ZIP_TOO_LARGE = (f"bulk zip is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB unpacked — "
+                      "downsize the photos or split the class into two zips")
 
 STATUSES = ("draft", "open", "released")
 
@@ -163,10 +182,13 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
         raise ApiError(409, "marking", "This script is being marked right now — try again in a minute")
     with db.transaction() as tx:
         paths = [r["storage_path"] for r in tx.query("SELECT storage_path FROM pages WHERE submission_id = :s AND deleted_at IS NULL", {"s": sid})]
+        file_paths = [r["stored_path"] for r in tx.query("SELECT stored_path FROM submission_files WHERE submission_id = :s "
+                                                         "AND deleted_at IS NULL", {"s": sid})]
         tx.execute("DELETE FROM teacher_queue WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM marking_runs WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM jobs WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+        tx.execute("DELETE FROM submission_files WHERE submission_id = :s", {"s": sid})
         tx.execute("DELETE FROM submissions WHERE id = :s", {"s": sid})
         stale = _unsent_hand_in_ids(tx, ca_id, student_id)
         if stale:
@@ -177,7 +199,159 @@ def remove_hand_in(db: Database, storage: PageStorage, ca_id: int, student_id: i
         # (another script with the same page, a question paper) — same rule as pages_cleanup.
         orphaned = [p for p in dict.fromkeys(paths)
                     if not tx.query("SELECT 1 FROM pages WHERE storage_path = :p AND deleted_at IS NULL", {"p": p})]
+        orphaned += [p for p in dict.fromkeys(file_paths)
+                     if not tx.query("SELECT 1 FROM submission_files WHERE stored_path = :p AND deleted_at IS NULL", {"p": p})]
     unlink_pages(storage, orphaned)
+
+
+# --- bulk upload: one zip for a whole class -----------------------------------------------------
+
+def _validate_bulk_zip(zip_bytes: bytes) -> None:
+    """The archive-wide checks only: not-a-zip, password/damage, the decompressed cap, and "nothing
+    usable at all" (`classify_uploads`, Task 3). File-count/size caps are disabled for this call —
+    they belong to each student's own hand-in below, not to the class zip as a whole, so a
+    legitimate class of many students isn't rejected for a limit never meant to apply to the whole
+    zip at once.
+
+    The per-archive decompressed cap is raised from one submission's 20 MB to `MAX_UPLOAD_BYTES`
+    (50 MB) for the same reason: a class's photos are not downsized in the browser the way a single
+    hand-in's are, so 30 students' worth of scans legitimately unpacks to far more than 20 MB. Over
+    that it is a `too_large` upload to downsize or split, not a `zip_bomb` to accuse anyone of."""
+    try:
+        classify_uploads([(BULK_ZIP_NAME, zip_bytes)], max_files=_UNLIMITED, max_file_bytes=_UNLIMITED,
+                         max_zip_bytes=MAX_UPLOAD_BYTES)
+    except IntakeError as e:
+        if e.code == "zip_bomb":
+            raise ApiError(400, "too_large", BULK_ZIP_TOO_LARGE)
+        raise ApiError(400, e.code, e.message)
+
+
+def _read_bulk_zip(zip_bytes: bytes) -> Dict[str, bytes]:
+    """Original entry path -> bytes for every non-directory, non-traversal, non-junk entry. Paths
+    are kept as-is (not flattened) because a folder prefix — "12/prog.py" — is where a student's
+    register number lives; `classify_uploads` would flatten it away, which is why matching reads
+    the zip directly instead.
+
+    Entries go through `intake._read_entry`, not `z.read`, so a password-protected or oddly
+    compressed entry is the same 400 `bad_file` the single-upload door gives rather than a 500:
+    `_validate_bulk_zip` never reads the entries `classify_uploads` skips by extension, so an
+    unreadable `notes.txt` would otherwise surface here for the first time."""
+    out: Dict[str, bytes] = {}
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            for info in z.infolist():
+                if info.is_dir() or _traversal(info.filename) or _junk(info.filename):
+                    continue
+                out[info.filename] = _read_entry(z, BULK_ZIP_NAME, info)
+    except IntakeError as e:
+        raise ApiError(400, e.code, e.message)
+    return out
+
+
+def _bulk_usable(name: str, data: bytes) -> bool:
+    """A zero-byte entry, or one with an extension `classify_uploads` would reject outright, is
+    dropped from the student's file list rather than failing that student's whole hand-in."""
+    if not data:
+        return False
+    ext = PurePosixPath(name).suffix.lower()
+    return ext in PAGE_EXTS or ext in FILE_EXTS
+
+
+def _bulk_split(names: List[str], entries: Dict[str, bytes]) -> Tuple[List[str], List[str]]:
+    """A matched student's raw entry names, split into usable (kept, original paths) and ignored
+    (dropped — zero-byte, or an extension `classify_uploads` would reject outright)."""
+    usable, ignored = [], []
+    for n in names:
+        (usable if _bulk_usable(n, entries[n]) else ignored).append(n)
+    return usable, ignored
+
+
+def _bulk_handed_in_ids(db: Database, ca_id: int) -> Set[int]:
+    rows = db.query("SELECT student_id FROM submissions WHERE class_assignment_id = :a AND student_id IS NOT NULL", {"a": ca_id})
+    return {r["student_id"] for r in rows}
+
+
+def _bulk_matched_in_reg_order(plan: BulkPlan, by_id: Dict[int, dict]) -> List[dict]:
+    return [by_id[sid] for sid in sorted(plan.matched, key=lambda i: by_id[i]["reg_no"])]
+
+
+def bulk_preview(db: Database, ca: Dict[str, Any], zip_bytes: bytes) -> Dict[str, Any]:
+    """Match a bulk zip's entries to this class's students without handing anything in yet. Each
+    matched student's raw entries are split into `files` (would be handed in) and `ignored`
+    (zero-byte, or a type `classify_uploads` would reject) so a folder that turns out to have
+    nothing usable in it is visible before committing, not just at commit time."""
+    _validate_bulk_zip(zip_bytes)
+    entries = _read_bulk_zip(zip_bytes)
+    students = list_students(db, ca["class_id"])
+    plan = match_entries(list(entries.keys()), students)
+    by_id = {s["id"]: s for s in students}
+    handed_in = _bulk_handed_in_ids(db, ca["id"])
+    matched = []
+    for s in _bulk_matched_in_reg_order(plan, by_id):
+        usable, ignored = _bulk_split(plan.matched[s["id"]], entries)
+        matched.append({"student_id": s["id"], "reg_no": s["reg_no"], "name": s["name"], "files": usable,
+                        "ignored": ignored, "already_handed_in": s["id"] in handed_in})
+    return {"matched": matched, "ambiguous": plan.ambiguous, "unmatched": plan.unmatched}
+
+
+def _bulk_no_usable_files_message(ignored: List[str]) -> str:
+    """`ignored` keeps the same original entry paths as the `ignored` field of the preview/commit
+    response, so the reason and the list line up."""
+    if not ignored:
+        return "no usable files"
+    return f"no usable files (only: {', '.join(ignored)})"
+
+
+def bulk_commit(db: Database, storage: PageStorage, jobs: JobStore, ca: Dict[str, Any], zip_bytes: bytes,
+                replace: bool) -> Dict[str, Any]:
+    """Hand in each matched student's files from the zip, in register-number order. A student who
+    already handed in is skipped unless `replace`. The student's new files are validated with
+    `classify_uploads` *before* anything existing is touched: a bad or empty set of files goes
+    straight to `failed` and the prior hand-in (if any) is left alone. Only once that passes does a
+    `replace` remove the old hand-in and the new one get created — if handing in still fails after
+    that removal, the `failed` reason is prefixed so it's clear the old hand-in is already gone.
+    Any other student-level failure (expected `ApiError` or not) is recorded in `failed` and does
+    not stop the rest of the class."""
+    _validate_bulk_zip(zip_bytes)
+    entries = _read_bulk_zip(zip_bytes)
+    students = list_students(db, ca["class_id"])
+    plan = match_entries(list(entries.keys()), students)
+    by_id = {s["id"]: s for s in students}
+    handed_in = _bulk_handed_in_ids(db, ca["id"])
+    created: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    for s in _bulk_matched_in_reg_order(plan, by_id):
+        already = s["id"] in handed_in
+        if already and not replace:
+            skipped.append({"reg_no": s["reg_no"]})
+            continue
+        usable, ignored = _bulk_split(plan.matched[s["id"]], entries)
+        files = [(PurePosixPath(n).name, entries[n]) for n in usable]
+        try:
+            intake = classify_uploads(files)
+        except IntakeError as e:
+            failed.append({"reg_no": s["reg_no"], "error": e.message})
+            continue
+        if not intake.pages and not intake.files:
+            failed.append({"reg_no": s["reg_no"], "error": _bulk_no_usable_files_message(ignored)})
+            continue
+        removed = False
+        try:
+            if already:
+                remove_hand_in(db, storage, ca["id"], s["id"])
+                removed = True
+            hand_in(db, storage, jobs, ca=ca, student=s, files=files, source="teacher")
+            created.append({"reg_no": s["reg_no"], "ignored": ignored})
+        except ApiError as e:
+            reason = f"Previous hand-in removed — {e.message}" if removed else e.message
+            failed.append({"reg_no": s["reg_no"], "error": reason})
+        except Exception:
+            log.exception("bulk hand-in failed for student %s on class assignment %s", s["id"], ca["id"])
+            generic = "something went wrong handing this student in"
+            reason = f"Previous hand-in removed — {generic}" if removed else generic
+            failed.append({"reg_no": s["reg_no"], "error": reason})
+    return {"created": created, "skipped": skipped, "failed": failed, "unmatched": plan.unmatched, "ambiguous": plan.ambiguous}
 
 
 # --- roster, release and marks export ---------------------------------------------------------

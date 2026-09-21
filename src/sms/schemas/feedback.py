@@ -14,6 +14,8 @@ class FeedbackInput(BaseIOSchema):
     final_marks: MarkedScript = Field(..., description="Merged final marks")
     final_result_set: bool = Field(..., description="True if marks are final (no escalation pending)")
     student_context: Optional[str] = Field(default=None, description="Student name/context if known")
+    feedback_language: str = Field(default="en", description="Language code for every student-facing sentence: "
+                                                              "en, zh, ms or ta")
 
 
 class PerQuestionComment(BaseModel):

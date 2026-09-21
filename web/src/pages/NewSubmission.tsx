@@ -5,10 +5,10 @@ import type { AssignmentTemplate, RubricBands, Settings, Subject } from "../api/
 import { Button } from "../components/Button";
 import { CriteriaEditor } from "../components/CriteriaTable";
 import { Dialog } from "../components/Dialog";
-import { DropZone } from "../components/DropZone";
+import { DropZone, PAGE_ACCEPT } from "../components/DropZone";
 import { Notice } from "../components/Notice";
 import { PageCard } from "../components/PageCard";
-import { canThumbnail } from "../lib/files";
+import { canThumbnail, PROGRAM_ACCEPT, prepareUploads } from "../lib/files";
 import { subjectLabel } from "../lib/format";
 import { qLabel, schemeTotal } from "../lib/scheme";
 import { emptyRow, jsonToRows, rowsToRubricJson, validateRows, type Row } from "../lib/rubric";
@@ -37,6 +37,10 @@ export function NewSubmission() {
   const [saveTitle, setSaveTitle] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  // What the server dropped out of a zip, and the script it made anyway. Nothing was lost that could
+  // have been marked, but the teacher should hear it here rather than wonder on the detail page — so
+  // the upload stops on this notice instead of navigating straight through.
+  const [uploaded, setUploaded] = useState<{ id: number; ignored: string[] } | null>(null);
 
   useEffect(() => { api.get<Settings>("/api/settings").then(setSettings).catch(() => setSettings(null)); }, []);
   useEffect(() => { api.get<AssignmentTemplate[]>("/api/assignments").then(setTemplates).catch(() => setTemplates([])); }, []);
@@ -46,6 +50,9 @@ export function NewSubmission() {
   // A mark-scheme / rubric assignment is marked part by part against its saved scheme, so the criteria editor is
   // replaced by a read-only summary; Quick mark (no assignment, or a criteria one) keeps the editor.
   const schemed = !!chosen && (chosen.scheme_kind === "mark_scheme" || chosen.scheme_kind === "rubric");
+  // Program files are only marked against a Computing assignment's scheme, so the drop zone offers
+  // them only once one is chosen — a quick mark has no scheme for the marker to read them against.
+  const takesFiles = chosen?.subject === "computing";
   const rubricJson = () => (schemed ? JSON.stringify(chosen!.rubric) : rowsToRubricJson(rows));
   const useTemplate = (id: string) => {
     const t = templates.find((x) => String(x.id) === id);
@@ -67,7 +74,8 @@ export function NewSubmission() {
   // Revoke object URLs only when the page unmounts — revoking on every change would blank the remaining thumbnails.
   useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
 
-  const add = (picked: File[]) => setFiles((cur) => [...cur, ...picked.map((file) => ({ file, url: canThumbnail(file) ? URL.createObjectURL(file) : "" }))]);
+  // Photos are shrunk as they are dropped, so the thumbnail and the upload are the same bytes.
+  const add = (picked: File[]) => { prepareUploads(picked).then((ready) => setFiles((cur) => [...cur, ...ready.map((file) => ({ file, url: canThumbnail(file) ? URL.createObjectURL(file) : "" }))])); };
   const remove = (i: number) => setFiles((cur) => { cur[i].url && URL.revokeObjectURL(cur[i].url); return cur.filter((_, j) => j !== i); });
   const move = (i: number, d: -1 | 1) => setFiles((cur) => { const c = [...cur]; const j = i + d; if (j < 0 || j >= c.length) return cur; [c[i], c[j]] = [c[j], c[i]]; return c; });
   const uploadJson = (f: File) => f.text().then((t) => { try { setRows(jsonToRows(t)); setError(null); } catch (e: any) { setError(`Rubric JSON: ${e.message}`); } });
@@ -77,7 +85,7 @@ export function NewSubmission() {
     if (schemed) {
       if (chosen!.scheme.length === 0) return `${chosen!.title} has no ${chosen!.scheme_kind === "rubric" ? "rubric" : "mark scheme"} yet — finish it under Assignments.`;
     } else { const v = validateRows(rows); if (v) return v; }
-    if (files.length === 0) return "Add at least one page.";
+    if (files.length === 0) return "Add at least one page or file.";
     return null;
   }, [label, rows, files, schemed, chosen]);
 
@@ -87,7 +95,12 @@ export function NewSubmission() {
     fd.set("label", label.trim()); fd.set("subject", subject); fd.set("context", context.trim()); fd.set("rubric", rubricJson());
     if (assignmentId !== null) fd.set("assignment_id", String(assignmentId));
     files.forEach((f) => fd.append("files", f.file, f.file.name));
-    try { const r = await api.postForm<{ id: number }>("/api/submissions", fd); nav(`/submissions/${r.id}`); }
+    try {
+      const r = await api.postForm<{ id: number; ignored?: string[] }>("/api/submissions", fd);
+      const ignored = r.ignored ?? [];
+      if (ignored.length === 0) { nav(`/submissions/${r.id}`); return; }
+      setUploaded({ id: r.id, ignored }); setBusy(false);
+    }
     catch (e) { setError(e instanceof ApiError ? e.message : "Upload failed — check your connection and try again."); setBusy(false); }
   };
 
@@ -109,7 +122,7 @@ export function NewSubmission() {
           <div className="grid-2">
             <div className="field"><label>Subject</label>
               <div className="seg" role="radiogroup" aria-label="Subject">
-                {(["math", "language", "science"] as Subject[]).map((s) => (
+                {(["math", "language", "science", "mt", "computing"] as Subject[]).map((s) => (
                   <label key={s} className={`seg-opt ${subject === s ? "on" : ""}`}><input type="radio" name="subject" checked={subject === s} onChange={() => setSubject(s)} />{subjectLabel[s]}</label>
                 ))}
               </div></div>
@@ -133,7 +146,9 @@ export function NewSubmission() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <label>Rubric <span className="help">— applied to every question</span></label>
               <div className="actions" style={{ flexWrap: "nowrap" }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => { setSavedNotice(false); setSaveTitle(context.trim()); }} disabled={!!validateRows(rows)}>Save as assignment</Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setSavedNotice(false); setSaveTitle(context.trim()); }}
+                  disabled={!!validateRows(rows) || subject === "mt"}
+                  title={subject === "mt" ? "A Mother Tongue assignment needs its language — create it under Assignments." : undefined}>Save as assignment</Button>
                 <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer" }}>Upload JSON instead<input type="file" accept=".json,application/json" hidden onChange={(e) => e.target.files?.[0] && uploadJson(e.target.files[0])} /></label>
               </div>
             </div>
@@ -150,7 +165,9 @@ export function NewSubmission() {
           )}
         </div>
         <div>
-          <DropZone onFiles={add} />
+          <DropZone onFiles={add} title={takesFiles ? "Drop pages or files here" : undefined}
+            hint={takesFiles ? "PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to 50 MB" : undefined}
+            accept={takesFiles ? `${PAGE_ACCEPT},${PROGRAM_ACCEPT}` : PAGE_ACCEPT} />
           {files.length > 0 && (
             <>
               <p className="help" style={{ marginTop: 12 }}>{files.length} file{files.length > 1 ? "s" : ""} · pages are read in this order. PDFs are split into pages.</p>
@@ -164,6 +181,14 @@ export function NewSubmission() {
         </div>
       </div>
       {error && <div style={{ marginTop: 16 }}><Notice kind="error">{error}</Notice></div>}
+      {uploaded && (
+        <div style={{ marginTop: 16 }}>
+          <Notice>{`Skipped: ${uploaded.ignored.join(", ")}`}</Notice>
+          <div className="actions" style={{ marginTop: 12 }}>
+            <Button variant="primary" onClick={() => nav(`/submissions/${uploaded.id}`)}>Open the script</Button>
+          </div>
+        </div>
+      )}
       <hr className="rule-2" style={{ marginTop: 24 }} />
       <div className="actions" style={{ marginTop: 16, alignItems: "center" }}>
         <Button variant="primary" size="lg" onClick={submit} disabled={busy || !!problem || !settings?.has_key} title={problem ?? undefined}>{busy ? "Uploading…" : "Start marking"}</Button>

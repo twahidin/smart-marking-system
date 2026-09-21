@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import io
 import json
+import zipfile
 from datetime import datetime, timezone
 
 import pytest
@@ -335,3 +337,151 @@ def test_detail_matches_extraction_q_ids_loosely(auth, app):
     assert p2["extracted"] == "x^2 + 2x + 1"
     it = auth.get("/api/queue").json()[0]
     assert it["q_id"] == "2" and it["transcription"] == "x^2 + 2x + 1"
+
+
+# --- file submissions (.py / .sb3 / .xlsx, zips, mixed uploads) --------------------------------
+from tests.web.seed_v2 import QUESTIONS  # noqa: E402
+
+
+def _tpl_v2(auth):
+    """A mark-scheme assignment with a scheme: files can only be marked against one of these."""
+    _with_key(auth)
+    return auth.post("/api/assignments", json={"title": "Program 1", "subject": "math", "context": "",
+                                               "rubric": RUBRIC, "scheme_kind": "mark_scheme",
+                                               "questions": QUESTIONS, "scheme": SCHEME}).json()["id"]
+
+
+def _data(tid=None, **over):
+    data = {"label": "S", "subject": "math", "context": "", "rubric": json.dumps(RUBRIC)}
+    if tid is not None:
+        data["assignment_id"] = str(tid)
+    data.update(over)
+    return data
+
+
+def test_upload_python_file_creates_files_submission(auth):
+    tid = _tpl_v2(auth)
+    r = auth.post("/api/submissions", data=_data(tid, label="S1"),
+                  files=[("files", ("prog.py", b"print(1)\n", "text/x-python"))])
+    assert r.status_code == 202
+    d = auth.get(f"/api/submissions/{r.json()['id']}").json()
+    assert d["input_kind"] == "files" and d["pages"] == [] and [f["name"] for f in d["files"]] == ["prog.py"]
+    assert d["files"][0]["kind"] == "py" and d["files"][0]["size"] == 9 and d["files"][0]["text_rendered"] is None
+    # Nothing has been marked yet, so whether the marker used the file is not yet known — `null`,
+    # not `false`: the detail must not say "not used for any part" about a script still in the queue.
+    assert d["files"][0]["deleted"] is False and d["files"][0]["matched"] is None
+
+
+def test_matched_is_null_until_a_run_exists_then_true_or_false(auth, app):
+    extracted = {"questions": [{"q_id": "1a", "transcribed_answer": "[prog.py L1-2] print(1)",
+                                "workings": "", "confidence": 0.9, "needs_human_transcription": False}]}
+    sid, _ = seed_v2(app, extracted=extracted, queue={})
+    for name in ("prog.py", "spare.py"):
+        app.state.db.execute("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path) "
+                             "VALUES (:s, :n, 'py', 1, :h, :p)",
+                             {"s": sid, "n": name, "h": f"h-{name}", "p": f"files/aa/{name}"})
+    assert {f["name"]: f["matched"] for f in auth.get(f"/api/submissions/{sid}").json()["files"]} == {
+        "prog.py": True, "spare.py": False}
+    # drop the run: the same rows are back to "not known yet"
+    app.state.db.execute("UPDATE submissions SET run_id = NULL WHERE id = :s", {"s": sid})
+    assert {f["matched"] for f in auth.get(f"/api/submissions/{sid}").json()["files"]} == {None}
+
+
+def test_a_file_cited_only_in_workings_still_counts_as_used(auth, app):
+    """The segmenter puts supporting sources — a helper module, the cells a formula depends on — in
+    `workings`, so both halves of a part decide whether a file was read."""
+    extracted = {"questions": [{"q_id": "1a", "transcribed_answer": "[prog.py L1-2] print(1)",
+                                "workings": "[utils.py L4-9] def helper(): return 1",
+                                "confidence": 0.9, "needs_human_transcription": False}]}
+    sid, _ = seed_v2(app, extracted=extracted, queue={})
+    for name in ("prog.py", "utils.py", "spare.py"):
+        app.state.db.execute("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path) "
+                             "VALUES (:s, :n, 'py', 1, :h, :p)",
+                             {"s": sid, "n": name, "h": f"h-{name}", "p": f"files/aa/{name}"})
+    d = auth.get(f"/api/submissions/{sid}").json()
+    assert {f["name"]: f["matched"] for f in d["files"]} == {"prog.py": True, "utils.py": True, "spare.py": False}
+
+
+def test_mixed_upload(auth):
+    tid = _tpl_v2(auth)
+    r = auth.post("/api/submissions", data=_data(tid, label="S2"),
+                  files=[("files", ("p.png", _png(), "image/png")),
+                         ("files", ("s.xlsx", b"PK\x03\x04", "application/octet-stream"))])
+    assert r.status_code == 202
+    d = auth.get(f"/api/submissions/{r.json()['id']}").json()
+    assert d["input_kind"] == "mixed" and len(d["pages"]) == 1 and len(d["files"]) == 1
+
+
+def test_files_need_a_scheme_assignment(auth):
+    _with_key(auth)
+    r = auth.post("/api/submissions", data=_data(label="S3"),
+                  files=[("files", ("prog.py", b"x=1", "text/x-python"))])
+    assert r.status_code == 400 and r.json()["error"]["code"] == "files_need_scheme"
+
+
+def test_bad_file_named(auth):
+    tid = _tpl_v2(auth)
+    r = auth.post("/api/submissions", data=_data(tid, label="S4"),
+                  files=[("files", ("virus.exe", b"x", "application/octet-stream"))])
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_file" and "virus.exe" in r.json()["error"]["message"]
+
+
+def test_zip_is_expanded_and_ignored_entries_are_reported(auth):
+    tid = _tpl_v2(auth)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("prog.py", b"x=1")
+        z.writestr("notes.txt", b"hi")
+        z.writestr("__MACOSX/._prog.py", b"junk")
+    r = auth.post("/api/submissions", data=_data(tid, label="S5"),
+                  files=[("files", ("work.zip", buf.getvalue(), "application/zip"))])
+    assert r.status_code == 202 and r.json()["ignored"] == ["notes.txt"] and r.json()["files"] == ["prog.py"]
+    d = auth.get(f"/api/submissions/{r.json()['id']}").json()
+    assert d["input_kind"] == "files" and [f["name"] for f in d["files"]] == ["prog.py"]
+
+
+def test_pages_only_upload_keeps_input_kind_pages(auth):
+    r = _create(_with_key(auth))
+    d = auth.get(f"/api/submissions/{r.json()['id']}").json()
+    assert d["input_kind"] == "pages" and d["files"] == []
+
+
+def test_list_counts_files_beside_pages(auth):
+    """The Submissions table shows "N files" for a script with no pages, so the list carries the count."""
+    tid = _tpl_v2(auth)
+    files = auth.post("/api/submissions", data=_data(tid, label="Files only"),
+                      files=[("files", ("prog.py", b"print(1)\n", "text/x-python")),
+                             ("files", ("utils.py", b"x = 1\n", "text/x-python"))]).json()["id"]
+    pages = _create(auth, label="Pages only").json()["id"]
+    rows = {r["id"]: r for r in auth.get("/api/submissions").json()}
+    assert rows[files]["file_count"] == 2 and rows[files]["page_count"] == 0
+    assert rows[pages]["file_count"] == 0 and rows[pages]["page_count"] == 1
+
+
+def test_file_bytes_are_stored_content_addressed(auth, app):
+    tid = _tpl_v2(auth)
+    r = auth.post("/api/submissions", data=_data(tid, label="S6"),
+                  files=[("files", ("prog.py", b"print(1)\n", "text/x-python"))])
+    row = app.state.db.query("SELECT * FROM submission_files WHERE submission_id = :s", {"s": r.json()["id"]})[0]
+    digest = hashlib.sha256(b"print(1)\n").hexdigest()
+    assert row["sha256"] == digest and row["stored_path"] == f"files/{digest[:2]}/{digest}.py"
+    assert app.state.storage.abs(row["stored_path"]).read_bytes() == b"print(1)\n"
+
+
+def test_unreadable_zip_entries_are_400_bad_file_naming_the_zip(auth):
+    """A password-protected or damaged archive must be a named 400, never a 500."""
+    from tests.unit.test_files_intake import _zip_damaged_stream, _zip_unreadable_method
+    tid = _tpl_v2(auth)
+    for data in (_zip_unreadable_method(), _zip_damaged_stream()):
+        r = auth.post("/api/submissions", data=_data(tid, label="S7"),
+                      files=[("files", ("work.zip", data, "application/zip"))])
+        assert r.status_code == 400, r.text
+        assert r.json()["error"]["code"] == "bad_file" and "work.zip" in r.json()["error"]["message"]
+
+
+def test_no_files_at_all_is_rejected(auth, app):
+    from sms.web.services.submissions import create_submission
+    with pytest.raises(ApiError) as e:
+        create_submission(app.state.db, app.state.storage, app.state.jobs, label="x", subject="math",
+                          context="", rubric_json=json.dumps(RUBRIC), files=[])
+    assert e.value.code == "no_files" and e.value.message == "Add at least one page or file"

@@ -56,6 +56,39 @@ def test_validation_codes(auth):
     assert _create(auth, title="   ").status_code == 400
 
 
+def test_mt_requires_language(auth):
+    body = _body()
+    body["subject"] = "mt"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_language"
+    body["language"] = "zh"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 201 and r.json()["language"] == "zh"
+
+
+def test_language_ignored_for_other_subjects(auth):
+    body = _body()
+    body["language"] = "zh"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 201 and r.json()["language"] is None
+
+
+def test_computing_is_a_subject(auth):
+    body = _body()
+    body["subject"] = "computing"
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code == 201 and r.json()["subject"] == "computing"
+
+
+def test_effective_model_reports_source(auth_with_google_key):
+    c = auth_with_google_key
+    c.put("/api/settings/subject-models/computing", json={"provider": "google", "model": "gemini-3.8-flash"})
+    t = _create(c, subject="computing").json()
+    assert t["effective_model"] == {"provider": "google", "model": "gemini-3.8-flash", "extractor_model": None, "source": "subject"}
+    t2 = _create(c, subject="math").json()
+    assert t2["effective_model"]["source"] == "settings"
+
+
 def test_update(auth):
     t = _create(auth).json()
     r = auth.put(f"/api/assignments/{t['id']}", json={"title": "Renamed", "subject": "science", "context": "ctx",
@@ -118,7 +151,7 @@ def test_export_import_round_trip_skips_duplicates(auth):
     assert r.headers["content-disposition"] == 'attachment; filename="assignments.json"'
     payload = r.json()
     assert payload["version"] == 1 and len(payload["assignments"]) == 2
-    assert set(payload["assignments"][0]) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme"}
+    assert set(payload["assignments"][0]) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme", "language"}
     # importing the export again creates nothing (exact title+subject duplicates are skipped)
     r = auth.post("/api/assignments/import", json=payload)
     assert r.status_code == 200 and r.json() == {"created": 0}
@@ -237,7 +270,7 @@ def test_export_import_carry_scheme_fields_but_not_pages(auth):
     auth.post(f"/api/assignments/{t['id']}/paper", files=[("files", ("p1.png", _png(), "image/png"))])
     payload = auth.get("/api/assignments/export").json()
     item = payload["assignments"][0]
-    assert set(item) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme"}
+    assert set(item) == {"title", "subject", "context", "rubric", "scheme_kind", "questions", "scheme", "language"}
     assert item["scheme_kind"] == "mark_scheme" and item["questions"] == t["questions"] and item["scheme"] == t["scheme"]
     item["title"] = "Paper 1 (copy)"
     assert auth.post("/api/assignments/import", json=payload).json() == {"created": 1}
@@ -250,6 +283,19 @@ def test_export_import_carry_scheme_fields_but_not_pages(auth):
     bad = {"version": 1, "assignments": [{"title": "New", "subject": "math", "context": "", "rubric": RUBRIC, "scheme_kind": "nope"}]}
     r = auth.post("/api/assignments/import", json=bad)
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_scheme_kind"
+
+
+def test_export_import_carry_the_mt_language(auth):
+    """An MT template without its language would fail to import (a subject `mt` needs one), so the
+    export carries it and the import reads it back."""
+    _create(auth, title="Zuowen 1", subject="mt", language="zh")
+    payload = auth.get("/api/assignments/export").json()
+    item = next(x for x in payload["assignments"] if x["title"] == "Zuowen 1")
+    assert item["subject"] == "mt" and item["language"] == "zh"
+    item["title"] = "Zuowen 1 (copy)"
+    assert auth.post("/api/assignments/import", json={"version": 1, "assignments": [item]}).json() == {"created": 1}
+    copy = next(x for x in auth.get("/api/assignments").json() if x["title"] == "Zuowen 1 (copy)")
+    assert copy["subject"] == "mt" and copy["language"] == "zh"
 
 
 def test_rename_keeps_paper_pages(auth):
@@ -407,7 +453,8 @@ def test_template_model_override_requires_a_saved_key(auth):
     assert r.status_code == 400 and r.json()["error"]["code"] == "no_key_for_provider"
     _with_key(auth)   # saves an OpenAI key
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": "gpt-5.5", "extractor_model": "gpt-5-mini"})
-    assert r.status_code == 200 and r.json()["effective_model"] == {"provider": "openai", "model": "gpt-5.5", "extractor_model": "gpt-5-mini"}
+    assert r.status_code == 200 and r.json()["effective_model"] == {"provider": "openai", "model": "gpt-5.5",
+                                                                     "extractor_model": "gpt-5-mini", "source": "assignment"}
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": ""})
     assert r.json()["model"] == "gpt-5-mini"                      # blank model -> provider default
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": ""})

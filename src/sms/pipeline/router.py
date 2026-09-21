@@ -6,7 +6,7 @@ from sms.subjects import scheme_prompts
 class SubjectRouter:
     """Resolves subject names to their prompt configuration modules."""
 
-    KNOWN_SUBJECTS = ("math", "language", "science")
+    KNOWN_SUBJECTS = ("math", "language", "science", "mt", "computing")
 
     def resolve(self, subject: str) -> str:
         s = subject.strip().lower()

@@ -54,6 +54,25 @@ def mark_pages_deleted(tx, submission_id: int) -> List[str]:
     return unreferenced
 
 
+def mark_files_deleted(tx, submission_id: int) -> List[str]:
+    """Same as `mark_pages_deleted` for the submission's uploaded program files. The rows (and the
+    `text_rendered` the marked record reads from) stay; only the stored bytes go. Files are content-
+    addressed too, so a path another undeleted row still references is kept."""
+    rows = tx.query("SELECT stored_path FROM submission_files WHERE submission_id = :s AND deleted_at IS NULL",
+                    {"s": submission_id})
+    if not rows:
+        return []
+    tx.execute("UPDATE submission_files SET deleted_at = CURRENT_TIMESTAMP WHERE submission_id = :s "
+               "AND deleted_at IS NULL", {"s": submission_id})
+    unreferenced: List[str] = []
+    for path in dict.fromkeys(r["stored_path"] for r in rows):
+        still = tx.query("SELECT COUNT(*) AS c FROM submission_files WHERE stored_path = :p AND deleted_at IS NULL",
+                         {"p": path})[0]["c"]
+        if not still:
+            unreferenced.append(path)
+    return unreferenced
+
+
 def unlink_pages(storage: PageStorage, paths: List[str]) -> None:
     """Remove the given page files; a missing file is fine, any other OS error is logged (the rows are
     already marked deleted, so the page is gone for the app either way)."""
@@ -65,14 +84,16 @@ def unlink_pages(storage: PageStorage, paths: List[str]) -> None:
 
 
 def delete_submission_pages(db: Database, storage: PageStorage, submission_id: int) -> int:
-    """Delete the student pages of a submission if its effective delete flag is on. Returns the number
-    of pages marked deleted (0 when the flag is off or nothing is left to delete)."""
+    """Delete the student pages and uploaded files of a submission if its effective delete flag is on.
+    Returns the number of pages plus files marked deleted (0 when the flag is off or nothing is left)."""
     if not effective_delete_pages(db, submission_id):
         return 0
     with db.transaction() as tx:
         before = tx.query("SELECT COUNT(*) AS c FROM pages WHERE submission_id = :s AND kind = 'student' AND deleted_at IS NULL",
                           {"s": submission_id})[0]["c"]
-        paths = mark_pages_deleted(tx, submission_id)
+        before += tx.query("SELECT COUNT(*) AS c FROM submission_files WHERE submission_id = :s AND deleted_at IS NULL",
+                           {"s": submission_id})[0]["c"]
+        paths = mark_pages_deleted(tx, submission_id) + mark_files_deleted(tx, submission_id)
     unlink_pages(storage, paths)
     return int(before)
 
@@ -88,7 +109,8 @@ def reconcile_done(db: Database, storage: PageStorage, submission_id: int) -> bo
     concurrent resolves that each saw the other's part still pending and both wrote `needs_you`."""
     with db.transaction() as tx:
         flipped = tx.execute(RECONCILE_DONE_SQL, {"s": submission_id}) == 1
-        paths = mark_pages_deleted(tx, submission_id) if flipped and effective_delete_pages(tx, submission_id) else []
+        deleting = flipped and effective_delete_pages(tx, submission_id)
+        paths = (mark_pages_deleted(tx, submission_id) + mark_files_deleted(tx, submission_id)) if deleting else []
     unlink_pages(storage, paths)
     return flipped
 
@@ -108,8 +130,10 @@ def sweep_done_submissions(db: Database, storage: PageStorage, older_than_hours:
     if healed:
         log.info("page sweep: %d script(s) with nothing left to review moved to done", healed)
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=older_than_hours)).strftime("%Y-%m-%d %H:%M:%S")
-    rows = db.query("SELECT DISTINCT s.id FROM submissions s JOIN pages p ON p.submission_id = s.id "
-                    "WHERE s.status = 'done' AND s.updated_at < :cutoff AND p.kind = 'student' AND p.deleted_at IS NULL "
+    # A file-only submission has no pages, so the sweep looks for either kind of leftover.
+    rows = db.query("SELECT s.id FROM submissions s WHERE s.status = 'done' AND s.updated_at < :cutoff AND ("
+                    "EXISTS (SELECT 1 FROM pages p WHERE p.submission_id = s.id AND p.kind = 'student' AND p.deleted_at IS NULL) "
+                    "OR EXISTS (SELECT 1 FROM submission_files f WHERE f.submission_id = s.id AND f.deleted_at IS NULL)) "
                     "ORDER BY s.id", {"cutoff": cutoff})
     swept = 0
     for r in rows:

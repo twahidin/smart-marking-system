@@ -1,15 +1,18 @@
 """Per-part marking pipeline (version 2), used when a submission's assignment has a mark scheme or a
 rubric: extract (segmented by the paper's parts) -> mark per part / criterion -> blind review ->
 merge with escalation -> feedback -> persist as final_marks_json {"version": 2, ...}."""
+import importlib
 import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
+from sms.files.render import Rendered
 from sms.memory.db import Database
 from sms.memory.extraction_cache import ExtractionCache
 from sms.pipeline.marking_pipeline import image_from_bytes
 from sms.pipeline.router import SubjectRouter
+from sms.reasons import DOUBLE_PENALTY, INPUT_TRUNCATED
 from sms.schemas.extraction import ExtractionInput, ExtractedScript
 from sms.schemas.feedback import FeedbackInput, FeedbackReport
 from sms.schemas.marking import MarkedQuestion, MarkedScript, ReviewVerdict, ReviewVerdictItem, ReviewedScript
@@ -24,8 +27,11 @@ from sms.schemas.marking_v2 import (
     RubricMark,
 )
 from sms.schemas.scheme import MarkSchemeEntry, Question, RubricCriterionBands, norm_qid
+from sms.schemas.segment import TextSegmentInput, TextSource
 
-# The only strings written to teacher_queue.reason by this pipeline.
+# The only strings written to teacher_queue.reason by this pipeline. Each one needs a teacher-facing
+# sentence in sms.reasons.REASON_TEXT (INPUT_TRUNCATED is defined there because the intake side
+# names it too).
 ILLEGIBLE = "illegible"
 NOT_IN_SCHEME = "not in scheme"
 REVIEWER_ESCALATED = "reviewer escalated"
@@ -54,6 +60,40 @@ def _row_key(row: Any) -> str:
 
 def _marks_of(m: Mark) -> int:
     return m.total if isinstance(m, PartMark) else m.marks
+
+
+def _sources_from_extracted(ex: ExtractedScript) -> str:
+    """A page transcription flattened into one text source for the segmenter, each part carrying the
+    same source tag the segmenter is asked to quote back — "[handwritten pages q1a] …" — so a part the
+    pages answer is cited in the form the detail page matches on. A part with nothing transcribed is
+    left out entirely rather than contributing a bare tag for the segmenter to copy."""
+    blocks = []
+    for q in ex.questions:
+        if not (q.transcribed_answer.strip() or q.workings.strip()):
+            continue
+        block = f"[handwritten pages q{q.q_id}] {q.transcribed_answer}".rstrip()
+        if q.workings.strip():
+            block += f"\n{q.workings}"
+        blocks.append(block)
+    return "\n\n".join(blocks)
+
+
+def _carry_page_doubts(vision: ExtractedScript, segmented: ExtractedScript) -> ExtractedScript:
+    """The segmenter reads the page transcription as plain text: it cannot tell which of it the vision
+    extractor could not actually read. Carry that doubt across a mixed submission — a part the pages
+    flagged illegible stays illegible (and keeps the lower confidence of the two) so the merge still
+    sends it to the teacher rather than marking a guess."""
+    doubted = {norm_qid(q.q_id): q for q in vision.questions if q.needs_human_transcription}
+    if not doubted:
+        return segmented
+    out = []
+    for q in segmented.questions:
+        v = doubted.get(norm_qid(q.q_id))
+        if v is not None:
+            q = q.model_copy(update={"needs_human_transcription": True,
+                                     "confidence": min(q.confidence, v.confidence)})
+        out.append(q)
+    return ExtractedScript(questions=out)
 
 
 class Normalised(NamedTuple):
@@ -128,9 +168,11 @@ def _as_marked_question(m: Mark) -> MarkedQuestion:
 
 
 def feedback_input_for_v2(final: MarkedScriptV2, reviewed: ReviewedScriptV2, escalations: Dict[str, str],
-                          student_context: Optional[str] = None) -> FeedbackInput:
+                          student_context: Optional[str] = None, language: str = "en") -> FeedbackInput:
     """Adapt v2 marks to the v1 FeedbackInput so build_feedback needs no change: each part / criterion
-    becomes a MarkedQuestion (q_id -> total, rationale = justification; rubric rationale in band language)."""
+    becomes a MarkedQuestion (q_id -> total, rationale = justification; rubric rationale in band language).
+    `language` is the Mother Tongue assignment's language code ("en" for every other subject) and is
+    carried through as feedback_language so the feedback agent writes the student-facing text in it."""
     marks = [_as_marked_question(m) for m in (final.parts if final.kind == "mark_scheme" else final.rubric)]
     verdicts = [
         ReviewVerdictItem(q_id=v.q_id, verdict=v.verdict,
@@ -144,6 +186,7 @@ def feedback_input_for_v2(final: MarkedScriptV2, reviewed: ReviewedScriptV2, esc
         final_marks=MarkedScript(marks=marks),
         final_result_set=not escalations,
         student_context=student_context,
+        feedback_language=language,
     )
 
 
@@ -151,11 +194,12 @@ class MarkingPipelineV2:
     """Orchestrates extract -> mark per part -> review -> merge -> feedback -> persist for one script."""
 
     def __init__(self, db: Database, extractor: Any, marker: Any, reviewer: Any, feedback: Any, kind: str,
-                 confidence_threshold: float = 0.0):
+                 confidence_threshold: float = 0.0, segmenter: Any = None):
         if kind not in SCHEME_KINDS:
             raise ValueError(f"v2 pipeline kind must be one of {SCHEME_KINDS}, got {kind!r}")
         self.db = db
         self.extractor = extractor
+        self.segmenter = segmenter  # only a submission with files needs one
         self.marker = marker
         self.reviewer = reviewer
         self.feedback = feedback
@@ -165,21 +209,47 @@ class MarkingPipelineV2:
 
     # --- run -------------------------------------------------------------------------------------
 
-    def run(self, images: List[bytes], template: dict, submission_id: Optional[int] = None) -> MarkingResultV2:
-        """`template` is the assignment as a dict: subject, context (notes), questions, scheme (and scheme_kind)."""
+    def run(self, images: List[bytes], template: dict, submission_id: Optional[int] = None,
+            files: Optional[List[Rendered]] = None) -> MarkingResultV2:
+        """`template` is the assignment as a dict: subject, context (notes), questions, scheme (and scheme_kind).
+        `files` is the rendered text of any program/Scratch/spreadsheet files handed in: with none (the
+        usual photographed script) the pages go straight to the vision extractor; with any, the
+        segmenter maps the text onto the parts, and a mixed submission's pages become one more source."""
         run_id = uuid.uuid4().hex[:12]
         subject = SubjectRouter().resolve(template.get("subject") or "math")
         questions = [Question.model_validate(q) for q in template.get("questions") or []]
         scheme = list(template.get("scheme") or [])
         notes = (template.get("context") or "").strip()
+        files = list(files or [])
+        # Only a Mother Tongue assignment carries a language (zh/ms/ta from assignment_templates.language);
+        # every other subject's feedback stays in English.
+        language = (template.get("language") or "en") if subject == "mt" else "en"
 
-        extracted = self._extract(images, subject, questions, notes)
+        if not files:
+            extracted = self._extract(images, subject, questions, notes, language)
+        else:
+            sources: List[TextSource] = []
+            vision: Optional[ExtractedScript] = None
+            if images:
+                # Mixed: the pages are transcribed as usual, and that transcription is handed to the
+                # segmenter as a source so one agent sees the whole submission at once.
+                vision = self._extract(images, subject, questions, notes, language)
+                sources.append(TextSource(name="handwritten pages", text=_sources_from_extracted(vision)))
+            sources += [TextSource(name=f.name, text=f.text) for f in files]
+            extracted = self._segment(sources, subject, questions, notes)
+            if vision is not None:
+                extracted = _carry_page_doubts(vision, extracted)
         marked = self.marker.run(MarkingInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                 scheme=scheme, notes=notes))
         reviewed = self.reviewer.run(ReviewInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                    scheme=scheme, notes=notes, marks=self._blind_script(marked)))
         final, escalations = self._merge(marked, reviewed, extracted, scheme)
-        feedback_report = self.feedback.run(feedback_input_for_v2(final, reviewed, escalations))
+        if any(f.truncated for f in files):
+            # Something the marker needed may have been cut: every part the merge did not already
+            # escalate for a stronger reason goes to the teacher with the original to check against.
+            for m in (final.parts or final.rubric):
+                escalations.setdefault(_key(m), INPUT_TRUNCATED)
+        feedback_report = self.feedback.run(feedback_input_for_v2(final, reviewed, escalations, language=language))
         self._persist(run_id, subject, template, questions, scheme, notes, extracted, marked, reviewed,
                       feedback_report, final, escalations, submission_id)
         return MarkingResultV2(run_id=run_id, extracted=extracted, final=final, escalations=escalations,
@@ -187,19 +257,48 @@ class MarkingPipelineV2:
 
     # --- stages ----------------------------------------------------------------------------------
 
-    def _extract(self, images: List[bytes], subject: str, questions: List[Question], notes: str) -> ExtractedScript:
-        # Cache key covers the pages and the labels they are segmented by: the same pages segmented by a
-        # different question list (or by none, v1) are a different extraction.
+    def _extract(self, images: List[bytes], subject: str, questions: List[Question], notes: str,
+                 language: str = "en") -> ExtractedScript:
+        context = f"{subject} script, {len(questions)} question part(s)" + (f". Notes: {notes}" if notes else "")
+        if subject == "mt":
+            # The extractor reads the script in its own language: tell it which one, and not to translate
+            # quoted evidence — the marker/reviewer background note (subjects/mt/prompt.SUBJECT_NOTE)
+            # leaves the language unnamed since the transcription they see is already in it.
+            mt_prompt = importlib.import_module("sms.subjects.mt.prompt")
+            context += " " + mt_prompt.SUBJECT_NOTE.format(
+                language=mt_prompt.LANGUAGE_NAMES.get(language, "the script's language"))
+        # Cache key covers the pages, the labels they are segmented by and the context (which carries the
+        # language for MT): the same pages segmented by a different question list, or extracted for a
+        # different language, are a different extraction.
         page_hashes = [self.cache.hash_image(b) for b in images]
         labels = ",".join(q.q_id for q in questions)
-        composite = self.cache.hash_image(("|".join(page_hashes) + "#v2#" + labels).encode())
+        composite = self.cache.hash_image(("|".join(page_hashes) + "#v2#" + labels + "#" + context).encode())
         cached = self.cache.get(composite, subject)
         if cached is not None:
             return ExtractedScript.model_validate(cached)
-        context = f"{subject} script, {len(questions)} question part(s)" + (f". Notes: {notes}" if notes else "")
         extracted = self.extractor.run(ExtractionInput(
             assignment_context=context, images=[image_from_bytes(b) for b in images], questions=questions))
         self.cache.put(composite, subject, extracted.model_dump())
+        return extracted
+
+    def _segment(self, sources: List[TextSource], subject: str, questions: List[Question],
+                 notes: str) -> ExtractedScript:
+        """The files counterpart of `_extract`: same cache, same output shape, no vision call. The key
+        covers every source's name and text, the labels they are segmented by, and the context — which
+        carries the teacher's notes, exactly as `_extract`'s does — so re-marking the same submission is
+        free, but an edited file or changed notes is a fresh segmentation."""
+        if self.segmenter is None:
+            raise RuntimeError("This assignment's model set-up cannot read files yet — the segmenter is missing")
+        context = f"{subject} submission, {len(questions)} part(s)" + (f". Notes: {notes}" if notes else "")
+        digest = self.cache.hash_image(("|".join(f"{s.name}:{self.cache.hash_image(s.text.encode())}" for s in sources)
+                                        + "#seg#" + ",".join(q.q_id for q in questions)
+                                        + "#" + context).encode())
+        cached = self.cache.get(digest, subject)
+        if cached is not None:
+            return ExtractedScript.model_validate(cached)
+        extracted = self.segmenter.run(TextSegmentInput(assignment_context=context, questions=questions,
+                                                        sources=sources))
+        self.cache.put(digest, subject, extracted.model_dump())
         return extracted
 
     def _blind_script(self, marked: MarkedScriptV2) -> MarkedScriptV2:
@@ -237,7 +336,7 @@ class MarkingPipelineV2:
             if m is None:
                 # The marker returned nothing for this part: 0 marks with no confidence at all. An illegible
                 # part keeps its own reason; otherwise it is escalated as "low confidence" because that is
-                # the queue reason that means "the marker could not mark this" — the five reason strings are
+                # the queue reason that means "the marker could not mark this" — the reason strings are
                 # fixed for the record and the review queue.
                 final.append(_missing_mark(row))
                 escalations[key] = ILLEGIBLE if key in illegible else LOW_CONFIDENCE
@@ -250,9 +349,43 @@ class MarkingPipelineV2:
             if key not in rows_by_key:  # invented part / criterion: kept as the marker's proposal, teacher decides
                 final.append(_out_of_scheme(m))
                 escalations[key] = NOT_IN_SCHEME
+        self._apply_double_penalties(final, reviewed, escalations)
         if self.kind == "mark_scheme":
             return MarkedScriptV2(kind="mark_scheme", parts=final), escalations  # type: ignore[arg-type]
         return MarkedScriptV2(kind="rubric", rubric=final), escalations  # type: ignore[arg-type]
+
+    def _apply_double_penalties(self, final: List[Mark], reviewed: ReviewedScriptV2, escalations: Dict[str, str]) -> None:
+        """The reviewer names, per double_penalties entry, every part/criterion the same slip cost marks
+        in, first occurrence first. The first deduction stands; every later one is restored (the single
+        lost allocation is un-lost, for a rubric the band and marks are untouched) unless it is already
+        escalated for a stronger reason, or which allocation to restore is ambiguous (more than one lost
+        allocation on a mark-scheme part) — that case is escalated instead of guessed.
+
+        A mark-scheme part is looked up by its normalised q_id on both sides: the reviewer may answer
+        "1(a)" where the scheme row is "1a" (or the other way round), and matching the two raw spellings
+        would make the whole rule a silent no-op. Escalations and the message keep the raw ids, which is
+        what the record and the review queue are keyed and read by."""
+        by_key = {(norm_qid(_key(m)) if self.kind == "mark_scheme" else _key(m)): m for m in final}
+        for dp in reviewed.double_penalties:
+            keys = [norm_qid(q) if self.kind == "mark_scheme" else q for q in dp.q_ids]
+            first, later = dp.q_ids[0], keys[1:]
+            for key in later:
+                m = by_key.get(key)
+                if m is None or _key(m) in escalations:
+                    continue
+                if isinstance(m, PartMark):
+                    lost = [a for a in m.awarded if not a.got]
+                    if len(lost) == 1:
+                        lost[0].got = True
+                        lost[0].why = f"already penalised in {first}"
+                        m.total = sum(a.marks for a in m.awarded if a.got)
+                        m.justification = (m.justification + f" {lost[0].label} restored: '{dp.error}' already "
+                                          f"penalised in {first}.").strip()
+                    elif lost:
+                        escalations[_key(m)] = DOUBLE_PENALTY  # which allocation to restore is the teacher's call
+                else:
+                    m.justification = (m.justification + f" Reviewer: '{dp.error}' already penalised under "
+                                       f"{first}; band kept.").strip()
 
     def _merge_one(self, m: Mark, row: Any, verdict, illegible: bool) -> Tuple[Mark, Optional[str]]:
         # Reason priority: illegible -> not in scheme -> reviewer escalated -> disagree -> low confidence.

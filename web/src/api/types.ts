@@ -1,4 +1,8 @@
-export type Subject = "math" | "language" | "science";
+export type Subject = "math" | "language" | "science" | "mt" | "computing";
+/** The script's language, for Mother Tongue only: Chinese, Malay or Tamil. */
+export type MtLanguage = "zh" | "ms" | "ta";
+/** Every subject's saved model default; null = Auto, so the subject follows Settings. */
+export type SubjectModels = Record<Subject, { provider: string; model: string; extractor_model: string | null } | null>;
 export type SubmissionStatus = "uploaded" | "queued" | "marking" | "needs_you" | "done" | "failed";
 
 export interface ModelSpec { id: string; label: string; vision: boolean; /** saved by the teacher under “My models”, not part of the curated list */ custom?: boolean }
@@ -30,6 +34,8 @@ export interface Band { band: string; marks: number; descriptor: string }
 export interface RubricBands { criterion: string; bands: Band[] }
 export interface AssignmentTemplate {
   id: number; title: string; subject: Subject; context: string; rubric: Rubric;
+  /** The script's language — set for subject `mt`, null for every other subject. */
+  language: MtLanguage | null;
   criteria_count: number; total_marks: number; times_used: number; created_at: string; updated_at: string;
   submission_count?: number; pending_count?: number; class_assignment_count?: number;
   scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[];
@@ -40,10 +46,16 @@ export interface AssignmentTemplate {
   /** What will actually run: the assignment's own model, or the one saved under Settings. */
   effective_model: EffectiveModel;
 }
-export interface EffectiveModel { provider: string; model: string; extractor_model: string | null }
+export interface EffectiveModel {
+  provider: string; model: string; extractor_model: string | null;
+  /** Where it came from: the assignment's own pin, its subject's default, or Settings. */
+  source: "assignment" | "subject" | "settings";
+}
 export interface AssignmentBody {
   title: string; subject: Subject; context: string; rubric: Rubric; scheme_kind: SchemeKind;
   questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[]; delete_pages_after_marking: boolean | null;
+  /** Required when the subject is `mt`; sent as null for every other subject. */
+  language?: MtLanguage | null;
   /** Omitted or null = Auto. A PUT that leaves these out clears a saved override, so every caller sends them. */
   provider?: string | null; model?: string | null; extractor_model?: string | null;
 }
@@ -52,13 +64,26 @@ export interface ExtractState { status: ExtractJobStatus; error: string | null; 
 export interface ExtractStatus { paper: ExtractState; scheme: ExtractState }
 
 export interface SubmissionRow {
-  id: number; label: string; subject: Subject; page_count: number; status: SubmissionStatus; created_at: string;
+  id: number; label: string; subject: Subject; page_count: number;
+  /** Program files handed in beside (or instead of) the pages. */
+  file_count: number;
+  status: SubmissionStatus; created_at: string;
   total: number | null; total_upper: number | null; total_max: number | null; needs_you_qids: string[];
   assignment_id: number | null; assignment_title: string | null;
   /** `"4E2 · #12"` when the script was handed in against a class assignment, else null. */
   class_label?: string | null; class_assignment_id?: number | null;
 }
 export interface Page { id: number; page_index: number; width: number; height: number; deleted?: boolean }
+/** How a script arrived: photos or PDFs, program files, or both. */
+export type InputKind = "pages" | "files" | "mixed";
+/** One program file handed in: `text_rendered` is what the marker read (null for a .sb3 or before a run),
+ *  `matched` says whether the transcription actually cited it, `deleted` that its bytes are gone. */
+export interface SubmissionFile {
+  id: number; name: string; kind: "py" | "sb3" | "xlsx"; size: number;
+  text_rendered: string | null; deleted: boolean;
+  /** null until the script has been marked — not yet known, which is not the same as "not used". */
+  matched: boolean | null;
+}
 export interface Mark {
   q_id: string; criterion_scores: number[]; total: number; max: number; confidence: number | null;
   evidence: string; rationale: string; escalated: boolean; reason: string | null; reason_text?: string | null; queue_id: number | null;
@@ -87,7 +112,8 @@ export interface Feedback {
 export interface Job { status: "queued" | "running" | "done" | "failed"; attempts: number; error: string | null; started_at: string | null; finished_at: string | null }
 export interface SubmissionDetail {
   id: number; label: string; subject: Subject; context: string; status: SubmissionStatus; created_at: string;
-  rubric: Rubric; pages: Page[]; marks: Mark[]; totals: { total: number; total_upper: number; total_max: number } | null;
+  rubric: Rubric; pages: Page[]; input_kind: InputKind; files: SubmissionFile[];
+  marks: Mark[]; totals: { total: number; total_upper: number; total_max: number } | null;
   feedback: Feedback | null; job: Job | null; assignment_id: number | null; assignment_title: string | null;
   /** 1 = criteria per question (slice 1); 2 = per-part marks against a mark scheme / rubric (`parts`). */
   marks_version?: 1 | 2; parts?: Part[]; scheme_kind?: SchemeKind | null;
@@ -98,6 +124,8 @@ export interface QueueItem {
   id: number; submission_id: number; submission_label: string; q_id: string; reason: string; reason_text?: string; created_at: string;
   transcription: string; workings: string; proposed_criterion_scores: number[]; proposed_total: number | null;
   evidence: string; rationale: string; reviewer_note: string; criterion_defs: Criterion[]; page_ids: number[];
+  /** Why `page_ids` may be empty without the pages having been deleted: the script came in as files. */
+  input_kind: InputKind;
   /** v2 items: the part's label and question, the scheme row it was marked against and the stored mark as the proposal. */
   marks_version?: 1 | 2; scheme_kind?: "mark_scheme" | "rubric"; label?: string; question_text?: string;
   scheme_row?: MarkSchemeEntry | RubricBands | null; proposed?: ProposedPart | null;
@@ -165,4 +193,21 @@ export type StudentAssignmentStatus = "to_hand_in" | "handed_in" | "checking" | 
 export interface StudentMe { class_name: string; code: string; student_name: string; reg_no: number }
 export interface StudentAssignment { id: number; title: string; due_at: string | null; status: StudentAssignmentStatus; handed_in_at: string | null; pages: number; allow_student_uploads: boolean }
 export interface StudentFeedback { summary: string; strengths: string[]; improvement_plan: string[]; next_steps: string[]; total: number | null; max: number | null; questions: { label: string; mark: number; max: number; comment: string; try_next: string; transcription: string }[]; pages: number[] }
-export interface StudentAssignmentDetail extends StudentAssignment { feedback: StudentFeedback | null }
+export interface StudentAssignmentDetail extends StudentAssignment {
+  feedback: StudentFeedback | null;
+  /** Null when the teacher deleted the assignment template this was set from. */
+  subject: Subject | null;
+  /** True for Computing: the hand-in page offers *Add files* beside the photo buttons. */
+  accepts_files: boolean;
+}
+
+/* ---- bulk upload (slice 4): one zip of a whole class's hand-ins, matched by register number ---- */
+/** One student the zip was matched to: `files` is what would be handed in for them, `ignored` what the
+ *  zip carried for them that the marker can't take. `files: []` means nothing usable — the commit fails. */
+export interface BulkMatch { student_id: number; reg_no: number; name: string; files: string[]; ignored: string[]; already_handed_in: boolean }
+/** `ambiguous` and `unmatched` are filenames, not students: names that fit more than one register number, and none. */
+export interface BulkPreview { matched: BulkMatch[]; ambiguous: string[]; unmatched: string[] }
+export interface BulkResult {
+  created: { reg_no: number; ignored: string[] }[]; skipped: { reg_no: number }[]; failed: { reg_no: number; error: string }[];
+  unmatched: string[]; ambiguous: string[];
+}

@@ -52,9 +52,11 @@ def _status(sub: Optional[dict], released: bool) -> str:
 
 def _visible(db: Database, student: dict, caid: Optional[int] = None) -> List[dict]:
     """The class's non-draft assignments joined with this student's own hand-in (if any)."""
-    sql = ("SELECT a.*, s.id AS submission_id, s.status AS sub_status, s.handed_in_at, s.run_id, "
+    sql = ("SELECT a.*, t.subject AS subject, t.scheme_kind AS scheme_kind, "
+           "s.id AS submission_id, s.status AS sub_status, s.handed_in_at, s.run_id, "
            "(SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count "
-           "FROM class_assignments a LEFT JOIN submissions s ON s.class_assignment_id = a.id AND s.student_id = :st "
+           "FROM class_assignments a LEFT JOIN assignment_templates t ON t.id = a.template_id "
+           "LEFT JOIN submissions s ON s.class_assignment_id = a.id AND s.student_id = :st "
            "WHERE a.class_id = :c AND a.status != 'draft'")
     params: Dict[str, Any] = {"st": student["student_id"], "c": student["class_id"]}
     if caid is not None:
@@ -108,6 +110,11 @@ def student_assignment(db: Database, jobs: JobStore, student: dict, caid: int) -
         raise ApiError(404, "not_found", "No such assignment")
     r = rows[0]
     out = _row(r)
+    # The hand-in page offers *Add files* only where the marker can actually read them: a Computing
+    # assignment with a mark scheme or a rubric. A quick mark (criteria) has nothing to line code up
+    # with, and `create_submission` refuses files against one — so the door must not open either.
+    out["subject"] = r["subject"]
+    out["accepts_files"] = r["subject"] == "computing" and r["scheme_kind"] in ("mark_scheme", "rubric")
     out["feedback"] = None
     if out["status"] == "feedback_ready":
         detail = get_submission(db, jobs, r["submission_id"])
@@ -115,14 +122,24 @@ def student_assignment(db: Database, jobs: JobStore, student: dict, caid: int) -
     return out
 
 
+# `too_large` is deliberately absent: intake already says which of the two things went wrong — the
+# whole upload is over 50 MB, or one program file is over 2 MB — and a single student-facing line
+# could only be right about one of them, so that message is passed through as it comes.
 _HAND_IN_MESSAGES = {
     "already_handed_in": "You have already handed this in — ask your teacher if you need to hand in again",
     "template_deleted": "This assignment is no longer available — ask your teacher",
+    "bad_file": "That file type can't be handed in — use .py, .sb3, .xlsx or photos",
+    "too_many_files": "Too many files — hand in at most 12",
+    "zip_nothing_usable": "That zip has nothing to mark in it — check you zipped the right folder",
+    "zip_bomb": "That zip is too big to hand in — zip just the work for this assignment",
+    "files_need_scheme": "This assignment does not take files yet — hand in photos, or ask your teacher",
 }
 
 
 MAX_HAND_IN_PAGES = 20
 TOO_MANY_PAGES = f"Hand in at most {MAX_HAND_IN_PAGES} pages"
+# The route's cheap pre-body cap counts uploads, which may be pages or files (or a zip of either).
+TOO_MANY_UPLOADS = f"Up to {MAX_HAND_IN_PAGES} pages or files"
 
 
 def open_for_hand_in(db: Database, student: dict, caid: int) -> Dict[str, Any]:

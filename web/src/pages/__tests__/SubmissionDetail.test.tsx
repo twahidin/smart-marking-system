@@ -8,7 +8,8 @@ import { SubmissionDetail } from "../SubmissionDetail";
 const failed: D = {
   id: 7, label: "Tan Wei Ling", subject: "math", context: "", status: "failed", created_at: "2026-09-15T03:04:05Z",
   rubric: { criterion_defs: [{ id: "c1", description: "method", max_score: 2 }] },
-  pages: [{ id: 1, page_index: 0, width: 100, height: 100 }], marks: [], totals: null, feedback: null,
+  pages: [{ id: 1, page_index: 0, width: 100, height: 100 }], input_kind: "pages", files: [],
+  marks: [], totals: null, feedback: null,
   job: { status: "failed", attempts: 5, error: "Provider returned HTTP 401", started_at: null, finished_at: null },
   assignment_id: null, assignment_title: null,
 };
@@ -74,6 +75,7 @@ const v2: D = {
   id: 9, label: "Lim Jun Hao", subject: "math", context: "", status: "needs_you", created_at: "2026-09-15T03:04:05Z",
   rubric: { criterion_defs: [{ id: "1a", description: "Solve", max_score: 3 }, { id: "1b", description: "Hence", max_score: 2 }, { id: "2", description: "Sketch", max_score: 4 }] },
   pages: [{ id: 1, page_index: 0, width: 100, height: 100, deleted: false }, { id: 2, page_index: 1, width: 100, height: 100, deleted: false }],
+  input_kind: "pages", files: [],
   marks: [], marks_version: 2, scheme_kind: "mark_scheme", pages_deleted: false, run_id: "run-9", marked_at: "2026-09-15T03:10:00Z",
   totals: { total: 5, total_upper: 7, total_max: 9 }, feedback: null,
   job: { status: "done", attempts: 1, error: null, started_at: null, finished_at: null },
@@ -188,5 +190,26 @@ describe("SubmissionDetail — per-part marks (v2)", () => {
     renderDetail();
     expect(await screen.findByRole("button", { name: "Download marking record" })).toBeDisabled();
     expect(screen.getByText("Available once marking finishes.")).toBeInTheDocument();
+  });
+});
+
+describe("SubmissionDetail — files", () => {
+  const withFiles: D = {
+    ...v2, input_kind: "mixed",
+    files: [{ id: 3, name: "prog.py", kind: "py", size: 1234, text_rendered: "1  print(1)", deleted: false, matched: true }],
+  };
+
+  it("lists what was handed in beside the pages and counts both in the meta line", async () => {
+    mockFetch({ "/api/submissions/7": () => new Response(JSON.stringify(withFiles), { status: 200 }) });
+    renderDetail();
+    expect(await screen.findByRole("list", { name: "Files" })).toHaveTextContent("prog.py");
+    expect(screen.getByText(/2 pages · 1 file/)).toBeInTheDocument();
+  });
+
+  it("shows no Files block for a pages-only script", async () => {
+    mockFetch({ "/api/submissions/7": () => new Response(JSON.stringify(v2), { status: 200 }) });
+    renderDetail();
+    await screen.findByRole("table", { name: "Marks by question part" });
+    expect(screen.queryByRole("list", { name: "Files" })).not.toBeInTheDocument();
   });
 });

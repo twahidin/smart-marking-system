@@ -5,6 +5,8 @@ from PIL import Image
 from tests.web.seed_v2 import QUESTIONS, SCHEME, seed_v2
 
 RUBRIC = {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2}]}
+RUBRIC_SCHEME = [{"criterion": "Correctness", "bands": [{"band": "A", "marks": 2, "descriptor": "runs"},
+                                                        {"band": "B", "marks": 1, "descriptor": "partly"}]}]
 
 
 def _class(auth, names=("Tan Wei Ling", "Muhammad Danish")):
@@ -169,6 +171,76 @@ def test_hand_in_caps_pages_not_files(auth, client, app):
     assert r.status_code == 202 and len(r.json()["pages"]) == 20
 
 
+def _zip(entries):
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for n, b in entries:
+            z.writestr(n, b)
+    return buf.getvalue()
+
+
+def _computing_assignment(auth, c, scheme_kind="mark_scheme"):
+    body = {"title": "Loops", "subject": "computing", "context": "", "rubric": RUBRIC}
+    if scheme_kind == "mark_scheme":
+        body |= {"scheme_kind": "mark_scheme", "questions": QUESTIONS, "scheme": SCHEME}
+    elif scheme_kind == "rubric":
+        body |= {"scheme_kind": "rubric", "scheme": RUBRIC_SCHEME}
+    r = auth.post("/api/assignments", json=body)
+    assert r.status_code in (200, 201), r.text
+    t = r.json()
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+             json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    return ca
+
+
+def test_hand_in_says_which_kind_of_too_large_it_was(auth, client):
+    """Same code, two different things for a student to fix — so the intake message goes through
+    rather than one catch-all line that can only be right about one of them."""
+    t, c, ca, draft = _setup(auth)
+    cac = _computing_assignment(auth, c)
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    r = client.post(f"/api/student/assignments/{cac['id']}/hand-in",
+                    files=[("files", ("big.py", b"x" * (2 * 1024 * 1024 + 1), "text/x-python"))])
+    assert r.status_code == 400
+    assert r.json()["error"] == {"code": "too_large", "message": "big.py is over 2 MB"}
+    # three zips, each legal on its own, that together unpack past the 50 MB budget
+    one = _zip([(f"p{i}.png", b"0" * (1800 * 1024)) for i in range(10)])
+    r = client.post(f"/api/student/assignments/{cac['id']}/hand-in",
+                    files=[("files", (f"{n}.zip", one, "application/zip")) for n in "abc"])
+    assert r.status_code == 400
+    assert r.json()["error"] == {"code": "too_large", "message": "That upload is over 50 MB in total"}
+
+
+def test_hand_in_names_what_it_skipped(auth, client):
+    """The zip's unmarkable extras are listed back, so the hand-in page can say "Skipped: notes.txt"
+    instead of leaving the student wondering whether their whole folder went up."""
+    t, c, ca, draft = _setup(auth)
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    z = _zip([("p1.png", _png()), ("notes.txt", b"hi"), ("data.csv", b"1,2")])
+    r = client.post(f"/api/student/assignments/{ca['id']}/hand-in", files=[("files", ("work.zip", z, "application/zip"))])
+    assert r.status_code == 202 and r.json()["ignored"] == ["notes.txt", "data.csv"]
+
+
+def test_files_are_offered_only_for_a_computing_assignment_with_a_scheme(auth, client):
+    """A quick mark has nothing to line code up with — `create_submission` refuses files against one,
+    so the hand-in page must not offer them in the first place."""
+    t, c, ca, draft = _setup(auth)
+    schemed = _computing_assignment(auth, c, "mark_scheme")
+    rubric = _computing_assignment(auth, c, "rubric")
+    quick = _computing_assignment(auth, c, "criteria")
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    got = {caid: client.get(f"/api/student/assignments/{caid}").json()
+           for caid in (schemed["id"], rubric["id"], quick["id"])}
+    assert got[schemed["id"]]["accepts_files"] is True
+    assert got[rubric["id"]]["accepts_files"] is True
+    assert got[quick["id"]]["subject"] == "computing" and got[quick["id"]]["accepts_files"] is False
+
+
 def test_feedback_hidden_until_release_then_complete_and_scoped(auth, client, app):
     t, c, ca, draft = _setup(auth)
     tan, danish = c["students"]
@@ -214,3 +286,19 @@ def test_student_can_fetch_own_page_until_it_is_deleted(auth, client, app):
     assert client.get("/api/student/pages/999999").status_code == 404
     app.state.db.execute("UPDATE pages SET deleted_at = CURRENT_TIMESTAMP WHERE id = :p", {"p": page["id"]})
     assert client.get(f"/api/student/pages/{page['id']}").json()["error"]["code"] == "gone"
+
+
+def test_assignment_detail_names_the_subject_and_whether_it_takes_files(auth, client):
+    """The hand-in page only offers *Add files* for a Computing assignment, so the detail says both."""
+    t, c, ca, draft = _setup(auth)
+    tc = auth.post("/api/assignments", json={"title": "Loops", "subject": "computing", "context": "", "rubric": RUBRIC,
+                                             "scheme_kind": "mark_scheme", "questions": QUESTIONS, "scheme": SCHEME}).json()
+    cac = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": tc["id"]}).json()
+    auth.put(f"/api/classes/{c['id']}/assignments/{cac['id']}",
+             json={"title": cac["title"], "due_at": None, "allow_student_uploads": True, "status": "open"})
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    maths = client.get(f"/api/student/assignments/{ca['id']}").json()
+    assert maths["subject"] == "math" and maths["accepts_files"] is False
+    computing = client.get(f"/api/student/assignments/{cac['id']}").json()
+    assert computing["subject"] == "computing" and computing["accepts_files"] is True

@@ -36,6 +36,18 @@ def test_queue_lists_joined_item(auth, app):
     assert it["proposed_criterion_scores"] == [1, 1] and it["reviewer_note"] == "method unclear"
     assert it["criterion_defs"][0]["id"] == "c1" and it["page_ids"] and it["reason"] == "reviewer escalated"
     assert it["reason_text"] == "Marker and reviewer disagreed"
+    assert it["input_kind"] == "pages"
+
+
+def test_queue_item_of_a_files_only_script_says_so_instead_of_offering_pages(auth, app):
+    """A .py hand-in has no page to crop, so the reviewer reads the transcription — and must not be
+    told the pages were deleted after marking."""
+    sid, qid = _seed(app)
+    db = app.state.db
+    db.execute("UPDATE submissions SET input_kind = 'files' WHERE id = :s", {"s": sid})
+    db.execute("DELETE FROM pages WHERE submission_id = :s", {"s": sid})
+    it = auth.get("/api/queue").json()[0]
+    assert it["input_kind"] == "files" and it["page_ids"] == [] and it["transcription"] == "x = 2"
 
 
 def test_resolve_records_correction_and_flips_submission(auth, app):

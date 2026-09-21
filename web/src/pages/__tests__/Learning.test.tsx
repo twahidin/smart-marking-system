@@ -131,4 +131,24 @@ describe("Learning", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Run reflection" }));
     expect(await screen.findByText("Reflection is already queued for this subject")).toBeInTheDocument();
   });
+
+  it("offers every subject to reflect on, MT and Computing included", async () => {
+    const empty = () => new Response(JSON.stringify([]), { status: 200 });
+    const calls = mockFetch({
+      "/api/notes": empty, "/api/exemplars": empty, "/api/stats": () => new Response(JSON.stringify({}), { status: 200 }),
+      "/api/reflect/runs": noRuns,
+      "POST /api/reflect": () => new Response(JSON.stringify({ job_id: 1 }), { status: 202 }),
+    });
+    render(
+      <MemoryRouter>
+        <Learning />
+      </MemoryRouter>,
+    );
+    const select = await screen.findByLabelText("Subject");
+    expect(Array.from(select.querySelectorAll("option")).map((o) => o.textContent))
+      .toEqual(["Maths", "English", "Science", "MT", "Computing"]);
+    await userEvent.selectOptions(select, "computing");
+    await userEvent.click(screen.getByRole("button", { name: "Run reflection" }));
+    expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({ subject: "computing" });
+  });
 });

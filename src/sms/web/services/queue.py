@@ -14,6 +14,7 @@ from sms.web.services.submissions import iso_utc, mark_key, mark_total, row_key,
 def list_queue(db: Database) -> List[Dict[str, Any]]:
     rows = db.query(
         "SELECT q.id, q.submission_id, q.q_id, q.reason, q.created_at, q.run_id, s.label AS submission_label, "
+        "s.input_kind AS input_kind, "
         "mr.rubric_json, mr.extracted_json, mr.marks_json, mr.reviewed_json, mr.final_marks_json "
         "FROM teacher_queue q JOIN marking_runs mr ON mr.run_id = q.run_id "
         "LEFT JOIN submissions s ON s.id = q.submission_id "
@@ -47,6 +48,9 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
             "transcription": eq.get("transcribed_answer", ""), "workings": eq.get("workings", ""),
             "reviewer_note": rv.get("reviewer_note", ""),
             "page_ids": page_ids,
+            # A files-only script has no page to crop: the reviewer reads the transcription, and must not
+            # be told the pages were deleted after marking.
+            "input_kind": r["input_kind"] or "pages",
         }
         scheme_info = run_scheme(r)
         if scheme_info:

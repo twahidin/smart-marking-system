@@ -15,15 +15,16 @@ const providers: ProviderSpec[] = [
   provider("openrouter", "OpenRouter", "openrouter/auto", [{ id: "openrouter/auto", label: "Auto Router", vision: false }, { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", vision: true }]),
   provider("openai", "OpenAI", "gpt-5-mini", [{ id: "gpt-5-mini", label: "GPT-5 mini", vision: true }, { id: "gpt-5.5", label: "GPT-5.5", vision: true }]),
   provider("anthropic", "Anthropic", "claude-sonnet-5", [{ id: "claude-sonnet-5", label: "Claude Sonnet 5", vision: true }]),
+  provider("google", "Google Gemini", "gemini-3.8-pro", [{ id: "gemini-3.8-pro", label: "Gemini 3.8 Pro", vision: true }]),
 ];
 const noExtract: ExtractStatus = { paper: { status: null, error: null, job_id: null }, scheme: { status: null, error: null, job_id: null } };
 const template = (over: Partial<AssignmentTemplate> = {}): AssignmentTemplate => ({
   id: 7, title: "Quadratics worksheet", subject: "math", context: "", rubric: { criterion_defs: [{ id: "draft", description: "Draft", max_score: 0 }] },
-  criteria_count: 1, total_marks: 0, times_used: 0, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
+  language: null, criteria_count: 1, total_marks: 0, times_used: 0, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
   scheme_kind: "mark_scheme", questions: [], scheme: [], paper_page_ids: [], scheme_page_ids: [],
   delete_pages_after_marking: null, effective_delete_pages: true,
   provider: null, model: null, extractor_model: null,
-  effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null }, ...over,
+  effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null, source: "settings" }, ...over,
 });
 /** A template that passes validation, so the Save button is enabled. */
 const savable = (over: Partial<AssignmentTemplate> = {}): AssignmentTemplate => template({
@@ -405,7 +406,7 @@ describe("AssignmentEditor — model", () => {
   });
 
   it("switching back to Auto clears the assignment's own model", async () => {
-    const calls = modelMocks(savable({ provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini", effective_model: { provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini" } }));
+    const calls = modelMocks(savable({ provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini", effective_model: { provider: "openai", model: "gpt-5.5", extractor_model: "gpt-5-mini", source: "assignment" } }));
     renderAt("/assignments/7");
     await screen.findByLabelText("Title");
     expect(screen.getByRole("radio", { name: "Choose a model" })).toBeChecked();
@@ -435,5 +436,70 @@ describe("AssignmentEditor — model", () => {
     expect(body.provider).toBe("openrouter");
     expect(body.model).toBe("z-ai/glm-5.3");
     expect(body.extractor_model).toBe("z-ai/glm-5.3-flash");
+  });
+});
+
+describe("AssignmentEditor — MT and Computing", () => {
+  const subjectMocks = (stored: AssignmentTemplate) => mockFetch({
+    "GET /api/settings": () => json(settings),
+    "GET /api/providers": () => json(providers),
+    "GET /api/assignments": () => json([stored]),
+    "GET /api/assignments/7/extract": () => json(noExtract),
+    "PUT /api/assignments/7": (init) => json({ ...stored, ...JSON.parse(String(init?.body)) }),
+  });
+  const lastPut = (calls: { path: string; method: string; body: any }[]) => calls.filter((c) => c.method === "PUT").pop()!.body;
+
+  it("MT asks which language the script is in, and saves it", async () => {
+    const calls = subjectMocks(savable());
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    expect(screen.queryByLabelText("Language")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("radio", { name: "MT" }));
+    const language = screen.getByLabelText("Language");
+    expect(language).toHaveValue("zh");
+    expect(within(language).getAllByRole("option").map((o) => o.textContent)).toEqual(["Chinese", "Malay", "Tamil"]);
+
+    await userEvent.click(saveButton());
+    expect(await screen.findByText(/^Saved\./)).toBeInTheDocument();
+    expect(lastPut(calls).subject).toBe("mt");
+    expect(lastPut(calls).language).toBe("zh");
+  });
+
+  it("keeps the language a stored MT assignment was saved with, and can change it", async () => {
+    const calls = subjectMocks(savable({ subject: "mt", language: "ta" }));
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    expect(screen.getByRole("radio", { name: "MT" })).toBeChecked();
+    expect(screen.getByLabelText("Language")).toHaveValue("ta");
+    await userEvent.selectOptions(screen.getByLabelText("Language"), "ms");
+    await userEvent.click(saveButton());
+    expect(await screen.findByText(/^Saved\./)).toBeInTheDocument();
+    expect(lastPut(calls).language).toBe("ms");
+  });
+
+  it("Computing says what students can hand in, and sends no language", async () => {
+    const calls = subjectMocks(savable());
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    await userEvent.click(screen.getByRole("radio", { name: "Computing" }));
+    expect(screen.getByText("Students can hand in files (.py, .sb3, .xlsx) and photos")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Language")).not.toBeInTheDocument();
+    await userEvent.click(saveButton());
+    expect(await screen.findByText(/^Saved\./)).toBeInTheDocument();
+    expect(lastPut(calls).subject).toBe("computing");
+    expect(lastPut(calls).language).toBeNull();
+  });
+
+  it("names the subject's default in the Auto caption when the model comes from one", async () => {
+    subjectMocks(savable({ subject: "computing", effective_model: { provider: "google", model: "gemini-3.8-flash", extractor_model: null, source: "subject" } }));
+    renderAt("/assignments/7");
+    await screen.findByLabelText("Title");
+    expect(screen.getByRole("radio", { name: "Auto — follow Settings" })).toBeChecked();
+    expect(screen.getByText("Using Google Gemini · gemini-3.8-flash from the Computing default")).toBeInTheDocument();
+    expect(screen.queryByText(/from Settings$/)).not.toBeInTheDocument();
+    // That default belongs to Computing: pick another subject and the caption stops claiming it.
+    await userEvent.click(screen.getByRole("radio", { name: "Maths" }));
+    expect(screen.getByText("Using OpenRouter · Auto Router from Settings")).toBeInTheDocument();
   });
 });

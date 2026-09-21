@@ -21,6 +21,8 @@ MARK_SCHEME = {
         "If the student used a valid-looking method or answer the scheme does not cover, or the work is only partly "
         "legible, set in_scheme=false and explain — a teacher will decide that part.",
         "Set total to the sum of the marks of the allocations marked got, and give a confidence between 0 and 1.",
+        "An error costs marks once: deduct it where it first occurs, mark later parts on the work as it stands "
+        "(error carried forward) and never deduct the same slip twice.",
     ],
     "output_instructions": [
         "Return kind='mark_scheme' and one PartMark per extracted question part, same q_id; leave rubric empty.",
@@ -41,12 +43,15 @@ MARK_SCHEME = {
         "differs from the marker's goes to the teacher with both marks shown; use ADJUST for a same-total "
         "re-attribution (e.g. A1 rather than M1) and it is applied quietly.",
         "Issue ESCALATE if the scheme does not cover the answer, the work is hard to read or the scheme is ambiguous.",
+        "Check for double penalisation: if one slip cost marks in two or more parts / criteria, list it in "
+        "double_penalties with the parts in order of first occurrence; the merge keeps the first deduction.",
     ],
     "reviewer_output_instructions": [
         "One verdict per marked part, same q_id.",
         "ADJUST must include `adjusted` with every allocation of the scheme row, marks copied from the row, a total "
         "equal to the marks marked got, and in_scheme carried over from the marker's part (false stays false).",
         "ESCALATE for ambiguity; do not guess.",
+        "double_penalties is empty unless the same error was deducted twice.",
     ],
 }
 
@@ -63,6 +68,8 @@ RUBRIC = {
         "band whose descriptor it fully meets; note that descriptor in descriptor_met.",
         "Copy the band name and marks exactly from the rubric; justify the band by quoting the response.",
         "Give a confidence between 0 and 1 for each criterion.",
+        "A weakness counts once: do not lower two criteria for the same slip; place it under the criterion it "
+        "belongs to.",
     ],
     "output_instructions": [
         "Return kind='rubric' and one RubricMark per criterion in rubric order; leave parts empty.",
@@ -81,11 +88,14 @@ RUBRIC = {
         "it is wrong, or ESCALATE if the response sits between bands or the rubric is ambiguous.",
         "An ADJUST to a band with different marks goes to the teacher with both bands shown; it is only applied "
         "quietly when the marks are the same.",
+        "Check for double penalisation: if one slip cost marks in two or more parts / criteria, list it in "
+        "double_penalties with the parts in order of first occurrence; the merge keeps the first deduction.",
     ],
     "reviewer_output_instructions": [
         "One verdict per marked criterion, with q_id set to the criterion name.",
         "ADJUST must include `adjusted` with the corrected band and its marks from the rubric.",
         "ESCALATE for ambiguity; do not guess.",
+        "double_penalties is empty unless the same error was deducted twice.",
     ],
 }
 

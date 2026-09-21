@@ -76,7 +76,8 @@ export function Submissions() {
                 <td><strong>{r.label}</strong>{r.assignment_title && <div className="help">{r.assignment_title}</div>}</td>
                 <td>{r.class_label ?? "—"}</td>
                 <td>{subjectLabel[r.subject]}</td>
-                <td className="num">{r.page_count}</td>
+                {/* A script handed in as code has no pages to count; say what it does have instead. */}
+                <td className="num">{r.page_count === 0 && r.file_count > 0 ? `${r.file_count} file${r.file_count === 1 ? "" : "s"}` : r.page_count}</td>
                 <td><StatusPill status={r.status} needsYou={r.needs_you_qids} /></td>
                 <td className="num">{r.total === null ? "—" : totalLabel({ total: r.total, total_upper: r.total_upper!, total_max: r.total_max! })}</td>
                 <td className="muted">{fmtDate(r.created_at)}</td>
