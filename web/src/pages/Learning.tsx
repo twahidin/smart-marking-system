@@ -4,7 +4,7 @@ import type { Exemplar, Note, ReflectionRuns, Stats, Subject } from "../api/type
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
-import { fmtDate, subjectLabel } from "../lib/format";
+import { fmtDate, SUBJECTS, subjectLabel } from "../lib/format";
 
 export function Learning() {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -50,7 +50,7 @@ export function Learning() {
         <div><h1>Learning</h1><p className="meta">What the marker has learned from your corrections. Approve a draft to use it on the next run.</p></div>
         <div className="actions" style={{ alignItems: "center", flexWrap: "nowrap" }}>
           <select className="input" aria-label="Subject" style={{ width: "auto" }} value={subject} onChange={(e) => setSubject(e.target.value as Subject)}>
-            {(["math", "language", "science"] as Subject[]).map((s) => <option key={s} value={s}>{subjectLabel[s]}</option>)}
+            {SUBJECTS.map((s) => <option key={s} value={s}>{subjectLabel[s]}</option>)}
           </select>
           <Button variant="primary" onClick={runReflection} disabled={busy || pendingHere}>{pendingHere ? "Reflection queued…" : busy ? "Starting…" : "Run reflection"}</Button>
         </div>

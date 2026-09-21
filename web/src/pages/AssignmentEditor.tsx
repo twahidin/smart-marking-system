@@ -12,7 +12,7 @@ import { ModelPicker } from "../components/ModelPicker";
 import { Notice } from "../components/Notice";
 import { QuestionsTable } from "../components/QuestionsTable";
 import { RubricTable } from "../components/RubricTable";
-import { languageLabel, providerLabel, subjectLabel } from "../lib/format";
+import { languageLabel, providerLabel, SUBJECTS, subjectLabel } from "../lib/format";
 import { jsonToRows, type Row } from "../lib/rubric";
 import { kindLabel, placeholderRubric, schemeTotal, validateTemplate, type Scheme } from "../lib/scheme";
 
@@ -28,7 +28,6 @@ type Upload = "paper" | "scheme";
 type Busy = null | "save" | Upload | `read-${Upload}`;
 
 const KINDS: SchemeKind[] = ["mark_scheme", "rubric", "criteria"];
-const SUBJECTS: Subject[] = ["math", "language", "science", "mt", "computing"];
 const LANGUAGES: MtLanguage[] = ["zh", "ms", "ta"];
 const COMPUTING_NOTE = "Students can hand in files (.py, .sb3, .xlsx) and photos";
 const DEFAULT_SUBJECT: Record<SchemeKind, Subject> = { mark_scheme: "math", rubric: "language", criteria: "math" };

@@ -101,14 +101,16 @@ export function BulkUploadDialog({ base, onClose, onDone }: { base: string; onCl
         </>
       ) : (
         <>
-          <div className={`drop ${over ? "over" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
-            onDrop={(e) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files[0]); }}>
+          {/* Closed while a zip is being read or uploaded: a second pick would replace the zip the
+              commit is about to send, and the preview on screen would no longer be of it. */}
+          <div className={`drop ${over ? "over" : ""}`} aria-disabled={busy}
+            onDragOver={(e) => { e.preventDefault(); if (!busy) setOver(true); }} onDragLeave={() => setOver(false)}
+            onDrop={(e) => { e.preventDefault(); setOver(false); if (!busy) pick(e.dataTransfer.files[0]); }}>
             <Upload size={32} aria-hidden />
             <h3>Drop the class's zip here</h3>
             <p className="help">One .zip of the whole class's work. Each student's files are matched by their register number — 07_a.py and 7.jpg both go to #7.</p>
-            <button type="button" className="btn btn-secondary" onClick={() => input.current?.click()}>Choose a zip</button>
-            <input ref={input} type="file" accept=".zip" hidden aria-label="Choose a zip of hand-ins"
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => input.current?.click()}>Choose a zip</button>
+            <input ref={input} type="file" accept=".zip" hidden disabled={busy} aria-label="Choose a zip of hand-ins"
               onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }} />
           </div>
           {busy && !preview && <p className="help" role="status">Reading the zip…</p>}

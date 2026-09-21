@@ -4,9 +4,8 @@ import type { ProviderSpec, Settings, Subject, SubjectModels as SubjectModelMap 
 import { Button } from "../../components/Button";
 import { ModelPicker, type ModelChoice } from "../../components/ModelPicker";
 import { Notice } from "../../components/Notice";
-import { subjectLabel } from "../../lib/format";
+import { SUBJECTS, subjectLabel } from "../../lib/format";
 
-const SUBJECTS: Subject[] = ["math", "language", "science", "mt", "computing"];
 /** What the teacher needs to know when choosing for these two; the rest need nothing said. */
 const HINT: Partial<Record<Subject, string>> = {
   mt: "Pick a model that reads Chinese, Malay or Tamil handwriting well",
@@ -58,8 +57,11 @@ export function SubjectModels({ providers, settings, onChange }: {
   const toAuto = async (s: Subject) => {
     setDrafts((d) => ({ ...d, [s]: null }));
     setMsg(null);
-    // Nothing was ever stored for this subject, so there is nothing to clear on the server.
-    if (!saved?.[s]) return;
+    // Nothing was ever stored for this subject, so there is nothing to clear on the server. When the
+    // initial GET failed `saved` is null — not "nothing saved" but "not known", and skipping the
+    // DELETE there would leave a pinned model in place while the row read Auto. Send it and let the
+    // server decide; clearing what is already clear is harmless.
+    if (saved !== null && !saved[s]) return;
     setBusy(s);
     try {
       await api.delete(`/api/settings/subject-models/${s}`);

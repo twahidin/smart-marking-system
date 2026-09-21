@@ -1,3 +1,5 @@
+import type { Subject } from "../api/types";
+
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso.includes("T") ? iso : iso.replace(" ", "T") + "Z");
@@ -13,6 +15,10 @@ export function elapsed(iso: string | null | undefined): string {
 }
 
 export const subjectLabel: Record<string, string> = { math: "Maths", language: "English", science: "Science", mt: "MT", computing: "Computing" };
+
+/** Every subject the app marks, in the order every picker offers them — mirrors
+ *  `SubjectRouter.KNOWN_SUBJECTS`, so a new subject is added in one place, not five. */
+export const SUBJECTS: Subject[] = ["math", "language", "science", "mt", "computing"];
 
 /** The three Mother Tongue languages, in the order the Language select offers them. */
 export const languageLabel: Record<string, string> = { zh: "Chinese", ms: "Malay", ta: "Tamil" };

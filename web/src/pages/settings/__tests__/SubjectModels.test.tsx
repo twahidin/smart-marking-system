@@ -101,6 +101,26 @@ describe("SubjectModels", () => {
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 
+  it("still clears a row when the initial load failed and nothing is known", async () => {
+    // `saved === null` is "we never found out", not "nothing is saved" — skipping the DELETE there
+    // would leave a pinned model in place while the row read Auto.
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ path, method, body: null });
+      if (method === "GET") return json({ error: { code: "server_error", message: "Could not load the subject models" } }, 500);
+      if (method === "DELETE") return noContent();
+      return Promise.reject(new Error(`Unexpected fetch to ${method} ${path}`));
+    }));
+    show();
+    expect(await screen.findByText("Could not load the subject models")).toBeInTheDocument();
+    // The row reads Auto because nothing loaded, so put it on Choose and back again.
+    await userEvent.click(within(row("Computing")).getByRole("radio", { name: "Choose" }));
+    await userEvent.click(within(row("Computing")).getByRole("radio", { name: "Auto" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/settings/subject-models/computing")).toBe(true));
+    expect(await screen.findByText("Computing follows Settings again.")).toBeInTheDocument();
+  });
+
   it("shows the server's message when a row will not save", async () => {
     putError = { code: "no_key_for_provider", message: "Save a TokenRouter key under Settings first" };
     mockFetch();
