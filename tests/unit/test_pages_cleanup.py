@@ -293,4 +293,4 @@ def test_detail_reports_a_deleted_file(env):
     d = get_submission(db, JobStore(db), sid)
     assert d["input_kind"] == "pages"
     assert d["files"][0]["deleted"] is True and d["files"][0]["text_rendered"] == "print(1)"
-    assert d["files"][0]["matched"] is False
+    assert d["files"][0]["matched"] is None   # no marking run on this fixture, so not yet known

@@ -243,6 +243,9 @@ def test_subject_models_crud(auth_with_google_key):
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_subject"
     assert c.delete("/api/settings/subject-models/mt").status_code == 204
     assert c.get("/api/settings/subject-models").json()["mt"] is None
+    # a typo'd subject deleted nothing and answered 204, which read as "cleared"
+    r = c.delete("/api/settings/subject-models/art")
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_subject"
 
 
 def test_removing_a_key_a_subject_default_uses_needs_force(auth_with_google_key):

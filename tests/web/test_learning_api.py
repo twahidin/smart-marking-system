@@ -40,6 +40,17 @@ def test_post_reflect_409_comes_from_the_insert_not_a_precheck(auth, app):
     assert app.state.db.query("SELECT dedupe_key FROM jobs")[0]["dedupe_key"] == "reflect:math"
 
 
+def test_reflection_covers_every_known_subject(auth, app):
+    """MT and Computing are marked subjects like any other, so reflection takes them — and the
+    refusal names the router's own list rather than a stale hard-coded three."""
+    from sms.pipeline.router import SubjectRouter
+
+    for subject in SubjectRouter.KNOWN_SUBJECTS:
+        assert auth.post("/api/reflect", json={"subject": subject}).status_code == 202, subject
+    message = auth.post("/api/reflect", json={"subject": "art"}).json()["error"]["message"]
+    assert "mt" in message and "computing" in message
+
+
 def test_post_reflect_validates(auth):
     assert auth.post("/api/reflect", json={"subject": "art"}).json()["error"]["code"] == "bad_subject"
     assert auth.post("/api/reflect", json={"subject": "math", "lookback_days": 0}).status_code == 400

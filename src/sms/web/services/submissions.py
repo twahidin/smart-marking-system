@@ -431,15 +431,16 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
     # read from a file with "[<name> …]", so a file whose tag never appears was not used. Both halves
     # of a part count: a helper function or a cell an answer depends on is cited in `workings`, not in
     # `transcribed_answer`, and that file was read just as much. Before any run there is no
-    # transcription, so nothing is matched. Reuses the `extracted` already parsed for the parts above,
-    # and is skipped entirely for the usual pages-only script.
+    # transcription at all, so the answer is `None` — not-yet-known, which the detail shows as nothing
+    # rather than as the accusation "not used for any part". Reuses the `extracted` already parsed for
+    # the parts above, and is skipped entirely for the usual pages-only script.
     files: List[dict] = []
     if file_rows:
         extracted_text = " ".join(f"{q.get('transcribed_answer') or ''} {q.get('workings') or ''}"
                                   for q in (extracted.get("questions") or []) if isinstance(q, dict))
         files = [{"id": f["id"], "name": f["name"], "kind": f["kind"], "size": f["size"],
                   "text_rendered": f["text_rendered"], "deleted": f["deleted_at"] is not None,
-                  "matched": f"[{f['name']}" in extracted_text} for f in file_rows]
+                  "matched": (f"[{f['name']}" in extracted_text) if run else None} for f in file_rows]
     job = jobs.job_for_submission(submission_id)
     return {
         "id": s["id"], "label": s["label"], "subject": s["subject"], "context": s["context"], "status": s["status"],

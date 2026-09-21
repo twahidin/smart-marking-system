@@ -367,7 +367,24 @@ def test_upload_python_file_creates_files_submission(auth):
     d = auth.get(f"/api/submissions/{r.json()['id']}").json()
     assert d["input_kind"] == "files" and d["pages"] == [] and [f["name"] for f in d["files"]] == ["prog.py"]
     assert d["files"][0]["kind"] == "py" and d["files"][0]["size"] == 9 and d["files"][0]["text_rendered"] is None
-    assert d["files"][0]["deleted"] is False and d["files"][0]["matched"] is False
+    # Nothing has been marked yet, so whether the marker used the file is not yet known — `null`,
+    # not `false`: the detail must not say "not used for any part" about a script still in the queue.
+    assert d["files"][0]["deleted"] is False and d["files"][0]["matched"] is None
+
+
+def test_matched_is_null_until_a_run_exists_then_true_or_false(auth, app):
+    extracted = {"questions": [{"q_id": "1a", "transcribed_answer": "[prog.py L1-2] print(1)",
+                                "workings": "", "confidence": 0.9, "needs_human_transcription": False}]}
+    sid, _ = seed_v2(app, extracted=extracted, queue={})
+    for name in ("prog.py", "spare.py"):
+        app.state.db.execute("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path) "
+                             "VALUES (:s, :n, 'py', 1, :h, :p)",
+                             {"s": sid, "n": name, "h": f"h-{name}", "p": f"files/aa/{name}"})
+    assert {f["name"]: f["matched"] for f in auth.get(f"/api/submissions/{sid}").json()["files"]} == {
+        "prog.py": True, "spare.py": False}
+    # drop the run: the same rows are back to "not known yet"
+    app.state.db.execute("UPDATE submissions SET run_id = NULL WHERE id = :s", {"s": sid})
+    assert {f["matched"] for f in auth.get(f"/api/submissions/{sid}").json()["files"]} == {None}
 
 
 def test_a_file_cited_only_in_workings_still_counts_as_used(auth, app):

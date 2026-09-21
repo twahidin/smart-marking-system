@@ -37,4 +37,10 @@ def set_subject_model(db: Database, subject: str, provider: str, model: str, ext
 
 
 def clear_subject_model(db: Database, subject: str) -> None:
+    # Validated like `set_subject_model`: a typo'd subject deleted nothing and answered 204, which
+    # read as "cleared" to the caller — say what actually happened instead.
+    try:
+        subject = SubjectRouter().resolve(subject)
+    except KeyError:
+        raise ApiError(400, "bad_subject", "Unknown subject")
     db.execute("DELETE FROM subject_models WHERE subject = :s", {"s": subject})
