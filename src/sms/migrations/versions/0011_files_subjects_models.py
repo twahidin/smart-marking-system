@@ -31,8 +31,10 @@ def upgrade() -> None:
         sa.Column("sha256", sa.Text, nullable=False),
         sa.Column("stored_path", sa.Text, nullable=False),
         sa.Column("text_rendered", sa.Text),
-        sa.Column("deleted_at", sa.Text),
-        sa.Column("created_at", sa.Text, nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        # Timestamps are DateTime, as in 0001-0009: Postgres refuses a CURRENT_TIMESTAMP default on a
+        # text column ("column is of type text but default expression is of type timestamp with time zone").
+        sa.Column("deleted_at", sa.DateTime),
+        sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
     )
     op.create_index("ix_submission_files_submission", "submission_files", ["submission_id"])
     op.create_table(
@@ -41,7 +43,7 @@ def upgrade() -> None:
         sa.Column("provider", sa.Text, nullable=False),
         sa.Column("model", sa.Text, nullable=False),
         sa.Column("extractor_model", sa.Text),
-        sa.Column("updated_at", sa.Text, nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
     )
 
 

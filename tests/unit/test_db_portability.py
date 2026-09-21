@@ -221,3 +221,35 @@ def test_migration_0005_adds_scheme_kind_and_backfills_from_the_template(tmp_pat
     assert cols["scheme_kind"]["notnull"] == 0 and "marks_version" in cols
     kinds = {r["id"]: r["scheme_kind"] for r in db.query("SELECT id, scheme_kind FROM submissions")}
     assert kinds == {with_t: "rubric", without: None, dangling: None}
+
+
+def test_migration_0011_timestamps_are_datetime_not_text(tmp_path):
+    """Postgres refuses a CURRENT_TIMESTAMP default on a text column ("column is of type text but
+    default expression is of type timestamp with time zone"), so the three timestamps 0011 adds must
+    be DateTime like every other migration's — SQLite would happily take either."""
+    import sqlalchemy as sa
+
+    db = Database(path=str(tmp_path / "t.db"))
+    insp = sa.inspect(db.engine)
+    files = {c["name"]: c for c in insp.get_columns("submission_files")}
+    assert isinstance(files["created_at"]["type"], sa.DateTime)
+    assert files["created_at"]["nullable"] is False
+    assert isinstance(files["deleted_at"]["type"], sa.DateTime)
+    assert files["deleted_at"]["nullable"] is True and files["deleted_at"]["default"] is None
+    models = {c["name"]: c for c in insp.get_columns("subject_models")}
+    assert isinstance(models["updated_at"]["type"], sa.DateTime)
+    assert models["updated_at"]["nullable"] is False
+
+
+def test_submission_files_timestamps_round_trip(tmp_path):
+    """The readers and writers of those columns still work: the server default fills `created_at`,
+    and `pages_cleanup`'s `deleted_at = CURRENT_TIMESTAMP` reads back as set."""
+    db = Database(path=str(tmp_path / "t.db"))
+    sid = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status) "
+                    "VALUES ('s', 'computing', '', '{}', 'uploaded') RETURNING id")
+    db.execute("INSERT INTO submission_files (submission_id, name, kind, size, sha256, stored_path) "
+               "VALUES (:s, 'a.py', 'py', 3, 'h', 'p')", {"s": sid})
+    row = db.query("SELECT created_at, deleted_at FROM submission_files")[0]
+    assert row["created_at"] and row["deleted_at"] is None
+    db.execute("UPDATE submission_files SET deleted_at = CURRENT_TIMESTAMP WHERE submission_id = :s", {"s": sid})
+    assert db.query("SELECT deleted_at FROM submission_files")[0]["deleted_at"] is not None
