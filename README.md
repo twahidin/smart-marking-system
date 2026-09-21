@@ -152,6 +152,54 @@ add custom model ids for OpenRouter and TokenRouter (with a label and whether th
 each one then appears in every model picker across the app, next to the curated list and whatever
 **Load models from provider** returns.
 
+**Files**: a submission can be made of files instead of, or alongside, photographed pages — Python
+(`.py`), Scratch (`.sb3`) and Excel (`.xlsx`), or a `.zip` bundling any of those with images/PDFs (its
+other contents are ignored and listed back). Files are read, never run: Python is shown as numbered
+source with a parse-only syntax check, Scratch as each script's blocks in indented text per sprite, and
+Excel as each sheet's non-empty cells with formula and cached value side by side, plus merged/named
+ranges and charts; `.xlsm` (macros) is refused. A mixed submission runs its pages through the usual page
+extractor first, then feeds every page and file through one text segmenter, so the marker always reads
+text — never an image alongside a file. Limits: 12 files per submission, 2 MB per file, 20 MB per zip
+once unpacked, 50 MB per upload overall (pages keep the existing 60-page cap). A file that renders but
+answers no part is listed on the submission detail page rather than silently dropped; a file too large
+to fit the marker's text budget sends its affected parts to **Review** as "input truncated" instead of
+guessing from a cut-off excerpt.
+
+**MT (Mother Tongue)**: Chinese, Malay or Tamil handwritten scripts, marked like any photographed
+submission. An MT assignment also picks a **Language**, and student-facing feedback is written in that
+language (Chinese, Malay or Tamil) while everything the teacher reads — justifications, reviewer notes,
+Insights — stays in English. MT assignments need the language field, so create and edit them from the
+assignment editor; Quick mark's one-off criteria list has nowhere to put a language and can't save one.
+
+**Computing**: Python, Scratch and Excel submissions (with or without photographed pages) judged on
+logic, control flow, the constructs the task asked for, data handling and clarity — the marker reads
+the file, it never claims to have run it, and marks only what it can verify from what's on the page
+when a scheme row needs execution to check (lowering its confidence so **Review** can weigh in). For
+Excel the formulas are the work and the cached values are supporting evidence; for Scratch it's the
+block structure.
+
+**Model by subject**: beyond the global Settings model and an assignment's own pin, each subject can
+have its own default under **Settings → By subject** — useful for picking a CJK-capable model for MT or
+a code-strong one for Computing without changing what math or language assignments use. Resolution order
+is **assignment pin → subject default → Settings**; a subject default whose provider has lost its saved
+key is skipped in favour of Settings, with the assignment editor's Auto caption naming which one it's
+actually using.
+
+**No double penalisation**: across every subject, an error costs marks once — at the first question
+part or rubric criterion where it occurs — and is carried forward as a given for every later part, never
+deducted twice under two different marking points. The reviewer checks for this explicitly; where it
+finds the marker deducted the same slip twice, the merge restores the later deduction (crediting the
+allocation, or keeping the marker's rubric band with a note), or — where the two passes can't be
+reconciled — sends the part to **Review** flagged "double penalty".
+
+**Bulk upload**: from a class assignment page, **Bulk upload** takes one `.zip` of the whole class's
+work at once — a top-level file or folder per student, named starting with their register number
+(`07_amirah.py`, `07/…`, `7 - amirah/`). The zip is previewed before anything is created: matched
+students and what each one will get, entries that didn't match a register number, and register numbers
+that matched more than one student. Ticking **Replace existing hand-ins** lets the upload overwrite a
+student who has already handed in; left unticked, that student is skipped and everyone else still goes
+through.
+
 ### Settings
 
 - **Delete pages after marking** — global default for the page-deletion behaviour above; an assignment
@@ -162,6 +210,9 @@ each one then appears in every model picker across the app, next to the curated 
   an instant-messages toggle, the daily digest time and timezone, and the App URL used in message links.
 - **My models** — custom model ids for OpenRouter and TokenRouter, each shown with a label and whether
   it reads pages; they appear in every model picker (Settings, assignment editor) alongside the curated list.
+- **By subject** — a default model per subject (math, language, science, MT, Computing), used when an
+  assignment of that subject doesn't pin its own model; falls back to the global Settings model when a
+  subject has none or its provider's key is gone.
 
 ### Run locally
 
@@ -271,10 +322,16 @@ Done since the original MVP:
   messages and a daily digest
 - Per-assignment model choice (provider, model, optional page-reading model) and "My models" — custom
   OpenRouter/TokenRouter model ids available in every picker
+- File submissions (`.py`, `.sb3`, `.xlsx`, alone or zipped with photos) read and marked as text, never
+  executed; MT (Mother Tongue: Chinese/Malay/Tamil, feedback in the script's language) and Computing
+  subjects; a default model per subject (assignment pin → subject default → Settings); no double
+  penalisation for the same error across every subject; class-wide bulk upload of one zip matched to
+  students by register number
 
 Roadmap:
 
-- Bulk-upload page sorter (split a multi-script batch scan into per-student submissions)
+- Bulk-upload page sorter (split a multi-script batch scan into per-student submissions when filenames
+  don't carry a register number — bulk upload by filename has shipped)
 - Per-class memory (rubric notes and exemplar cases scoped to a class, not just per subject)
 - Language and science subject factories (prompts already ship)
 - SymPy verification for math marking

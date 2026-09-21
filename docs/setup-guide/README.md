@@ -176,6 +176,8 @@ From the assignment page, **Download marks CSV** gives one row per student with 
 
 **Telegram and Insights are optional.** Nothing is sent to Telegram until you link a bot, and Insights only use the model you already configured — no extra keys.
 
+**Computing and Mother Tongue.** Computing assignments accept `.py`, `.sb3` and `.xlsx` files, alone or with photos; MT assignments give feedback in the script's language.
+
 **Updates.** Redeploying the `web` service picks up the latest version from GitHub; the database and stored keys are kept.
 
 Source, issues and the full README: [github.com/twahidin/smart-marking-system](https://github.com/twahidin/smart-marking-system).
