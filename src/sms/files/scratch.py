@@ -1,9 +1,7 @@
 import io, json, zipfile
 from typing import Dict, List
 
-from sms.files.render import RenderError
-
-MAX_DECOMPRESSED = 20 * 1024 * 1024
+from sms.files.render import MAX_DECOMPRESSED, RenderError
 
 # opcode -> template; {NAME} = input or field value
 OPCODES: Dict[str, str] = {

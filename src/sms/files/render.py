@@ -4,6 +4,10 @@ from typing import List, Tuple
 
 KIND_BY_EXT = {".py": "py", ".sb3": "sb3", ".xlsx": "xlsx"}
 TEXT_BUDGET = 200_000
+# A .sb3 and an .xlsx are both zips, and both are opened by a library that would happily inflate a
+# tiny archive into gigabytes. Both check the central directory's declared sizes against this before
+# handing the bytes to a parser; one constant so the two never drift apart.
+MAX_DECOMPRESSED = 20 * 1024 * 1024
 
 
 class RenderError(ValueError):

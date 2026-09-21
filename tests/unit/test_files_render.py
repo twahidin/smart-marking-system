@@ -80,6 +80,20 @@ def test_excel_shows_formulas_values_and_names():
     assert r.summary == "1 sheet, 5 cells, 1 formula"
 
 
+def test_oversized_xlsx_is_refused_before_openpyxl_opens_it():
+    """An .xlsx is a zip and openpyxl inflates it without a budget, so the central directory's
+    declared sizes are checked first — the same 20 MB pre-check a .sb3 gets."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", b"<Types/>")
+        z.writestr("xl/worksheets/sheet1.xml", b"0" * (21 * 1024 * 1024))
+    bomb = buf.getvalue()
+    assert len(bomb) < 100 * 1024  # tiny on disk, 21 MB by its own central directory
+    with pytest.raises(RenderError) as e:
+        render_one("bomb.xlsx", bomb)
+    assert e.value.name == "bomb.xlsx" and "expands past 20 MB" in e.value.msg
+
+
 def test_xlsm_rejected():
     with pytest.raises(RenderError):
         render_one("macros.xlsm", b"")

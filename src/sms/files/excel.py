@@ -1,12 +1,24 @@
 import io
+import zipfile
+
 import openpyxl
 
-from sms.files.render import RenderError
+from sms.files.render import MAX_DECOMPRESSED, RenderError
 
 
 def render(data: bytes):
     if not data[:2] == b"PK":
         raise RenderError("workbook", "not an .xlsx workbook")
+    # An .xlsx is a zip, and openpyxl inflates it without a budget: check the central directory's
+    # declared sizes first, exactly as the .sb3 renderer does, so a 40 KB workbook that claims to
+    # expand into gigabytes is refused before a parser ever sees it.
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            declared = sum(i.file_size for i in z.infolist())
+    except zipfile.BadZipFile as e:
+        raise RenderError("workbook", "not an .xlsx workbook") from e
+    if declared > MAX_DECOMPRESSED:
+        raise RenderError("workbook", f"workbook expands past {MAX_DECOMPRESSED // (1024 * 1024)} MB")
     try:
         wb_f = openpyxl.load_workbook(io.BytesIO(data), read_only=False, data_only=False, keep_vba=False)
         wb_v = openpyxl.load_workbook(io.BytesIO(data), read_only=False, data_only=True)
