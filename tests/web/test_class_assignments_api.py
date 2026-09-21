@@ -492,6 +492,19 @@ def test_bulk_zip_takes_more_than_one_submission_s_20_mb_unpacked(auth, app):
     assert r.status_code == 200 and _regs(r.json()["matched"]) == [7]
 
 
+def test_a_thirty_mb_bulk_zip_of_thirty_mb_of_photos_goes_through(auth, app):
+    """Class photos barely compress, so the archive is about as big as its contents. Charging both
+    against the 50 MB budget would count them twice and refuse a zip well inside the cap."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in range(10):
+            z.writestr(f"7/scan{i}.jpg", b"0" * (3 * 1024 * 1024))
+    c, ca = _bulk_setup(auth)
+    r = auth.post(f"/api/classes/{c['id']}/assignments/{ca['id']}/bulk/preview",
+                  files=[("zip", ("bulk.zip", buf.getvalue(), "application/zip"))])
+    assert r.status_code == 200 and _regs(r.json()["matched"]) == [7]
+
+
 def test_bulk_zip_over_fifty_mb_unpacked_is_too_large_not_a_zip_bomb(auth, app):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:

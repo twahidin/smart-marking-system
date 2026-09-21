@@ -143,6 +143,27 @@ def test_decompressed_bytes_are_capped_across_the_whole_upload():
     assert e.value.code == "too_large" and e.value.message == "That upload is over 50 MB in total"
 
 
+def _deflated(entries):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for n, b in entries: z.writestr(n, b)
+    return buf.getvalue()
+
+
+def test_an_archive_is_not_charged_on_top_of_what_it_unpacks_to():
+    """The aggregate cap measures what an upload *becomes*. A zip of barely-compressible photos is
+    nearly as big as its contents, so charging the container as well would count them twice and
+    refuse a 30 MB archive of 30 MB of scans under a 50 MB budget."""
+    thirty = _deflated([(f"p{i}.png", b"0" * (3 * 1024 * 1024)) for i in range(10)])
+    it = classify_uploads([("class.zip", thirty)], max_zip_bytes=50 * 1024 * 1024)
+    assert len(it.pages) == 10 and it.total_bytes == 30 * 1024 * 1024
+    # what it unpacks to is still charged: three ~18 MB archives are over the 50 MB budget
+    one = _deflated([(f"p{i}.png", b"0" * 1_800_000) for i in range(10)])
+    with pytest.raises(IntakeError) as e:
+        classify_uploads([("a.zip", one), ("b.zip", one), ("c.zip", one)])
+    assert e.value.code == "too_large" and e.value.message == "That upload is over 50 MB in total"
+
+
 def test_the_two_too_large_cases_read_differently():
     """Same code, two different things to fix: the whole upload is too big, or one program file is.
     The student route shows the intake message as-is, so they must not be interchangeable."""

@@ -7,12 +7,15 @@ limits. The renderers in `sms.files.render` are deliberately cap-free — every 
 nothing oversized ever reaches storage or a model.
 
 Four caps, all checked before a byte is written: 12 program files per submission, 2 MB per program
-file, 20 MB decompressed per zip, and `MAX_UPLOAD_BYTES` (50 MB) over the whole upload once
-unpacked — the last one because everything extracted from a zip is held in memory until
-`process_uploads` runs, and a handful of individually legal zips could otherwise add up to far more
-than the 50 MB body cap let through. Pages are deliberately not subject to the 2 MB per-file cap,
-zipped or loose: a phone scan or a PDF is routinely bigger, and `process_uploads` applies the page
-limits that do belong to them.
+file, 20 MB decompressed per zip (the bulk class upload raises this one), and `MAX_UPLOAD_BYTES`
+(50 MB) over the whole upload once unpacked — the last one because everything extracted from a zip
+is held in memory until `process_uploads` runs, and a handful of individually legal zips could
+otherwise add up to far more than the 50 MB body cap let through. That last cap measures what an
+upload *becomes*: an archive's entries are charged against it and the archive itself is not, so a
+barely-compressed zip of photos is not counted twice over.
+
+Pages are deliberately not subject to the 2 MB per-file cap, zipped or loose: a phone scan or a PDF
+is routinely bigger, and `process_uploads` applies the page limits that do belong to them.
 """
 import io
 import zipfile
@@ -189,7 +192,11 @@ def classify_uploads(files: List[Tuple[str, bytes]], *, max_files: int = MAX_FIL
         name = _basename(raw_name) or raw_name
         ext = PurePosixPath(name).suffix.lower()
         if ext == ".zip":
-            _charge(name, len(data), it, max_total_bytes)
+            # The container's own bytes are NOT charged: what it unpacks to is, entry by entry, and
+            # charging both would count a barely-compressed archive of photos twice — a 30 MB zip of
+            # 30 MB of scans would read as 60 MB and be refused under a 50 MB budget. The request
+            # body is already capped at 50 MB upstream (`web.uploads.check_content_length`), so the
+            # archive itself is bounded without being counted here.
             _expand_zip(name, data, it, max_files, max_file_bytes, max_total_bytes, max_zip_bytes)
         elif ext in PAGE_EXTS:
             _add_page(name, data, it, max_total_bytes)
