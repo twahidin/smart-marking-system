@@ -6,7 +6,7 @@ Smart Marking marks handwritten scripts that students photograph or scan, agains
 
 ## About Hosting Smart Marking
 
-The template deploys two services: `web` (FastAPI + React, built from the Dockerfile, with the marking worker embedded) and `Postgres` (assignments, classes, marks and settings; API keys are encrypted at rest with the generated `SECRET_KEY`). Page images live on a volume mounted at `/data` and are deleted after marking by default, so storage stays small. After the deploy finishes, open the `web` domain, sign in with `TEACHER_PASSWORD` (generated — read it from the service's Variables, or set your own before deploying), go to **Settings** to paste a provider key and pick a model, then create an assignment and a class. No student accounts or passwords are needed: students use the class link and their register number. Everything runs inside your Railway project; scripts never leave it except for the model calls you configure.
+The template deploys two services: `web` (FastAPI + React, built from the Dockerfile, with the marking worker embedded) and `Postgres` (assignments, classes, marks and settings; API keys are encrypted at rest with the generated `SECRET_KEY`). Page images live on a volume mounted at `/data` and are deleted after marking by default, so storage stays small. After the deploy finishes, open the `web` domain: the first visitor creates the teacher password on the website (step 1), then pastes a provider key and picks a model under **Settings** (step 2) — nothing to copy from the Railway dashboard. Later changes happen on the website; setting `TEACHER_PASSWORD` in Variables overrides the website password if you ever need to reset it. No student accounts or passwords are needed: students use the class link and their register number. Everything runs inside your Railway project; scripts never leave it except for the model calls you configure.
 
 ## Common Use Cases
 
@@ -31,7 +31,7 @@ The template deploys two services: `web` (FastAPI + React, built from the Docker
 
 ### Implementation Details
 
-Variables you may want to change before deploying: `TEACHER_PASSWORD` (generated), `LLM_PROVIDER` (default `tokenrouter`), and optionally `LLM_MODEL` / `LLM_API_KEY` to pre-seed the model and key. Source and documentation: https://github.com/twahidin/smart-marking-system — setup guide (PDF): https://github.com/twahidin/smart-marking-system/raw/main/docs/setup-guide/Smart-Marking-Setup-Guide.pdf
+No variables need changing: the password is created on the website at first visit. Optional before deploying: `TEACHER_PASSWORD` (fixes the password from the dashboard instead), `LLM_PROVIDER` (default `tokenrouter`), `LLM_MODEL` / `LLM_API_KEY` to pre-seed the model and key. Source and documentation: https://github.com/twahidin/smart-marking-system — setup guide (PDF): https://github.com/twahidin/smart-marking-system/raw/main/docs/setup-guide/Smart-Marking-Setup-Guide.pdf
 
 ## Why Deploy Smart Marking on Railway?
 
