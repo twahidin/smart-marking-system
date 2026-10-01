@@ -13,7 +13,10 @@ export function SignIn() {
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setError(null);
     try { await api.post("/api/auth/login", { password }); nav(from, { replace: true }); }
-    catch (err) { setError(err instanceof ApiError ? err.message : "Could not sign in"); }
+    catch (err) {
+      if (err instanceof ApiError && err.code === "needs_setup") { nav("/setup", { replace: true }); return; }
+      setError(err instanceof ApiError ? err.message : "Could not sign in");
+    }
     finally { setBusy(false); }
   };
   return (

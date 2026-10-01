@@ -6,7 +6,8 @@ import { Settings } from "../Settings";
 import { noSubjectModels, providers, settings } from "./settingsFixtures";
 
 /** What the mock server currently holds; a test can swap it before rendering with `serve()`. */
-let served: { providers: any[]; settings: any; subjectModels: any } = { providers, settings, subjectModels: noSubjectModels };
+let served: { providers: any[]; settings: any; subjectModels: any; pwSource: "railway" | "website" | null } = { providers, settings, subjectModels: noSubjectModels, pwSource: "website" };
+const pwChanges: any[] = [];
 const serve = (p: any[], s: any) => { served = { ...served, providers: p, settings: s }; };
 const calls: { path: string; method: string; body: any }[] = [];
 const saved: any[] = [];
@@ -26,6 +27,8 @@ function mockFetch(onModels: () => Response) {
       const body = init?.body ? JSON.parse(String(init.body)) : null;
       calls.push({ path, method, body });
       if (path === "/api/providers") return json(served.providers);
+      if (path === "/api/auth/me") return json({ authenticated: true, password_source: served.pwSource });
+      if (path === "/api/auth/password" && method === "PUT") { pwChanges.push(body); return noContent(); }
       if (path === "/api/settings/subject-models" && method === "GET") return json(served.subjectModels);
       if (path.startsWith("/api/settings/subject-models/") && method === "PUT") {
         const subject = path.slice("/api/settings/subject-models/".length);
@@ -78,7 +81,7 @@ function mockFetch(onModels: () => Response) {
   );
 }
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); served = { providers, settings, subjectModels: noSubjectModels }; calls.length = 0; saved.length = 0; deleted.length = 0; keysInUse = 0; });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); served = { providers, settings, subjectModels: noSubjectModels, pwSource: "website" }; calls.length = 0; saved.length = 0; deleted.length = 0; keysInUse = 0; });
 
 describe("Settings — one key per provider", () => {
   it("shows the saved key for the selected provider only, and removes it on request", async () => {
@@ -275,5 +278,36 @@ describe("Settings \u2014 my models", () => {
     await waitFor(() => expect(screen.queryByRole("option", { name: /google\/gemini-3.8-flash/ })).not.toBeInTheDocument());
     await userEvent.click(screen.getByRole("radio", { name: /OpenAI/ }));
     expect(screen.queryByLabelText("Model id")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("Settings — teacher password and setup step 2", () => {
+  it("changes the password from the website", async () => {
+    mockFetch(() => new Response(JSON.stringify([]), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    const form = await screen.findByRole("form", { name: "Change password" });
+    const user = userEvent.setup();
+    await user.type(within(form).getByLabelText("Current password"), "old-pass-123");
+    await user.type(within(form).getByLabelText("New password"), "new-pass-456");
+    await user.type(within(form).getByLabelText("New password again"), "new-pass-456");
+    await user.click(within(form).getByRole("button", { name: "Change password" }));
+    await waitFor(() => expect(pwChanges).toEqual([{ current: "old-pass-123", new: "new-pass-456" }]));
+    expect(await screen.findByText("Password changed.")).toBeInTheDocument();
+  });
+
+  it("explains when the password comes from Railway", async () => {
+    served = { ...served, pwSource: "railway" };
+    mockFetch(() => new Response(JSON.stringify([]), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    expect(await screen.findByText(/change it there, or remove the variable/)).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Change password" })).toBeNull();
+    served = { ...served, pwSource: "website" };
+  });
+
+  it("shows step 2 of the wizard when reached with ?setup=1", async () => {
+    mockFetch(() => new Response(JSON.stringify([]), { status: 200 }));
+    render(<MemoryRouter initialEntries={["/settings?setup=1"]}><Settings /></MemoryRouter>);
+    expect(await screen.findByText(/Step 2 of 2/)).toBeInTheDocument();
   });
 });

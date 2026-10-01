@@ -60,3 +60,15 @@ describe("App auth gate", () => {
     expect(await screen.findByRole("link", { name: "Submissions" })).toBeInTheDocument();
   });
 });
+
+
+describe("App first-run gate", () => {
+  it("sends a fresh deployment to the setup wizard", async () => {
+    mockFetch({
+      "/api/auth/me": () => new Response(JSON.stringify({ error: { code: "unauthenticated", message: "no" } }), { status: 401 }),
+      "/api/setup/status": () => new Response(JSON.stringify({ needs_setup: true }), { status: 200 }),
+    });
+    render(<MemoryRouter initialEntries={["/classes"]}><App /></MemoryRouter>);
+    expect(await screen.findByRole("heading", { name: "Create the teacher password" })).toBeInTheDocument();
+  });
+});
