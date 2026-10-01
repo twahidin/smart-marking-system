@@ -2,7 +2,7 @@ import time
 from collections import defaultdict, deque
 from typing import Deque, Dict, Optional, Tuple
 
-from fastapi import Request
+from fastapi import Request, Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from sms.web.errors import ApiError
@@ -129,3 +129,10 @@ def require_student(request: Request) -> dict:
     r = rows[0]
     return {"student_id": r["student_id"], "class_id": r["class_id"], "reg_no": int(r["reg_no"]), "name": r["name"],
             "class_name": r["class_name"], "code": r["code"]}
+
+
+def issue_session(request: Request, response: Response) -> None:
+    """Set the teacher session cookie on `response` (sign-in and the first-run wizard share it)."""
+    secure = request.url.hostname not in ("localhost", "127.0.0.1", "testserver")
+    response.set_cookie(COOKIE, request.app.state.signer.issue(), max_age=SESSION_MAX_AGE,
+                        httponly=True, samesite="lax", secure=secure, path="/")

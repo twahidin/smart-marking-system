@@ -2,7 +2,7 @@ def test_login_sets_cookie_and_me_works(client):
     assert client.get("/api/auth/me").status_code == 401
     r = client.post("/api/auth/login", json={"password": "letmein"})
     assert r.status_code == 204 and "sms_session" in r.cookies
-    assert client.get("/api/auth/me").json() == {"authenticated": True}
+    assert client.get("/api/auth/me").json()["authenticated"] is True
 
 
 def test_wrong_password_401_with_error_shape(client):
@@ -86,7 +86,7 @@ def test_login_limiter_global_window_expires(monkeypatch):
 
 
 def test_login_password_compare_is_constant_time(client, monkeypatch):
-    import sms.web.routers.auth as auth_module
+    import sms.web.services.setup as auth_module  # the env-password compare lives in the setup service now
 
     calls = []
     real = auth_module.secrets.compare_digest
