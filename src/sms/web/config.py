@@ -10,7 +10,7 @@ DEFAULT_STATIC_DIR = Path(__file__).resolve().parents[3] / "web" / "dist"
 class AppConfig:
     database_url: str
     secret_key: str
-    teacher_password: str
+    teacher_password: Optional[str]  # None: the website's own password (set in the first-run wizard)
     storage_dir: Path
     embedded_worker: bool = True
     env: Dict[str, str] = field(default_factory=dict)
@@ -19,9 +19,10 @@ class AppConfig:
     @classmethod
     def from_env(cls) -> "AppConfig":
         secret = os.environ.get("SECRET_KEY")
-        password = os.environ.get("TEACHER_PASSWORD")
-        if not secret or not password:
-            raise RuntimeError("SECRET_KEY and TEACHER_PASSWORD must be set")
+        if not secret:
+            raise RuntimeError("SECRET_KEY must be set")
+        # Optional since the first-run wizard: when blank, the password lives on the settings row.
+        password = (os.environ.get("TEACHER_PASSWORD") or "").strip() or None
         return cls(
             database_url=os.environ.get("DATABASE_URL", "sqlite:///sms.db"),
             secret_key=secret,

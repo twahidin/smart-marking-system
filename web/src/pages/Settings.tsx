@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { ProbeResult, ProviderSpec, Settings as S } from "../api/types";
 import { Button } from "../components/Button";
@@ -19,6 +20,27 @@ export function Settings() {
   const [fetched, setFetched] = useState<string[]>([]);
   const [newModel, setNewModel] = useState({ id: "", label: "", vision: true });
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  // First-run wizard, step 2: the page is reached with ?setup=1 right after the password was created.
+  const [params] = useSearchParams();
+  const setupMode = params.get("setup") === "1";
+  const [setupDone, setSetupDone] = useState(false);
+  const [pwSource, setPwSource] = useState<"railway" | "website" | null>(null);
+  const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  const [pwMsg, setPwMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [pwBusy, setPwBusy] = useState(false);
+  useEffect(() => {
+    api.get<{ authenticated: boolean; password_source: "railway" | "website" | null }>("/api/auth/me")
+      .then((m) => setPwSource(m.password_source ?? null), () => setPwSource(null));
+  }, []);
+  const changePassword = async (e: FormEvent) => {
+    e.preventDefault(); setPwMsg(null);
+    if (pw.next.length < 8) { setPwMsg({ kind: "error", text: "Use at least 8 characters." }); return; }
+    if (pw.next !== pw.confirm) { setPwMsg({ kind: "error", text: "The two new passwords don't match." }); return; }
+    setPwBusy(true);
+    try { await api.put("/api/auth/password", { current: pw.current, new: pw.next }); setPw({ current: "", next: "", confirm: "" }); setPwMsg({ kind: "ok", text: "Password changed." }); }
+    catch (err) { setPwMsg({ kind: "error", text: err instanceof ApiError ? err.message : "Could not change the password" }); }
+    finally { setPwBusy(false); }
+  };
 
   useEffect(() => {
     Promise.all([api.get<ProviderSpec[]>("/api/providers"), api.get<S>("/api/settings")]).then(([p, s]) => {
@@ -151,7 +173,7 @@ export function Settings() {
     e.preventDefault(); setBusy("save"); setMsg(null);
     // Both secrets are write-only: once saved, the field empties and its placeholder reports the
     // stored one's last four characters, exactly as it does on a fresh load.
-    try { const s = await api.put<S>("/api/settings", payload); setSaved(s); setForm({ ...form, api_key: "", telegram_bot_token: "" }); setMsg({ kind: "ok", text: "Saved." }); }
+    try { const s = await api.put<S>("/api/settings", payload); setSaved(s); setForm({ ...form, api_key: "", telegram_bot_token: "" }); setMsg({ kind: "ok", text: "Saved." }); if (setupMode) setSetupDone(true); }
     catch (err) { setMsg({ kind: "error", text: err instanceof ApiError ? err.message : "Could not save" }); }
     finally { setBusy(null); }
   };
@@ -159,6 +181,8 @@ export function Settings() {
   return (
     <div className="page">
       <div className="page-header"><div><h1>AI model</h1><p className="meta">Which model marks your scripts, and the key it uses.</p></div></div>
+      {setupMode && !setupDone && <Notice>Step 2 of 2 — pick a provider, paste its key, click <strong>Load models from provider</strong>, choose a model that reads pages, <strong>Test connection</strong>, then <strong>Save</strong>.</Notice>}
+      {setupDone && <Notice>All set — Smart Marking is ready. <Link to="/classes">Go to Classes</Link> to create your first class, or <Link to="/assignments">Assignments</Link> to add a mark scheme.</Notice>}
       <hr className="rule-2" />
       <form onSubmit={save} style={{ maxWidth: 720, marginTop: 24 }}>
         <div className="field">
@@ -325,6 +349,17 @@ export function Settings() {
           <Button type="submit" variant="primary" size="lg" disabled={busy !== null || !modelId}>{busy === "save" ? "Saving…" : "Save"}</Button>
         </div>
       </form>
+      <hr className="rule-2" style={{ marginTop: 24 }} />
+      <div className="section-head"><h2>Teacher password</h2><span className="help">The password every teacher at your school uses to sign in.</span></div>
+      {pwSource === "railway"
+        ? <p className="help">It is set by the <code>TEACHER_PASSWORD</code> variable on Railway — change it there, or remove the variable to manage it here.</p>
+        : <form onSubmit={changePassword} aria-label="Change password" style={{ maxWidth: 420 }}>
+            {pwMsg && <Notice kind={pwMsg.kind === "error" ? "error" : undefined}>{pwMsg.text}</Notice>}
+            <div className="field"><label htmlFor="pw-current">Current password</label><input id="pw-current" className="input" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} required /></div>
+            <div className="field"><label htmlFor="pw-next">New password</label><input id="pw-next" className="input" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} required minLength={8} /></div>
+            <div className="field"><label htmlFor="pw-confirm">New password again</label><input id="pw-confirm" className="input" type="password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} required /></div>
+            <Button type="submit" variant="secondary" disabled={pwBusy || !pw.current || !pw.next || !pw.confirm}>{pwBusy ? "Changing…" : "Change password"}</Button>
+          </form>}
       <div style={{ maxWidth: 720 }}>
         <SubjectModels providers={providers} settings={saved} />
       </div>

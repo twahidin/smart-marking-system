@@ -221,7 +221,7 @@ into two zips.
 ```sh
 uv sync
 (cd web && npm ci && npm run build)
-SECRET_KEY=dev TEACHER_PASSWORD=dev uv run sms serve
+SECRET_KEY=dev uv run sms serve   # then open the site and create the password (or add TEACHER_PASSWORD=dev to skip the wizard)
 # open http://localhost:8000 — uses ./sms.db (SQLite) and ./data for page images
 ```
 
@@ -230,9 +230,10 @@ Frontend development with hot reload: `cd web && npm run dev` (proxies `/api` to
 ### Deploy on Railway
 
 The quickest way is the marketplace template — https://railway.com/deploy/smart-marking-1 — which creates
-the web service, a Postgres database and the `/data` volume, generates `SECRET_KEY` and
-`TEACHER_PASSWORD` for you (read the password from the service's Variables, or set your own before
-deploying), and leaves the model key for the Settings page. To set it up by hand instead:
+the web service, a Postgres database and the `/data` volume, and generates `SECRET_KEY` for you.
+The teacher password is created on the website by the first visitor, and the model key is pasted
+under Settings — nothing to read from the Railway dashboard. (Set `TEACHER_PASSWORD` in Variables only
+to fix or reset the password from the dashboard; it then wins over the website password.) To set it up by hand instead:
 
 One service (this repo, Dockerfile) + a Postgres database + a volume mounted at `/data`.
 
@@ -240,7 +241,7 @@ One service (this repo, Dockerfile) + a Postgres database + a volume mounted at 
 |---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
 | `SECRET_KEY` | a long random string — signs sessions and encrypts stored API keys (changing it invalidates both) |
-| `TEACHER_PASSWORD` | the password teachers use to sign in |
+| `TEACHER_PASSWORD` | optional — overrides the password created on the website (use it to reset a forgotten one) |
 | `STORAGE_DIR` | `/data` |
 | `LLM_PROVIDER` | optional — `tokenrouter` (default), `openrouter`, `openai`, `anthropic`, `moonshot`, `qwen`, `google` |
 | `LLM_MODEL` | optional — defaults to the provider's default model |

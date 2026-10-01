@@ -12,19 +12,29 @@ Everything — scripts, marks, classes, your key — lives inside your own Railw
 
 Open [railway.com/deploy/smart-marking-1](https://railway.com/deploy/smart-marking-1) and click **Deploy Smart Marking**. Railway creates two services — `web` (the app) and `Postgres` (the database) — plus a small disk for page images. The first build takes two to three minutes.
 
-Your sign-in password is generated for you. To read it: open the `web` service in Railway → **Variables** → `TEACHER_PASSWORD`. You can change it there at any time (the service restarts). To open the app, click the `web` service → **Settings** → **Networking** and follow the public domain (it looks like `web-production-xxxx.up.railway.app`).
+Nothing to copy from the dashboard: there is no password to read and no key to paste in Railway. To open the app, click the `web` service → **Settings** → **Networking** and follow the public domain (it looks like `web-production-xxxx.up.railway.app`). The first person to open it sets everything up on the website — do it straight after deploying.
 
 ![The template page on Railway. One click creates the app, the database and the storage.](images/00-railway-template.jpg)
 
 *The template page on Railway. One click creates the app, the database and the storage.*
 
-## 3. Sign in
+## 3. First visit: set the password, then connect a model
 
-Open the app's address and enter the teacher password from the step above. There is one shared teacher password per school deployment.
+Opening a brand-new deployment shows a two-step wizard. **Step 1** asks you to create the teacher password — the one every teacher at your school will use. Do it as soon as the deploy finishes: until a password exists, anyone who has the address could set it.
+
+**Step 2** is the Settings page: pick a provider, paste its key, load the models, test the connection and save (the next section walks through it). After that, everyone signs in with the password; change it any time under **Settings → Teacher password**. Forgot it? Set a `TEACHER_PASSWORD` variable on the `web` service in Railway — it overrides the website password until you remove it.
+
+![Step 1 of the wizard: create the teacher password. No dashboard visit needed.](images/60-setup-wizard.jpg)
+
+*Step 1 of the wizard: create the teacher password. No dashboard visit needed.*
+
+![Step 2 lands on Settings with the checklist for connecting a model.](images/61-settings-step-2.jpg)
+
+*Step 2 lands on Settings with the checklist for connecting a model.*
 
 ![The sign-in page. Teachers only — students never sign in.](images/01-sign-in.jpg)
 
-*The sign-in page. Teachers only — students never sign in.*
+*Every later visit: the sign-in page. Teachers only — students never sign in.*
 
 ## 4. Connect a model
 
@@ -212,7 +222,11 @@ From the assignment page, **Download marks CSV** gives one row per student with 
 
 **Cost.** A script needs about four model calls. On a paid provider that is typically well under one cent per script for a small model; on a free tier it is free within the daily limit.
 
-**Changing the password or the secret.** The password is the `TEACHER_PASSWORD` variable on Railway. Leave `SECRET_KEY` alone — it encrypts the stored API keys; changing it means re-entering them.
+**Changing the password or the secret.** Change the teacher password under **Settings → Teacher password**. If a `TEACHER_PASSWORD` variable is set on Railway it wins over the website password (that is also the reset path). Leave `SECRET_KEY` alone — it encrypts the stored API keys; changing it means re-entering them.
+
+![Settings → Teacher password.](images/62-settings-change-password.jpg)
+
+*Settings → Teacher password.*
 
 **File limits.** 12 files per submission, 2 MB per program file, 20 MB per zip and 50 MB per upload; `.xlsm` and macros are refused, and nothing you upload is ever executed.
 

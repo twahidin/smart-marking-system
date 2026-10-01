@@ -55,7 +55,7 @@ The CLI requires the sections `## About Hosting …`, `## Common Use Cases`, `##
 - a 5 GB volume at `/data` for page images (deleted after marking by default)
 
 ### After deploying
-1. Open the app and sign in with `TEACHER_PASSWORD`.
+1. Open the app: the first visitor creates the teacher password (step 1 of the wizard).
 2. **Settings** → pick a provider, paste its key, **Load models from provider**, **Test connection**, **Save**.
 3. **Assignments** → new assignment → upload the paper and mark scheme → **Read questions / Read mark scheme** → **Save**.
 4. **Classes** → new class → classlist CSV (`name, reg_no`) → **Set assignment** → **Open** → **Copy link** for your students.
@@ -71,7 +71,7 @@ Source and docs: https://github.com/twahidin/smart-marking-system
 |---|---|---|
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | reference variable |
 | `SECRET_KEY` | `${{secret(64)}}` | generated per deployment; signs sessions + encrypts API keys |
-| `TEACHER_PASSWORD` | `${{secret(12, "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789")}}` | generated; the deployer reads it from Variables. Mark it *required / user-editable* so they can set their own. |
+| `TEACHER_PASSWORD` | *(empty)* | **leave blank** — the first visitor creates the password on the website; a value here overrides it (dashboard reset). Optional, user-editable. |
 | `STORAGE_DIR` | `/data` | the volume mount |
 | `LLM_PROVIDER` | `tokenrouter` | optional, user-editable |
 | `LLM_MODEL` | *(empty)* | optional — provider default when blank |
@@ -89,7 +89,7 @@ domain was pinned to port 8000.
 ## Steps in the dashboard
 
 1. https://railway.com/project/2ca1604a-cc3c-4ca0-8a52-4b1f8a73369e/settings → **Generate Template from Project** → **Create Template**.
-2. In the composer: remove the `PORT` variable on `web`; replace `SECRET_KEY` and `TEACHER_PASSWORD` values with the functions above; confirm `DATABASE_URL` is the `${{Postgres.DATABASE_URL}}` reference; confirm the `/data` volume and public HTTP networking; **Create Template**.
+2. In the composer: remove the `PORT` variable on `web`; replace `SECRET_KEY` with the function above and leave `TEACHER_PASSWORD` empty (optional); replace thes above; confirm `DATABASE_URL` is the `${{Postgres.DATABASE_URL}}` reference; confirm the `/data` volume and public HTTP networking; **Create Template**.
 3. Deploy the template once yourself into a scratch project to make sure it comes up (health check green, sign-in works) — then delete the scratch project.
 4. Workspace → **Templates** → **Publish** → paste the listing above, upload the icon, choose the category, publish.
 5. Copy the template URL (`https://railway.com/new/template/<code>`) and paste it into the README's *Deploy on Railway* button.

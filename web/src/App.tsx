@@ -14,6 +14,7 @@ import { Learning } from "./pages/Learning";
 import { NewSubmission } from "./pages/NewSubmission";
 import { Review } from "./pages/Review";
 import { Settings } from "./pages/Settings";
+import { Setup } from "./pages/Setup";
 import { SignIn } from "./pages/SignIn";
 import { SubmissionDetail } from "./pages/SubmissionDetail";
 import { Submissions } from "./pages/Submissions";
@@ -24,7 +25,7 @@ import { HandIn } from "./student/HandIn";
 import { Home } from "./student/Home";
 import { StudentLayout } from "./student/StudentLayout";
 
-type AuthState = "loading" | "authed" | "anon" | "error";
+type AuthState = "loading" | "authed" | "anon" | "setup" | "error";
 
 function Shell() {
   const [auth, setAuth] = useState<AuthState>("loading");
@@ -37,12 +38,20 @@ function Shell() {
     setAuth("loading");
     api.get("/api/auth/me").then(
       () => setAuth("authed"),
-      (e) => setAuth(e instanceof ApiError && e.status === 401 ? "anon" : "error"),
+      (e) => {
+        if (!(e instanceof ApiError && e.status === 401)) { setAuth("error"); return; }
+        // Signed out — or never set up: a fresh deployment goes to the wizard instead of sign-in.
+        api.get<{ needs_setup: boolean }>("/api/setup/status").then(
+          (s) => setAuth(s.needs_setup ? "setup" : "anon"),
+          () => setAuth("anon"),
+        );
+      },
     );
   }, []);
   useEffect(() => { checkAuth(); }, [checkAuth]);
   useEffect(() => { if (auth === "authed") refreshQueue(); }, [auth, loc.pathname, refreshQueue]);
   if (auth === "loading") return <p className="page muted">Loading…</p>;
+  if (auth === "setup") return <Navigate to="/setup" replace />;
   if (auth === "anon") return <Navigate to="/sign-in" replace state={{ from: loc.pathname }} />;
   if (auth === "error") {
     return (
@@ -63,6 +72,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
+      <Route path="/setup" element={<Setup />} />
       {/* student side — phone-first, no teacher Nav */}
       <Route path="/c/:code" element={<Enter />} />
       <Route path="/join" element={<Enter />} />
