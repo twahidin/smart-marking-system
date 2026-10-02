@@ -1,3 +1,4 @@
+export type PageRetention = "crops" | "pages" | "none";
 export type Subject = "math" | "language" | "science" | "mt" | "computing";
 /** The script's language, for Mother Tongue only: Chinese, Malay or Tamil. */
 export type MtLanguage = "zh" | "ms" | "ta";
@@ -16,6 +17,7 @@ export interface Settings {
   provider: string; model: string; base_url: string | null; extractor_model: string | null;
   rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string; keys?: Record<string, string>; auto_reflect: boolean;
   delete_pages_after_marking: boolean;
+  page_retention: PageRetention;
   /** Telegram: linked once a bot token is saved *and* the teacher has pressed /start in the chat. */
   telegram_linked: boolean; telegram_bot_hint: string; telegram_chat_id: string | null;
   telegram_instant: boolean; /** "HH:MM" in `timezone` */ telegram_daily_time: string; timezone: string; app_url: string | null;
@@ -41,6 +43,7 @@ export interface AssignmentTemplate {
   scheme_kind: SchemeKind; questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[];
   paper_page_ids: number[]; scheme_page_ids: number[];
   delete_pages_after_marking: boolean | null; effective_delete_pages: boolean;
+  page_retention?: PageRetention | null; effective_page_retention?: PageRetention;
   /** The model this assignment pins itself to; all three null = Auto (it follows Settings). */
   provider: string | null; model: string | null; extractor_model: string | null;
   /** What will actually run: the assignment's own model, or the one saved under Settings. */
@@ -54,6 +57,7 @@ export interface EffectiveModel {
 export interface AssignmentBody {
   title: string; subject: Subject; context: string; rubric: Rubric; scheme_kind: SchemeKind;
   questions: Question[]; scheme: MarkSchemeEntry[] | RubricBands[]; delete_pages_after_marking: boolean | null;
+  page_retention?: PageRetention | null;
   /** Required when the subject is `mt`; sent as null for every other subject. */
   language?: MtLanguage | null;
   /** Omitted or null = Auto. A PUT that leaves these out clears a saved override, so every caller sends them. */
@@ -99,6 +103,7 @@ export type TeacherMark = { allocations: AwardedAllocation[]; total: number } | 
 export interface Part {
   q_id: string; label: string; question_text: string; scheme: PartScheme | null;
   extracted: string; workings: string; illegible: boolean;
+  crop_id?: number | null; crop_whole_page?: boolean;
   awarded?: AwardedAllocation[]; band?: string; descriptor_met?: string;
   total: number; max: number; justification: string; in_scheme: boolean; confidence: number | null;
   /** `reason` is the pipeline's code (e.g. "not in scheme"); `reason_text` is the sentence the teacher reads. */
@@ -124,6 +129,7 @@ export interface QueueItem {
   id: number; submission_id: number; submission_label: string; q_id: string; reason: string; reason_text?: string; created_at: string;
   transcription: string; workings: string; proposed_criterion_scores: number[]; proposed_total: number | null;
   evidence: string; rationale: string; reviewer_note: string; criterion_defs: Criterion[]; page_ids: number[];
+  crop_id?: number | null;
   /** Why `page_ids` may be empty without the pages having been deleted: the script came in as files. */
   input_kind: InputKind;
   /** v2 items: the part's label and question, the scheme row it was marked against and the stored mark as the proposal. */

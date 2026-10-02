@@ -34,6 +34,7 @@ class RecordRow:
     to_review: bool
     awarded_marks: Optional[int]  # numeric awarded mark for the markbook; None while to review
     max_marks: int
+    crop_bytes: Optional[bytes] = None   # the cropped answer region (JPEG) when one was kept
 
 
 @dataclass
@@ -173,7 +174,8 @@ def _row_v1(mark: dict, criteria: List[dict]) -> RecordRow:
     ))
 
 
-def build_record(submission_detail: dict, template: Optional[dict] = None, *, model: str = "") -> Record:
+def build_record(submission_detail: dict, template: Optional[dict] = None, *, model: str = "",
+                 crops: Optional[Dict[str, bytes]] = None) -> Record:
     """Build the record from the detail dict `get_submission` returns and the assignment dict
     `get_template` returns (None when the script has no assignment). `model` is the provider/model
     line for the header. Every text field is sanitised (control characters removed)."""
@@ -188,6 +190,8 @@ def build_record(submission_detail: dict, template: Optional[dict] = None, *, mo
     if d.get("marks_version") == 2:
         parts = d.get("parts") or []
         rows = [_row_v2(kind, p) for p in parts]
+        for row, p in zip(rows, parts):
+            row.crop_bytes = (crops or {}).get(p.get("q_id"))
         if kind == "rubric":
             # a rubric marks the response as one, so every part carries the same whole transcription
             whole = next((_with_workings(p.get("extracted", ""), p.get("workings", "")) for p in parts

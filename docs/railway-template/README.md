@@ -52,7 +52,7 @@ The CLI requires the sections `## About Hosting …`, `## Common Use Cases`, `##
 ### What's in the template
 - `web` — the app (FastAPI + React), built from the Dockerfile, with the marking worker embedded
 - `Postgres` — assignments, classes, marks, settings (API keys encrypted at rest)
-- a 5 GB volume at `/data` for page images (deleted after marking by default)
+- a 5 GB volume at `/data` for page images and answer crops (by default the full pages are deleted after marking and only each part's answer crop is kept)
 
 ### After deploying
 1. Open the app: the first visitor creates the teacher password (step 1 of the wizard).
@@ -79,7 +79,7 @@ Source and docs: https://github.com/twahidin/smart-marking-system
 
 Settings: builder **Dockerfile** (auto from `railway.json`), healthcheck `/api/health` (auto),
 **Public networking → HTTP** (leave the port unset — the app listens on Railway's `$PORT`), volume
-mounted at **`/data`** (5 GB is plenty; pages are deleted after marking).
+mounted at **`/data`** (5 GB is plenty; by default only small answer crops are kept after marking).
 
 Do **not** copy `PORT=8000` from the production project — it was only needed because that project's
 domain was pinned to port 8000.

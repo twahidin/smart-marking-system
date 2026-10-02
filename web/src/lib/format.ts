@@ -30,3 +30,5 @@ export const providerLabel: Record<string, string> = {
   tokenrouter: "TokenRouter", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Anthropic",
   moonshot: "Moonshot (Kimi)", qwen: "Qwen (Alibaba Model Studio)", google: "Google Gemini",
 };
+
+export const retentionLabel: Record<string, string> = { crops: "Keep the answer portions only", pages: "Keep whole pages", none: "Delete everything after marking" };

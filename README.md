@@ -202,6 +202,8 @@ through. Photos inside a bulk zip are **not** downsized in the browser the way a
 so the whole archive may unpack to at most 50 MB — past that, downsize the photos or split the class
 into two zips.
 
+**What is kept after marking** — Settings → *After marking, keep*: **the answer portions only** (default: the page reader returns where each part sits on the page; the app crops that region, keeps the crop and deletes the full pages), **whole pages**, or **nothing** but the transcription. Each assignment can override it. On the submission page every mark has **Show answer**, the Review queue shows the crop for the flagged part, and the `.docx` marking record embeds it. Crops stay until the hand-in is removed.
+
 ### Settings
 
 - **Delete pages after marking** — global default for the page-deletion behaviour above; an assignment

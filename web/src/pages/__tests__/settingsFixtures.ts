@@ -18,7 +18,7 @@ export const providers: ProviderSpec[] = [
 
 export const settings: Settings = {
   provider: "tokenrouter", model: "z-ai/glm-5.3-flash", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0,
-  has_key: true, key_hint: "abcd", keys: { tokenrouter: "abcd" }, auto_reflect: true, delete_pages_after_marking: true,
+  has_key: true, key_hint: "abcd", keys: { tokenrouter: "abcd" }, auto_reflect: true, page_retention: "crops", delete_pages_after_marking: true,
   telegram_linked: false, telegram_bot_hint: "", telegram_chat_id: null, telegram_instant: true, telegram_daily_time: "07:00",
   timezone: "Asia/Singapore", app_url: null,
 };

@@ -75,6 +75,14 @@ def _header_block(doc: Document, record: Record) -> None:
         p.add_run(f"    {n} part{'s' if n != 1 else ''} to review").bold = True
 
 
+def _picture(cell, data: bytes) -> None:
+    """The answer crop under the transcription, scaled to the column; a bad image is skipped silently."""
+    try:
+        cell.add_paragraph().add_run().add_picture(io.BytesIO(data), width=Cm(5.5))
+    except Exception:  # noqa: BLE001 - the record must still render without the picture
+        pass
+
+
 def _table(doc: Document, record: Record) -> None:
     table = doc.add_table(rows=1, cols=len(HEADERS))
     table.style = "Table Grid"
@@ -87,6 +95,8 @@ def _table(doc: Document, record: Record) -> None:
         _write(cells[0], row.label, bold=True)
         _write(cells[1], row.scheme_answer)
         _write(cells[2], row.student_answer)
+        if row.crop_bytes:
+            _picture(cells[2], row.crop_bytes)
         _write(cells[3], row.justification)
         _write(cells[4], row.awarded, bold=row.to_review)
         if row.to_review:

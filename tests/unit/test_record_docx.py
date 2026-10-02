@@ -127,3 +127,20 @@ def test_rubric_page_is_sanitised_and_renders_in_docx_and_xlsx():
     assert [c.text for c in doc.tables[1].rows[1].cells] == ["Content", "A", "5", "Richdetail", "✓"]
     wb = load_workbook(io.BytesIO(render_xlsx([rec])))
     assert [c.value for c in wb["Rows"][2]][1:4] == ["Quick mark", "Content", "Content\nA (5): Richdetail\nB (3): Some"]
+
+
+def test_docx_embeds_the_answer_crop_under_the_student_answer():
+    from PIL import Image
+    buf = io.BytesIO(); Image.new("RGB", (120, 60), "white").save(buf, "JPEG")
+    row = RecordRow(key="1a", label="1(a)", scheme_answer="x = 3", student_answer="x = 3", justification="B2 earned",
+                    awarded="2 / 2", teacher="", to_review=False, awarded_marks=2, max_marks=2, crop_bytes=buf.getvalue())
+    bare = RecordRow(key="1b", label="1(b)", scheme_answer="9", student_answer="6", justification="", awarded="0 / 1",
+                     teacher="", to_review=False, awarded_marks=0, max_marks=1)
+    record = Record(title="T", student="S", marked_at="now", model="m", rows=[row, bare], total_awarded=2, total_upper=2,
+                    total_max=3, to_review_count=0, rubric_page=None, submission_id=1, kind="mark_scheme", assignment_id=None,
+                    transcription=None)
+    doc = Document(io.BytesIO(render_docx(record)))
+    assert len(doc.inline_shapes) == 1          # one picture, for the row that has a crop
+    corrupt = RecordRow(**{**row.__dict__, "crop_bytes": b"not a jpeg"})
+    record.rows = [corrupt]
+    Document(io.BytesIO(render_docx(record)))   # a bad crop never breaks the record

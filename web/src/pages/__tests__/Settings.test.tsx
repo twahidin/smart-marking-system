@@ -174,11 +174,12 @@ describe("Settings — delete pages after marking", () => {
   it("saves the global default with the rest of the settings", async () => {
     mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
     render(<MemoryRouter><Settings /></MemoryRouter>);
-    const box = await screen.findByRole("checkbox", { name: "Delete student pages after marking (default for new assignments)" });
-    expect(box).toBeChecked();
-    await userEvent.click(box);
+    const sel = await screen.findByLabelText("After marking, keep (default for new assignments)");
+    expect(sel).toHaveValue("crops");
+    await userEvent.selectOptions(sel, "pages");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    expect(saved[0].page_retention).toBe("pages");
     expect(saved[0].delete_pages_after_marking).toBe(false);
   });
 });

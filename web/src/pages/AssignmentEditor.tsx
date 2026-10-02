@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { AssignmentBody, AssignmentTemplate, EffectiveModel, ExtractStatus, MarkSchemeEntry, MtLanguage, ProviderSpec, Question, RubricBands, SchemeKind, Settings, Subject } from "../api/types";
+import type { AssignmentBody, AssignmentTemplate, EffectiveModel, ExtractStatus, MarkSchemeEntry, MtLanguage, ProviderSpec, Question, RubricBands, SchemeKind, Settings, Subject, PageRetention } from "../api/types";
 import { Button } from "../components/Button";
 import { CriteriaEditor } from "../components/CriteriaTable";
 import { Dialog } from "../components/Dialog";
@@ -12,13 +12,13 @@ import { ModelPicker } from "../components/ModelPicker";
 import { Notice } from "../components/Notice";
 import { QuestionsTable } from "../components/QuestionsTable";
 import { RubricTable } from "../components/RubricTable";
-import { languageLabel, providerLabel, SUBJECTS, subjectLabel } from "../lib/format";
+import { SUBJECTS, languageLabel, providerLabel, retentionLabel, subjectLabel } from "../lib/format";
 import { jsonToRows, type Row } from "../lib/rubric";
 import { kindLabel, placeholderRubric, schemeTotal, validateTemplate, type Scheme } from "../lib/scheme";
 
 type Draft = {
   title: string; subject: Subject; kind: SchemeKind | null; context: string;
-  questions: Question[]; scheme: Scheme; criteria: Row[]; deletePages: boolean | null;
+  questions: Question[]; scheme: Scheme; criteria: Row[]; deletePages: boolean | null; retention: PageRetention | null;
   /** Only sent when the subject is MT; kept while another subject is selected so switching back restores it. */
   language: MtLanguage;
   /** null = Auto: the assignment follows Settings, and its model fields go with it. */
@@ -31,7 +31,7 @@ const KINDS: SchemeKind[] = ["mark_scheme", "rubric", "criteria"];
 const LANGUAGES: MtLanguage[] = ["zh", "ms", "ta"];
 const COMPUTING_NOTE = "Students can hand in files (.py, .sb3, .xlsx) and photos";
 const DEFAULT_SUBJECT: Record<SchemeKind, Subject> = { mark_scheme: "math", rubric: "language", criteria: "math" };
-const EMPTY: Draft = { title: "", subject: "math", kind: null, context: "", questions: [], scheme: [], criteria: [], deletePages: null, language: "zh", provider: null, model: "", extractorModel: "" };
+const EMPTY: Draft = { title: "", subject: "math", kind: null, context: "", questions: [], scheme: [], criteria: [], deletePages: null, retention: null, language: "zh", provider: null, model: "", extractorModel: "" };
 const isActive = (s: string | null | undefined) => s === "queued" || s === "running";
 
 const clampInt = (v: unknown) => Math.max(0, Math.round(Number(v) || 0));
@@ -57,7 +57,7 @@ function toBody(d: Draft): AssignmentBody {
   const criteria = d.criteria.filter((c) => trimmed(c.description)).map((c) => ({ ...c, max_score: Math.max(1, clampInt(c.max_score)) }));
   return {
     title: trimmed(d.title), subject: d.subject, context: trimmed(d.context), scheme_kind: kind,
-    rubric: placeholderRubric(kind, questions, scheme, criteria), questions, scheme, delete_pages_after_marking: d.deletePages,
+    rubric: placeholderRubric(kind, questions, scheme, criteria), questions, scheme, delete_pages_after_marking: d.retention === null ? null : d.retention !== "pages", page_retention: d.retention,
     // Only MT has a language; every other subject clears whatever was stored.
     language: d.subject === "mt" ? d.language : null,
     // Auto sends all three as null; the server treats a missing provider as "follow Settings" either way.
@@ -69,7 +69,7 @@ function toBody(d: Draft): AssignmentBody {
 function fromTemplate(t: AssignmentTemplate): Draft {
   return {
     title: t.title, subject: t.subject, kind: t.scheme_kind, context: t.context, questions: t.questions, scheme: t.scheme,
-    criteria: t.scheme_kind === "criteria" ? jsonToRows(JSON.stringify(t.rubric)) : [], deletePages: t.delete_pages_after_marking,
+    criteria: t.scheme_kind === "criteria" ? jsonToRows(JSON.stringify(t.rubric)) : [], deletePages: t.delete_pages_after_marking, retention: t.page_retention ?? null,
     language: t.language ?? "zh",
     provider: t.provider, model: t.model ?? "", extractorModel: t.extractor_model ?? "",
   };
@@ -191,12 +191,12 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
   };
   // An essay's transcription is the whole record of the script, so a new rubric assignment defaults to keeping the
   // pages ("Off"); the other types follow the Settings default. A value the teacher chose by hand is left alone.
-  const deletePagesFor = (kind: SchemeKind, d: Draft): boolean | null => {
-    if (!isNew || deleteTouched) return d.deletePages;
-    return kind === "rubric" ? false : null;
+  const retentionFor = (kind: SchemeKind, d: Draft): PageRetention | null => {
+    if (!isNew || deleteTouched) return d.retention;
+    return kind === "rubric" ? "pages" : null;
   };
   const applyKind = (kind: SchemeKind) => {
-    setDraft((d) => ({ ...d, kind, scheme: [], questions: kind === "criteria" ? [] : d.questions, subject: subjectTouched ? d.subject : DEFAULT_SUBJECT[kind], deletePages: deletePagesFor(kind, d) }));
+    setDraft((d) => ({ ...d, kind, scheme: [], questions: kind === "criteria" ? [] : d.questions, subject: subjectTouched ? d.subject : DEFAULT_SUBJECT[kind], retention: retentionFor(kind, d), deletePages: retentionFor(kind, d) === null ? null : retentionFor(kind, d) !== "pages" }));
     setPendingKind(null);
   };
 
@@ -418,12 +418,12 @@ export function AssignmentEditor({ pollMs = 3000 }: { pollMs?: number }) {
             <div className="section-head"><h2>Notes</h2><span className="help">Anything the marker should know.</span></div>
             <div className="field"><label htmlFor="notes">Notes (optional)</label>
               <textarea id="notes" className="input" placeholder="Penalise missing units once. Accept any correct method. ECF applies." value={draft.context} onChange={(e) => patch({ context: e.target.value })} /></div>
-            <div className="field" style={{ maxWidth: 360 }}><label htmlFor="delete-pages">Delete student pages after marking</label>
-              <select id="delete-pages" className="input" value={draft.deletePages === null ? "" : draft.deletePages ? "on" : "off"}
-                onChange={(e) => { setDeleteTouched(true); patch({ deletePages: e.target.value === "" ? null : e.target.value === "on" }); }}>
-                <option value="">Follow default{defaultDelete === null ? "" : ` (${defaultDelete ? "on" : "off"})`}</option>
-                <option value="on">On</option>
-                <option value="off">Off</option>
+            <div className="field" style={{ maxWidth: 360 }}><label htmlFor="page-retention">After marking, keep</label>
+              <select id="page-retention" className="input" value={draft.retention ?? ""} onChange={(e) => { setDeleteTouched(true); setDraft({ ...draft, retention: (e.target.value || null) as PageRetention | null }); }}>
+                <option value="">Follow default ({retentionLabel[settings?.page_retention ?? "crops"]})</option>
+                <option value="crops">{retentionLabel.crops}</option>
+                <option value="pages">{retentionLabel.pages}</option>
+                <option value="none">{retentionLabel.none}</option>
               </select>
               <span className="help">Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark. Change the default under Settings.</span></div>
           </section>
