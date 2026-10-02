@@ -33,6 +33,13 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
             pages_by_sub[p["submission_id"]].append(p["id"])
 
     out = []
+    sub_ids = sorted({r["submission_id"] for r in rows if r["submission_id"]})
+    crops_by: Dict[tuple, int] = {}
+    if sub_ids:
+        marks = ", ".join(f":c{i}" for i in range(len(sub_ids)))
+        for c in db.query(f"SELECT id, submission_id, q_id FROM part_crops WHERE deleted_at IS NULL AND submission_id IN ({marks})",
+                          {f"c{i}": sid for i, sid in enumerate(sub_ids)}):
+            crops_by[(c["submission_id"], norm_qid(c["q_id"]))] = c["id"]
     for r in rows:
         q = r["q_id"]
         extracted = json.loads(r["extracted_json"] or '{"questions": []}')
@@ -48,6 +55,8 @@ def list_queue(db: Database) -> List[Dict[str, Any]]:
             "transcription": eq.get("transcribed_answer", ""), "workings": eq.get("workings", ""),
             "reviewer_note": rv.get("reviewer_note", ""),
             "page_ids": page_ids,
+            # The cropped answer region for this part, when the reader located it (survives page deletion).
+            "crop_id": crops_by.get((r["submission_id"], norm_qid(q))),
             # A files-only script has no page to crop: the reviewer reads the transcription, and must not
             # be told the pages were deleted after marking.
             "input_kind": r["input_kind"] or "pages",

@@ -16,6 +16,7 @@ from sms.storage import PageStorage, UploadError, process_uploads
 from sms.timeutil import iso_utc  # noqa: F401 - re-exported for existing importers
 from sms.web.errors import ApiError
 from sms.web.services.assignments import get_template, mark_template_used
+from sms.web.services.crops import crops_for_submission
 from sms.web.services.notify import record_hand_in
 from sms.web.services.rubric import parse_rubric
 from sms.worker.jobs import JobStore
@@ -265,10 +266,11 @@ def _teacher_view(correction: dict) -> dict:
 
 
 def serialise_parts_v2(scheme_info: dict, final: dict, extracted: dict, pending: Dict[str, dict],
-                       corrections: Dict[str, dict]) -> List[dict]:
+                       corrections: Dict[str, dict], crops: Optional[Dict[str, dict]] = None) -> List[dict]:
     """Detail rows for a v2 run: one per scheme row in scheme order (then any part the marker returned
     that the scheme has no row for, escalated as not in scheme). A rubric marks the response as one,
     so every criterion shows the whole transcription."""
+    crops = {norm_qid(k): v for k, v in (crops or {}).items()}
     kind = scheme_info["scheme_kind"]
     questions = {q["q_id"]: q for q in scheme_info["questions"]}
     marks = final.get("parts" if kind == "mark_scheme" else "rubric") or []
@@ -284,10 +286,12 @@ def serialise_parts_v2(scheme_info: dict, final: dict, extracted: dict, pending:
     any_illegible = any(q.get("needs_human_transcription") for q in ex_qs)
 
     def build(key: str, row: Optional[dict], mark: Optional[dict]) -> dict:
+        crop = crops.get(norm_qid(key)) or crops.get(key)
         if kind == "mark_scheme":
             eq = ex_by_q.get(norm_qid(key), {})
             base = {
                 "q_id": key, "label": q_label(key), "question_text": questions.get(key, {}).get("text", ""),
+                "crop_id": crop["id"] if crop else None, "crop_whole_page": bool(crop["whole_page"]) if crop else False,
                 "scheme": {"answer": row.get("answer", ""), "marks": row.get("marks") or [], "notes": row.get("notes", "")} if row else None,
                 "extracted": eq.get("transcribed_answer", ""), "workings": eq.get("workings", ""),
                 "illegible": bool(eq.get("needs_human_transcription", False)),
@@ -298,6 +302,7 @@ def serialise_parts_v2(scheme_info: dict, final: dict, extracted: dict, pending:
         else:
             base = {
                 "q_id": key, "label": key, "question_text": "; ".join(q.get("text", "") for q in scheme_info["questions"] if q.get("text")),
+                "crop_id": crop["id"] if crop else None, "crop_whole_page": bool(crop["whole_page"]) if crop else False,
                 "scheme": {"criterion": key, "bands": row.get("bands") or []} if row else None,
                 "extracted": whole, "workings": whole_workings, "illegible": any_illegible,
                 "band": (mark or {}).get("band", ""), "descriptor_met": (mark or {}).get("descriptor_met", ""),
@@ -408,7 +413,7 @@ def get_submission(db: Database, jobs: JobStore, submission_id: int) -> Optional
         final_v2 = run_final_v2(run) or {"kind": scheme_info["scheme_kind"], "parts": [], "rubric": []}
         extracted = json.loads(run["extracted_json"]) if run["extracted_json"] else {"questions": []}
         corrections_v2 = _corrections_v2(db, s["run_id"])
-        parts = serialise_parts_v2(scheme_info, final_v2, extracted, pending, corrections_v2)
+        parts = serialise_parts_v2(scheme_info, final_v2, extracted, pending, corrections_v2, crops_for_submission(db, s["id"]))
         kind = scheme_info["scheme_kind"]
         totals = compute_totals_v2(kind, scheme_info["scheme"], final_v2.get("parts" if kind == "mark_scheme" else "rubric") or [],
                                    set(pending), corrections_v2)

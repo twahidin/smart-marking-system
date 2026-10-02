@@ -79,6 +79,7 @@ def create_app(config: AppConfig) -> FastAPI:
     app.include_router(class_assignments.router)
     app.include_router(student.router)
     app.include_router(pages.router)
+    app.include_router(pages.crops_router)
     app.include_router(queue.router)
     app.include_router(learning.router)
     if config.static_dir:

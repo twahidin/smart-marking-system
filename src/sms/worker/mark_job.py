@@ -21,6 +21,7 @@ from sms.providers.settings import SettingsStore
 from sms.schemas.marking import Rubric
 from sms.storage import PageStorage
 from sms.web.services.assignments import get_template
+from sms.web.services.crops import crop_parts, store_part_crops
 from sms.web.services.pages_cleanup import delete_submission_pages
 
 log = logging.getLogger("sms.worker")
@@ -156,6 +157,12 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
         pipeline = factory(db=db, settings=settings, subject=sub["subject"], bucket=bucket)
         result = pipeline.run(images=images, assignment_context=sub["context"] or "Student script",
                               rubric=rubric, submission_id=submission_id)
+    if template is not None and images:
+        # Answer crops outlive the pages when retention is 'crops'; a cropping failure never fails marking.
+        try:
+            store_part_crops(db, submission_id, crop_parts(storage, images, result.extracted))
+        except Exception:  # noqa: BLE001
+            log.exception("could not store the answer crops of submission %s", submission_id)
     status = "needs_you" if result.escalations else "done"
     stamp_run_model(db, result.run_id, settings.provider, settings.model)
     db.execute("UPDATE submissions SET status = :st, run_id = :rid, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
