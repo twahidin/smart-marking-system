@@ -229,13 +229,24 @@ function PartsTable({ parts, rubric, inProgress }: { parts: Part[]; rubric: bool
             <tr key={p.q_id} className={p.escalated && !p.teacher ? "warn" : ""}>
               <td><strong>{p.label}</strong>{p.question_text && <div className="help" style={{ marginTop: 4 }}>{p.question_text}</div>}</td>
               <td><SchemeCell part={p} /></td>
-              <td style={{ whiteSpace: "pre-wrap" }}>{p.illegible ? <span className="tertiary">(illegible)</span> : (clip(p.extracted) || <span className="tertiary">—</span>)}{!p.illegible && p.workings && <div className="help" style={{ marginTop: 4 }}>Workings: {clip(p.workings, 300)}</div>}</td>
+              <td style={{ whiteSpace: "pre-wrap" }}>{p.illegible ? <span className="tertiary">(illegible)</span> : (clip(p.extracted) || <span className="tertiary">—</span>)}{!p.illegible && p.workings && <div className="help" style={{ marginTop: 4 }}>Workings: {clip(p.workings, 300)}</div>}{p.crop_id && <AnswerCrop part={p} />}</td>
               <td className="help" style={{ color: "var(--ink)" }}>{p.justification || <span className="tertiary">—</span>}{!p.in_scheme && <div className="warn-note" style={{ marginTop: 4 }}>Not in the scheme</div>}</td>
               <td><AwardedCell part={p} /></td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** The cropped answer region the reader located for this part — kept after the pages are deleted. */
+function AnswerCrop({ part }: { part: Part }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 6 }}>
+      <button type="button" className="btn btn-ghost btn-sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "Hide answer" : "Show answer"}</button>
+      {open && <div className="page-view" style={{ marginTop: 6 }}><img src={`/api/crops/${part.crop_id}`} alt={`Student's answer for ${part.label}${part.crop_whole_page ? " (whole page)" : ""}`} style={{ maxWidth: "100%" }} />{part.crop_whole_page && <div className="help">Whole page — the reader could not pin down this part.</div>}</div>}
     </div>
   );
 }

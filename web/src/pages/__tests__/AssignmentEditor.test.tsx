@@ -6,7 +6,7 @@ import type { AssignmentTemplate, ExtractStatus, ModelSpec, ProviderSpec } from 
 import { AssignmentEditor } from "../AssignmentEditor";
 
 // A key is saved for OpenRouter and OpenAI, none for Anthropic — its tile is offered but disabled.
-const settings = { provider: "openrouter", model: "openrouter/auto", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true, delete_pages_after_marking: true, keys: { openrouter: "0abc", openai: "1def" } };
+const settings = { provider: "openrouter", model: "openrouter/auto", page_retention: "crops", base_url: null, extractor_model: null, rpm_limit: 60, confidence_threshold: 0, has_key: true, key_hint: "abcd", auto_reflect: true, delete_pages_after_marking: true, keys: { openrouter: "0abc", openai: "1def" } };
 const provider = (id: string, label: string, default_model: string, models: ModelSpec[]): ProviderSpec => ({
   id, label, transport: "openai_compatible", base_url: null, mode: "JSON", default_model, default_rpm: 60,
   models, key_url: "https://example.test/keys", note: "", base_url_editable: false, custom_models: id === "openrouter",
@@ -22,7 +22,7 @@ const template = (over: Partial<AssignmentTemplate> = {}): AssignmentTemplate =>
   id: 7, title: "Quadratics worksheet", subject: "math", context: "", rubric: { criterion_defs: [{ id: "draft", description: "Draft", max_score: 0 }] },
   language: null, criteria_count: 1, total_marks: 0, times_used: 0, created_at: "2026-09-15T03:04:05Z", updated_at: "2026-09-15T03:04:05Z",
   scheme_kind: "mark_scheme", questions: [], scheme: [], paper_page_ids: [], scheme_page_ids: [],
-  delete_pages_after_marking: null, effective_delete_pages: true,
+  delete_pages_after_marking: null, effective_delete_pages: true, page_retention: null, effective_page_retention: "crops",
   provider: null, model: null, extractor_model: null,
   effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null, source: "settings" }, ...over,
 });
@@ -169,17 +169,17 @@ describe("AssignmentEditor — new", () => {
     renderAt("/assignments/new");
     await screen.findByRole("heading", { name: "New assignment" });
     await userEvent.click(screen.getByRole("radio", { name: "Maths / Science — mark scheme" }));
-    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("");
+    expect(screen.getByLabelText("After marking, keep")).toHaveValue("");
     await userEvent.click(screen.getByRole("radio", { name: "Essay — rubric" }));
-    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("off");
+    expect(screen.getByLabelText("After marking, keep")).toHaveValue("pages");
     expect(screen.getByText(/the marking record keeps the transcription and every mark/)).toBeInTheDocument();
     // back to a mark scheme: the essay default is dropped again
     await userEvent.click(screen.getByRole("radio", { name: "Maths / Science — mark scheme" }));
-    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("");
+    expect(screen.getByLabelText("After marking, keep")).toHaveValue("");
     // a choice the teacher made by hand survives a type change
-    await userEvent.selectOptions(screen.getByLabelText("Delete student pages after marking"), "on");
+    await userEvent.selectOptions(screen.getByLabelText("After marking, keep"), "crops");
     await userEvent.click(screen.getByRole("radio", { name: "Essay — rubric" }));
-    expect(screen.getByLabelText("Delete student pages after marking")).toHaveValue("on");
+    expect(screen.getByLabelText("After marking, keep")).toHaveValue("crops");
   });
 
   it("dropping the paper and the scheme back to back creates the draft once", async () => {
@@ -228,7 +228,7 @@ describe("AssignmentEditor — existing", () => {
     expect(await screen.findByRole("heading", { name: "Quadratics worksheet" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Quadratics worksheet");
     expect(screen.getByText("2 pages uploaded")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Follow default (on)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Follow default (Keep the answer portions only)" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "+ Add question" }));
     await userEvent.click(screen.getByRole("button", { name: "Read questions" }));

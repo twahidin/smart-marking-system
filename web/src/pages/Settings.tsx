@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { ProbeResult, ProviderSpec, Settings as S } from "../api/types";
+import type { PageRetention, ProbeResult, ProviderSpec, Settings as S } from "../api/types";
 import { Button } from "../components/Button";
 import { Notice } from "../components/Notice";
+import { retentionLabel } from "../lib/format";
 import { SubjectModels } from "./settings/SubjectModels";
 
-type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean; delete_pages_after_marking: boolean;
+type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean; delete_pages_after_marking: boolean; page_retention: PageRetention;
               telegram_bot_token: string; telegram_instant: boolean; telegram_daily_time: string; timezone: string; app_url: string };
 /** Offered first in the Time zone select; the browser's full IANA list follows when it can produce one. */
 const COMMON_ZONES = ["Asia/Singapore", "Asia/Kuala_Lumpur", "Asia/Jakarta", "Asia/Manila", "Asia/Bangkok", "Asia/Hong_Kong", "Asia/Tokyo", "Australia/Sydney", "Europe/London", "UTC"];
@@ -49,7 +50,7 @@ export function Settings() {
       const listed = spec.models.some((m) => m.id === s.model);
       setForm({ provider: s.provider, model: listed ? s.model : "__custom__", custom_model: listed ? "" : s.model, api_key: "",
                 base_url: s.base_url ?? "", extractor_model: s.extractor_model ?? "", rpm_limit: s.rpm_limit, confidence_threshold: s.confidence_threshold,
-                auto_reflect: s.auto_reflect, delete_pages_after_marking: s.delete_pages_after_marking ?? true,
+                auto_reflect: s.auto_reflect, delete_pages_after_marking: s.delete_pages_after_marking ?? true, page_retention: s.page_retention ?? "crops",
                 telegram_bot_token: "", telegram_instant: s.telegram_instant ?? true, telegram_daily_time: s.telegram_daily_time || "07:00",
                 timezone: s.timezone || "Asia/Singapore", app_url: s.app_url ?? "" });
     }).catch((e) => setMsg({ kind: "error", text: e.message }));
@@ -69,7 +70,7 @@ export function Settings() {
   const hasKey = !!form.api_key || !!savedHint;
   const payload = { provider: form.provider, model: modelId, api_key: form.api_key || undefined, base_url: form.base_url || undefined,
                     extractor_model: form.extractor_model || undefined, rpm_limit: form.rpm_limit, confidence_threshold: form.confidence_threshold,
-                    auto_reflect: form.auto_reflect, delete_pages_after_marking: form.delete_pages_after_marking,
+                    auto_reflect: form.auto_reflect, delete_pages_after_marking: form.page_retention !== "pages", page_retention: form.page_retention,
                     // The PUT body is authoritative for the four below — an omitted field resets to its default — so every save carries them.
                     telegram_bot_token: form.telegram_bot_token || undefined, telegram_instant: form.telegram_instant,
                     telegram_daily_time: form.telegram_daily_time, timezone: form.timezone, app_url: form.app_url.trim() || null };
@@ -287,11 +288,13 @@ export function Settings() {
           <span className="help">Turns your Review corrections into draft rubric notes once a day. You can also run it any time from Learning.</span>
         </div>
         <div className="field">
-          <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, cursor: "pointer" }}>
-            <input type="checkbox" checked={form.delete_pages_after_marking} onChange={(e) => setForm({ ...form, delete_pages_after_marking: e.target.checked })} style={{ width: 18, height: 18 }} />
-            Delete student pages after marking (default for new assignments)
-          </label>
-          <span className="help">Student pages are deleted as soon as a script is done; the marking record keeps the transcription and every mark. Each assignment can override this.</span>
+          <label htmlFor="page-retention">After marking, keep (default for new assignments)</label>
+          <select id="page-retention" className="input" value={form.page_retention} onChange={(e) => setForm({ ...form, page_retention: e.target.value as PageRetention })} style={{ maxWidth: 420 }}>
+            <option value="crops">{retentionLabel.crops}</option>
+            <option value="pages">{retentionLabel.pages}</option>
+            <option value="none">{retentionLabel.none}</option>
+          </select>
+          <span className="help">Answer portions: the reader's crop of each part is kept and the full pages are deleted once a script is done, so you can check a mark against the student's actual writing. Whole pages keep every photo; delete everything keeps only the transcription. Each assignment can override this.</span>
         </div>
 
         <hr className="rule-2" style={{ marginTop: 24 }} />

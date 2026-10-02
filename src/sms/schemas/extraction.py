@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import instructor
 from pydantic import BaseModel, Field
@@ -29,6 +29,11 @@ class ExtractedQuestion(BaseModel):
     workings: str = Field(default="", description="Transcribed working steps, if any")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Transcription confidence 0-1")
     needs_human_transcription: bool = Field(default=False, description="True if illegible")
+    page: Optional[int] = Field(default=None, ge=0, description="0-based index of the page the answer starts on; "
+                                                               "null when unknown or when the input is not pages")
+    box: Optional[List[float]] = Field(default=None, min_length=4, max_length=4,
+                                       description="[x0, y0, x1, y1] as fractions (0-1) of that page, covering the "
+                                                   "answer and its working; null when unsure")
 
 
 class ExtractedScript(BaseIOSchema):

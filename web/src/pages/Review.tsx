@@ -136,6 +136,10 @@ export function Review() {
         <section>
           <div className="label-caps">Student</div>
           <p style={{ fontSize: 18, fontWeight: 600 }}>{item.submission_label}</p>
+          {item.crop_id && <>
+            <div className="label-caps">The answer</div>
+            <div className="page-view" style={{ maxHeight: 420, overflow: "auto" }}><img src={`/api/crops/${item.crop_id}`} alt={`Student's answer for ${item.q_id}`} style={{ maxWidth: "100%" }} /></div>
+          </>}
           {item.page_ids.length > 0
             ? <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div className="label-caps">Page {page + 1}</div><PagePager count={item.page_ids.length} current={page} onSelect={setPage} /></div>
@@ -143,7 +147,7 @@ export function Review() {
               </>
             : <p className="help">{item.input_kind !== "files"
                 // A mixed script has pages too, so an empty crop means they were deleted after marking.
-                ? "Pages deleted after marking — the transcription below is what was read."
+                ? (item.crop_id ? "Pages deleted after marking — the answer above is the part that was kept." : "Pages deleted after marking — the transcription below is what was read.")
                 : "Handed in as files — the transcription below is what was read."}</p>}
           <div className="label-caps" style={{ marginTop: 16 }}>What we read</div>
           <div className="page-view" style={{ padding: 12, fontSize: 15, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{item.transcription || <span className="tertiary">Nothing legible for this question.</span>}{item.workings && <div className="help" style={{ marginTop: 8 }}>Workings: {item.workings}</div>}</div>

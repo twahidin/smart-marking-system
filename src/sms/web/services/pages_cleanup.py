@@ -21,19 +21,42 @@ from typing import List
 
 from sms.memory.db import Database
 from sms.storage import PageStorage
-from sms.web.services.assignments import global_delete_pages_default
+from sms.web.services.assignments import global_page_retention
 
 log = logging.getLogger("sms.pages_cleanup")
 
 
-def effective_delete_pages(exe, submission_id: int) -> bool:
-    """The assignment's `delete_pages_after_marking` when the submission has one and it is set;
-    otherwise the global default. `exe` is a Database or a transaction executor."""
-    rows = exe.query("SELECT t.delete_pages_after_marking AS flag FROM submissions s "
+RETENTION_MODES = ("crops", "pages", "none")
+
+
+def effective_retention(exe, submission_id: int) -> str:
+    """What to keep once the script is done: the assignment's `page_retention` when it sets one,
+    otherwise the Settings default. 'crops' keeps the answer crops and deletes pages and files;
+    'pages' keeps everything; 'none' deletes crops too. `exe` is a Database or a transaction executor."""
+    rows = exe.query("SELECT t.page_retention AS mode FROM submissions s "
                      "JOIN assignment_templates t ON t.id = s.assignment_id WHERE s.id = :id", {"id": submission_id})
-    if rows and rows[0]["flag"] is not None:
-        return bool(rows[0]["flag"])
-    return global_delete_pages_default(exe)
+    if rows and rows[0]["mode"] in RETENTION_MODES:
+        return rows[0]["mode"]
+    return global_page_retention(exe)
+
+
+def effective_delete_pages(exe, submission_id: int) -> bool:
+    """True when pages are deleted after marking (retention 'crops' or 'none')."""
+    return effective_retention(exe, submission_id) != "pages"
+
+
+def mark_crops_deleted(tx, submission_id: int) -> List[str]:
+    """Same as `mark_pages_deleted` for the submission's answer crops (retention 'none' only)."""
+    rows = tx.query("SELECT storage_path FROM part_crops WHERE submission_id = :s AND deleted_at IS NULL", {"s": submission_id})
+    if not rows:
+        return []
+    tx.execute("UPDATE part_crops SET deleted_at = CURRENT_TIMESTAMP WHERE submission_id = :s AND deleted_at IS NULL", {"s": submission_id})
+    unreferenced: List[str] = []
+    for path in dict.fromkeys(r["storage_path"] for r in rows):
+        still = tx.query("SELECT COUNT(*) AS c FROM part_crops WHERE storage_path = :p AND deleted_at IS NULL", {"p": path})[0]["c"]
+        if not still:
+            unreferenced.append(path)
+    return unreferenced
 
 
 def mark_pages_deleted(tx, submission_id: int) -> List[str]:
@@ -86,7 +109,8 @@ def unlink_pages(storage: PageStorage, paths: List[str]) -> None:
 def delete_submission_pages(db: Database, storage: PageStorage, submission_id: int) -> int:
     """Delete the student pages and uploaded files of a submission if its effective delete flag is on.
     Returns the number of pages plus files marked deleted (0 when the flag is off or nothing is left)."""
-    if not effective_delete_pages(db, submission_id):
+    mode = effective_retention(db, submission_id)
+    if mode == "pages":
         return 0
     with db.transaction() as tx:
         before = tx.query("SELECT COUNT(*) AS c FROM pages WHERE submission_id = :s AND kind = 'student' AND deleted_at IS NULL",
@@ -94,6 +118,8 @@ def delete_submission_pages(db: Database, storage: PageStorage, submission_id: i
         before += tx.query("SELECT COUNT(*) AS c FROM submission_files WHERE submission_id = :s AND deleted_at IS NULL",
                            {"s": submission_id})[0]["c"]
         paths = mark_pages_deleted(tx, submission_id) + mark_files_deleted(tx, submission_id)
+        if mode == "none":
+            paths += mark_crops_deleted(tx, submission_id)
     unlink_pages(storage, paths)
     return int(before)
 

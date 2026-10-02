@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sms.records.builder import Record, build_record
 from sms.records.bundle import SUFFIX, bundle_zip, record_filename
 from sms.records.docx import render_docx
-from sms.web.deps import get_db, get_jobs, require_teacher
+from sms.web.deps import get_storage, get_db, get_jobs, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.assignments import get_template
 from sms.web.services.submissions import get_submission
@@ -26,7 +26,7 @@ class ZipBody(BaseModel):
     ids: List[int]
 
 
-def _record(db, jobs, submission_id: int) -> Record:
+def _record(db, jobs, storage, submission_id: int) -> Record:
     detail = get_submission(db, jobs, submission_id)
     if detail is None:
         raise ApiError(404, "not_found", f"No such submission ({submission_id})")
@@ -35,13 +35,29 @@ def _record(db, jobs, submission_id: int) -> Record:
     template = get_template(db, detail["assignment_id"]) if detail.get("assignment_id") is not None else None
     # The provider/model stamped on the run when it was marked; runs from before that was recorded say so
     # rather than borrowing whatever is configured today.
-    return build_record(detail, template, model=detail.get("marked_by") or "not recorded")
+    return build_record(detail, template, model=detail.get("marked_by") or "not recorded", crops=_crop_bytes(db, storage, detail))
+
+
+def _crop_bytes(db, storage, detail: dict) -> dict:
+    """{q_id: jpeg bytes} for the parts that still have an answer crop; a missing file is skipped."""
+    out = {}
+    for p in detail.get("parts") or []:
+        cid = p.get("crop_id")
+        if not cid:
+            continue
+        rows = db.query("SELECT storage_path FROM part_crops WHERE id = :id AND deleted_at IS NULL", {"id": cid})
+        if rows:
+            try:
+                out[p["q_id"]] = storage.read(rows[0]["storage_path"])
+            except OSError:
+                pass
+    return out
 
 
 @router.get("/{submission_id}/record.docx")
-async def record_docx(submission_id: int, db=Depends(get_db), jobs=Depends(get_jobs)):
+async def record_docx(submission_id: int, db=Depends(get_db), jobs=Depends(get_jobs), storage=Depends(get_storage)):
     def build() -> tuple:
-        record = _record(db, jobs, submission_id)
+        record = _record(db, jobs, storage, submission_id)
         return record, render_docx(record)
     record, data = await run_in_threadpool(build)
     return Response(content=data, media_type=DOCX, headers={"Content-Disposition": _disposition(record)})
@@ -55,13 +71,13 @@ def _disposition(record: Record) -> str:
 
 
 @router.post("/records.zip")
-async def records_zip(body: ZipBody, db=Depends(get_db), jobs=Depends(get_jobs)):
+async def records_zip(body: ZipBody, db=Depends(get_db), jobs=Depends(get_jobs), storage=Depends(get_storage)):
     ids = list(dict.fromkeys(body.ids))
     if not ids:
         raise ApiError(400, "no_ids", "Choose at least one script")
 
     def build() -> bytes:
-        return bundle_zip([_record(db, jobs, sid) for sid in ids])
+        return bundle_zip([_record(db, jobs, storage, sid) for sid in ids])
     data = await run_in_threadpool(build)
     return Response(content=data, media_type="application/zip",
                     headers={"Content-Disposition": 'attachment; filename="marking-records.zip"'})

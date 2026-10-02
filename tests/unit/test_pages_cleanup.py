@@ -35,13 +35,14 @@ def _page(db, storage, content, *, submission_id=None, template_id=None, kind="s
 
 
 def _template(db, delete_pages=None):
-    return db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json, delete_pages_after_marking) "
-                     "VALUES ('T', 'math', '', '{\"criterion_defs\": []}', :d) RETURNING id", {"d": delete_pages})
+    mode = None if delete_pages is None else ("crops" if delete_pages else "pages")
+    return db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json, delete_pages_after_marking, page_retention) "
+                     "VALUES ('T', 'math', '', '{\"criterion_defs\": []}', :d, :m) RETURNING id", {"d": delete_pages, "m": mode})
 
 
 def _set_global(db, value: bool):
-    db.execute("INSERT INTO settings (id, provider, model, rpm_limit, confidence_threshold, delete_pages_after_marking) "
-               "VALUES (1, 'openai', 'm', 0, 0, :d)", {"d": value})
+    db.execute("INSERT INTO settings (id, provider, model, rpm_limit, confidence_threshold, delete_pages_after_marking, page_retention) "
+               "VALUES (1, 'openai', 'm', 0, 0, :d, :m)", {"d": value, "m": "crops" if value else "pages"})
 
 
 def _deleted(db, page_id):
@@ -66,7 +67,7 @@ def test_effective_flag_follows_template_then_global(env):
     assert effective_delete_pages(db, _submission(db)) is False  # quick-mark script: global default
     assert effective_delete_pages(db, _submission(db, assignment_id=_template(db, None))) is False  # NULL: global
     assert effective_delete_pages(db, _submission(db, assignment_id=_template(db, True))) is True
-    db.execute("UPDATE settings SET delete_pages_after_marking = 1")
+    db.execute("UPDATE settings SET page_retention = 'crops'")
     assert effective_delete_pages(db, _submission(db, assignment_id=_template(db, False))) is False
     # a dangling assignment id falls back to the global default
     assert effective_delete_pages(db, _submission(db, assignment_id=999999)) is True

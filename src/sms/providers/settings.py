@@ -22,6 +22,13 @@ class Settings:
     confidence_threshold: float = 0.0
     auto_reflect: bool = True
     delete_pages_after_marking: bool = True
+    page_retention: str = "crops"   # crops | pages | none
+
+    def __post_init__(self) -> None:
+        # Legacy callers set only the boolean: "keep pages" is the one state it can express that the default cannot.
+        if not self.delete_pages_after_marking and self.page_retention == "crops":
+            self.page_retention = "pages"
+        self.delete_pages_after_marking = self.page_retention != "pages"
     # provider id -> last 4 characters of the key saved for it (every provider with a key, not just the active one)
     keys: Dict[str, str] = field(default_factory=dict)
     telegram_bot_token: Optional[str] = None
@@ -61,6 +68,7 @@ class Settings:
         d = asdict(self)
         d.pop("api_key")
         d.pop("telegram_bot_token")
+        d["delete_pages_after_marking"] = self.page_retention != "pages"
         d["has_key"] = self.has_key
         d["key_hint"] = self.key_hint
         d["telegram_linked"] = self.telegram_linked
@@ -125,7 +133,8 @@ class SettingsStore:
             provider=r["provider"], model=r["model"], api_key=self.key_for(r["provider"]), base_url=r["base_url"],
             extractor_model=r["extractor_model"] or None, rpm_limit=int(r["rpm_limit"]),
             confidence_threshold=float(r["confidence_threshold"]), auto_reflect=bool(r["auto_reflect"]),
-            delete_pages_after_marking=bool(r["delete_pages_after_marking"]), keys=hints,
+            delete_pages_after_marking=bool(r["delete_pages_after_marking"]),
+            page_retention=r.get("page_retention") if r.get("page_retention") in ("crops", "pages", "none") else "crops", keys=hints,
             telegram_bot_token=self._decrypt(r.get("telegram_bot_token_enc")),
             telegram_chat_id=r.get("telegram_chat_id"),
             telegram_instant=bool(r.get("telegram_instant", True)),
@@ -146,7 +155,7 @@ class SettingsStore:
             "extractor_model": settings.extractor_model or None,
             "rpm": int(settings.rpm_limit), "thr": float(settings.confidence_threshold),
             "auto_reflect": bool(settings.auto_reflect),
-            "delete_pages": bool(settings.delete_pages_after_marking),
+            "delete_pages": settings.page_retention != "pages", "page_retention": settings.page_retention,
             "tg_instant": bool(settings.telegram_instant),
             "tg_time": settings.telegram_daily_time or "07:00",
             "tz": settings.timezone or "Asia/Singapore",
@@ -157,7 +166,7 @@ class SettingsStore:
                 tx.execute(
                     "UPDATE settings SET provider = :provider, model = :model, base_url = :base_url, "
                     "extractor_model = :extractor_model, rpm_limit = :rpm, "
-                    "confidence_threshold = :thr, auto_reflect = :auto_reflect, delete_pages_after_marking = :delete_pages, "
+                    "confidence_threshold = :thr, auto_reflect = :auto_reflect, delete_pages_after_marking = :delete_pages, page_retention = :page_retention, "
                     "telegram_instant = :tg_instant, telegram_daily_time = :tg_time, timezone = :tz, app_url = :app_url, "
                     "updated_at = CURRENT_TIMESTAMP WHERE id = 1",
                     params,
@@ -165,9 +174,9 @@ class SettingsStore:
             else:
                 tx.execute(
                     "INSERT INTO settings (id, provider, model, base_url, extractor_model, "
-                    "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking, "
+                    "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking, page_retention, "
                     "telegram_instant, telegram_daily_time, timezone, app_url) VALUES (1, :provider, :model, "
-                    ":base_url, :extractor_model, :rpm, :thr, :auto_reflect, :delete_pages, "
+                    ":base_url, :extractor_model, :rpm, :thr, :auto_reflect, :delete_pages, :page_retention, "
                     ":tg_instant, :tg_time, :tz, :app_url)",
                     params,
                 )

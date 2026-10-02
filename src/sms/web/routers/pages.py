@@ -19,3 +19,18 @@ def page(page_id: int, db=Depends(get_db), storage=Depends(get_storage)):
         raise ApiError(404, "not_found", "Page image is missing from storage")
     return FileResponse(path, media_type="image/jpeg",
                         headers={"Cache-Control": "private, max-age=86400"})
+
+
+crops_router = APIRouter(prefix="/api/crops", tags=["pages"], dependencies=[Depends(require_teacher)])
+
+
+@crops_router.get("/{crop_id}")
+def crop(crop_id: int, db=Depends(get_db), storage=Depends(get_storage)):
+    """The cropped answer region of a marked part (kept after the pages are deleted under retention 'crops')."""
+    rows = db.query("SELECT storage_path FROM part_crops WHERE id = :id AND deleted_at IS NULL", {"id": crop_id})
+    if not rows:
+        raise ApiError(404, "not_found", "No such answer crop")
+    path = storage.abs(rows[0]["storage_path"])
+    if not path.exists():
+        raise ApiError(404, "not_found", "The answer crop file is missing")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})

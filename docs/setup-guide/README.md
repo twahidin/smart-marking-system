@@ -218,7 +218,7 @@ From the assignment page, **Download marks CSV** gives one row per student with 
 
 ## 17. Good to know
 
-**Student pages are deleted as soon as a script is done** (marked with nothing to check, or the last part resolved); the marking record keeps the transcription and every mark. Turn this off under Settings or per assignment if you want to keep the images.
+**What is kept after marking.** By default the app keeps the *answer portion* of each part — the region of the page the reader located it on, padded a little — and deletes the full pages once a script is done, so you can check any mark against the student's actual writing with **Show answer** on the submission page (and in Review). Choose *Keep whole pages* under Settings (or per assignment) to keep every photo, or *Delete everything* to keep only the transcription. Crops stay until you remove the hand-in.
 
 **Cost.** A script needs about four model calls. On a paid provider that is typically well under one cent per script for a small model; on a free tier it is free within the daily limit.
 

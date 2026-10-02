@@ -550,7 +550,7 @@ def test_run_mark_job_respects_the_delete_flag(env):
     assert _page_state(db, storage, sid) == [(False, True)]
     # the assignment's own setting wins over the global default
     tid = _template(db, "mark_scheme")
-    db.execute("UPDATE assignment_templates SET delete_pages_after_marking = 1 WHERE id = ?", (tid,))
+    db.execute("UPDATE assignment_templates SET page_retention = 'crops' WHERE id = ?", (tid,))
     db.execute("UPDATE submissions SET assignment_id = ?, status = 'uploaded' WHERE id = ?", (tid, sid))
     run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipelineV2({}))
     assert _page_state(db, storage, sid) == [(True, False)]
@@ -747,3 +747,42 @@ def test_telegram_tick_polls_flushes_and_digests_independently(env, monkeypatch,
     assert "poll down" in caplog.text
     w._maybe_telegram()      # inside the 10 s gate: nothing runs again
     assert len(calls) == 3
+
+
+class _LocatingPipelineV2(FakePipelineV2):
+    """A v2 pipeline whose reader located part 1a on page 0."""
+    def run(self, images, template, submission_id=None, files=None):
+        res = super().run(images, template, submission_id, files)
+        from sms.schemas.extraction import ExtractedQuestion, ExtractedScript
+        res.extracted = ExtractedScript(questions=[
+            ExtractedQuestion(q_id="1a", transcribed_answer="x=3", confidence=0.9, page=0, box=[0.1, 0.1, 0.9, 0.5])])
+        return res
+
+
+def test_run_mark_job_stores_answer_crops_for_located_parts(env):
+    db, store, storage, sid = env
+    tid = _template(db, "mark_scheme", subject="science")
+    db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
+    # the seeded page is not a decodable JPEG; give the submission a real one so the crop can be cut
+    from PIL import Image
+    import io as _io
+    buf = _io.BytesIO(); Image.new("RGB", (400, 600), "white").save(buf, "JPEG")
+    digest, rel = storage.put_jpeg(buf.getvalue())
+    db.execute("UPDATE pages SET storage_path = ?, sha256 = ? WHERE submission_id = ?", (rel, digest, sid))
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: _LocatingPipelineV2(escalations={}))
+    rows = db.query("SELECT q_id, page_index, whole_page, storage_path, width, height FROM part_crops WHERE submission_id = ?", (sid,))
+    assert [(r["q_id"], r["page_index"], bool(r["whole_page"])) for r in rows] == [("1a", 0, False)]
+    assert rows[0]["width"] < 400 and rows[0]["height"] < 600 and storage.abs(rows[0]["storage_path"]).exists()
+    # retention 'crops' (the default) deletes the page but keeps the crop
+    assert _page_state(db, storage, sid) == [(True, False)]
+    assert db.query("SELECT deleted_at FROM part_crops WHERE submission_id = ?", (sid,))[0]["deleted_at"] is None
+
+
+def test_run_mark_job_survives_a_cropping_failure(env, monkeypatch):
+    db, store, storage, sid = env
+    tid = _template(db, "mark_scheme", subject="science")
+    db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
+    import sms.worker.mark_job as mj
+    monkeypatch.setattr(mj, "crop_parts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: _LocatingPipelineV2(escalations={}))
+    assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "done"
