@@ -30,10 +30,15 @@ def build_extractor(
                     "Transcribe each question's answer and workings verbatim, preserving math notation.",
                     "Lower confidence for messy handwriting but still transcribe your best guess.",
                     "Flag questions you cannot read with needs_human_transcription=True.",
+                    "For every part also give where it is: `page` = the 0-based index of the image the answer starts on, "
+                    "and `box` = [x0, y0, x1, y1] as fractions of that image (0 = left/top, 1 = right/bottom) enclosing "
+                    "the answer and all its working. Be generous rather than tight. If you cannot locate a part, "
+                    "set box to null (keep page when you know it).",
                 ],
                 output_instructions=[
                     "Return one ExtractedQuestion per question found in the script.",
                     "Preserve mathematical notation as faithfully as possible.",
+                    "page and box describe the input images; never invent a box for a part that is not on the pages.",
                 ],
             ),
         )

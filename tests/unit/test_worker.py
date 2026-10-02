@@ -550,7 +550,7 @@ def test_run_mark_job_respects_the_delete_flag(env):
     assert _page_state(db, storage, sid) == [(False, True)]
     # the assignment's own setting wins over the global default
     tid = _template(db, "mark_scheme")
-    db.execute("UPDATE assignment_templates SET delete_pages_after_marking = 1 WHERE id = ?", (tid,))
+    db.execute("UPDATE assignment_templates SET page_retention = 'crops' WHERE id = ?", (tid,))
     db.execute("UPDATE submissions SET assignment_id = ?, status = 'uploaded' WHERE id = ?", (tid, sid))
     run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: FakePipelineV2({}))
     assert _page_state(db, storage, sid) == [(True, False)]

@@ -68,7 +68,7 @@ def _validate_scheme(scheme_kind: str, scheme: Any) -> List[dict]:
 def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_kind: str, questions: Any,
               scheme: Any, delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
               model: Optional[str] = None, extractor_model: Optional[str] = None,
-              language: Optional[str] = None, *,
+              language: Optional[str] = None, page_retention: Optional[str] = None, *,
               db: Optional[Database] = None) -> Dict[str, Any]:
     title = title.strip()
     if not title:
@@ -100,11 +100,15 @@ def _validate(title: str, subject: str, context: str, rubric_json: str, scheme_k
         extractor_model = (extractor_model or "").strip() or None
     else:
         model = extractor_model = None
+    retention = page_retention if page_retention is not None else retention_from_flag(delete_pages_after_marking)
+    if retention is not None and retention not in RETENTION_MODES:
+        raise ApiError(400, "bad_retention", "page_retention must be crops, pages or none")
     return {
         "title": title, "subject": subject, "context": context.strip(), "rubric": rubric.model_dump_json(),
         "scheme_kind": scheme_kind, "questions": json.dumps(qs) if qs else None,
         "scheme": json.dumps(sc) if sc else None,
-        "delete_pages": None if delete_pages_after_marking is None else bool(delete_pages_after_marking),
+        "delete_pages": None if retention is None else retention != "pages",
+        "page_retention": retention,
         "provider": provider, "model": model, "extractor_model": extractor_model, "language": language,
     }
 
@@ -132,10 +136,26 @@ def _effective_models_by_subject(db: Database) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+RETENTION_MODES = ("crops", "pages", "none")
+
+
+def global_page_retention(db: Database) -> str:
+    """The Settings default for what is kept once a script is done ('crops' until saved otherwise)."""
+    rows = db.query("SELECT page_retention FROM settings WHERE id = 1")
+    mode = rows[0]["page_retention"] if rows else None
+    return mode if mode in RETENTION_MODES else "crops"
+
+
 def global_delete_pages_default(db: Database) -> bool:
-    """The Settings default for deleting a script's pages once it is done (True until saved otherwise)."""
-    rows = db.query("SELECT delete_pages_after_marking FROM settings WHERE id = 1")
-    return bool(rows[0]["delete_pages_after_marking"]) if rows else True
+    """Kept for callers of the old boolean: True unless whole pages are kept."""
+    return global_page_retention(db) != "pages"
+
+
+def retention_from_flag(flag) -> Optional[str]:
+    """Map the old `delete_pages_after_marking` body field onto a retention mode (None stays None)."""
+    if flag is None:
+        return None
+    return "crops" if flag else "pages"
 
 
 TEMPLATE_PAGE_KINDS = ("paper", "scheme")
@@ -156,11 +176,11 @@ def _template_pages(db: Database, template_ids: List[int]) -> Dict[int, Dict[str
     return out
 
 
-def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool,
+def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: str,
                  effective_models: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     rubric = Rubric.model_validate_json(r["rubric_json"])
-    flag = r["delete_pages_after_marking"]
-    flag = None if flag is None else bool(flag)
+    retention = r["page_retention"] if r.get("page_retention") in RETENTION_MODES else None
+    flag = None if retention is None else retention != "pages"
     provider = r["provider"] or None
     effective = ({"provider": provider, "model": r["model"] or None, "extractor_model": r["extractor_model"] or None,
                   "source": "assignment"}
@@ -176,8 +196,10 @@ def _row_to_dict(r: dict, pages: Dict[str, List[int]], delete_default: bool,
         "scheme": json.loads(r["scheme_json"]) if r["scheme_json"] else [],
         "paper_page_ids": pages["paper"],
         "scheme_page_ids": pages["scheme"],
+        "page_retention": retention,
+        "effective_page_retention": delete_default if retention is None else retention,
         "delete_pages_after_marking": flag,
-        "effective_delete_pages": delete_default if flag is None else flag,
+        "effective_delete_pages": (delete_default if retention is None else retention) != "pages",
         "provider": provider,
         "model": r["model"] or None,
         "extractor_model": r["extractor_model"] or None,
@@ -197,15 +219,15 @@ _COUNTS = ("(SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = t.id) AS
            "(SELECT COUNT(*) FROM class_assignments c WHERE c.template_id = t.id) AS class_assignment_count")
 
 _INSERT = ("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, "
-           "scheme_json, delete_pages_after_marking, provider, model, extractor_model, language) VALUES (:title, :subject, "
-           ":context, :rubric, :scheme_kind, :questions, :scheme, :delete_pages, :provider, :model, :extractor_model, :language) "
+           "scheme_json, delete_pages_after_marking, page_retention, provider, model, extractor_model, language) VALUES (:title, :subject, "
+           ":context, :rubric, :scheme_kind, :questions, :scheme, :delete_pages, :page_retention, :provider, :model, :extractor_model, :language) "
            "RETURNING id")
 
 
 def list_templates(db: Database) -> List[Dict[str, Any]]:
     rows = db.query(f"SELECT t.*, {_COUNTS} FROM assignment_templates t ORDER BY times_used DESC, updated_at DESC, id DESC")
     pages = _template_pages(db, [r["id"] for r in rows])
-    default = global_delete_pages_default(db)
+    default = global_page_retention(db)
     em = _effective_models_by_subject(db)
     return [_row_to_dict(r, pages[r["id"]], default, em) for r in rows]
 
@@ -215,14 +237,14 @@ def get_template(db: Database, template_id: int) -> Optional[Dict[str, Any]]:
     if not rows:
         return None
     return _row_to_dict(rows[0], _template_pages(db, [template_id])[template_id],
-                        global_delete_pages_default(db), _effective_models_by_subject(db))
+                        global_page_retention(db), _effective_models_by_subject(db))
 
 
 def create_template(db: Database, *, title: str, subject: str, context: str, rubric_json: str,
                     scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
                     delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
                     model: Optional[str] = None, extractor_model: Optional[str] = None,
-                    language: Optional[str] = None) -> Dict[str, Any]:
+                    language: Optional[str] = None, page_retention: Optional[str] = None) -> Dict[str, Any]:
     fields = _validate(title, subject, context, rubric_json, scheme_kind, questions, scheme, delete_pages_after_marking,
                        provider, model, extractor_model, language, db=db)
     tid = db.insert(_INSERT, fields)
@@ -233,7 +255,7 @@ def update_template(db: Database, template_id: int, *, title: str, subject: str,
                     scheme_kind: str = "criteria", questions: Any = None, scheme: Any = None,
                     delete_pages_after_marking: Optional[bool] = None, provider: Optional[str] = None,
                     model: Optional[str] = None, extractor_model: Optional[str] = None,
-                    language: Optional[str] = None) -> Dict[str, Any]:
+                    language: Optional[str] = None, page_retention: Optional[str] = None) -> Dict[str, Any]:
     """Update the template's fields. The paper (pages with this template_id) is owned by
     attach_paper and is never touched here."""
     if get_template(db, template_id) is None:
@@ -244,7 +266,7 @@ def update_template(db: Database, template_id: int, *, title: str, subject: str,
     db.execute(
         "UPDATE assignment_templates SET title = :title, subject = :subject, context = :context, "
         "rubric_json = :rubric, scheme_kind = :scheme_kind, questions_json = :questions, scheme_json = :scheme, "
-        "delete_pages_after_marking = :delete_pages, provider = :provider, model = :model, "
+        "delete_pages_after_marking = :delete_pages, page_retention = :page_retention, provider = :provider, model = :model, "
         "extractor_model = :extractor_model, language = :language, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
         fields,
     )
@@ -262,7 +284,7 @@ def duplicate_template(db: Database, template_id: int) -> Dict[str, Any]:
         new_id = tx.insert(_INSERT, {
             "title": f"{r['title']} (copy)", "subject": r["subject"], "context": r["context"], "rubric": r["rubric_json"],
             "scheme_kind": r["scheme_kind"], "questions": r["questions_json"], "scheme": r["scheme_json"],
-            "delete_pages": r["delete_pages_after_marking"], "provider": r["provider"], "model": r["model"],
+            "delete_pages": r["delete_pages_after_marking"], "page_retention": r.get("page_retention"), "provider": r["provider"], "model": r["model"],
             "extractor_model": r["extractor_model"], "language": r["language"],
         })
         tx.execute(

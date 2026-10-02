@@ -59,6 +59,16 @@ class PageStorage:
                 tmp.unlink(missing_ok=True)
         return digest, rel
 
+    def put_crop(self, data: bytes) -> Tuple[str, str]:
+        """Store an answer-crop JPEG, content-addressed under crops/. Returns (sha256, relative path)."""
+        digest = hashlib.sha256(data).hexdigest()
+        rel = f"crops/{digest[:2]}/{digest}.jpg"
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            path.write_bytes(data)
+        return digest, rel
+
     def put_file(self, data: bytes, ext: str) -> Tuple[str, str]:
         """Store an uploaded program file (.py / .sb3 / .xlsx) verbatim under `files/<aa>/<sha><ext>`.
 
