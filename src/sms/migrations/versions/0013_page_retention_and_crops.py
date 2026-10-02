@@ -23,8 +23,9 @@ def upgrade() -> None:
         b.add_column(sa.Column("page_retention", sa.Text))  # NULL = follow the global default
     # Existing deployments: "delete after marking" keeps the (small) answer crops from now on; "keep" keeps whole pages.
     op.execute("UPDATE settings SET page_retention = CASE WHEN delete_pages_after_marking THEN 'crops' ELSE 'pages' END")
-    op.execute("UPDATE assignment_templates SET page_retention = CASE delete_pages_after_marking WHEN 1 THEN 'crops' "
-               "WHEN 0 THEN 'pages' ELSE NULL END")
+    # Boolean tests, not `= 1`: Postgres has no boolean = integer operator (SQLite would accept either).
+    op.execute("UPDATE assignment_templates SET page_retention = CASE WHEN delete_pages_after_marking IS NULL THEN NULL "
+               "WHEN delete_pages_after_marking THEN 'crops' ELSE 'pages' END")
     op.create_table(
         "part_crops",
         sa.Column("id", sa.Integer, primary_key=True),
