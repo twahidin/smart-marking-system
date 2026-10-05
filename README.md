@@ -341,3 +341,9 @@ Roadmap:
 - Language and science subject factories (prompts already ship)
 - SymPy verification for math marking
 - Ensemble marking
+
+## Licence
+
+Smart Marking is free software under the [GNU Affero General Public License v3.0 or later](LICENSE).
+Schools and teachers can deploy, use and modify it freely. If you run a modified version as a service
+for others, the AGPL requires you to make your modified source available to its users.
