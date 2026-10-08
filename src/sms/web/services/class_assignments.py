@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from sms.files.bulk import BulkPlan, match_entries
 from sms.files.intake import FILE_EXTS, PAGE_EXTS, IntakeError, _junk, _read_entry, _traversal, classify_uploads
 from sms.memory.db import Database
-from sms.schemas.scheme import q_label
+from sms.schemas.scheme import norm_qid, q_label
 from sms.storage import MAX_UPLOAD_BYTES, PageStorage
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
@@ -486,10 +486,26 @@ def slug(text: str) -> str:
     return s or "assignment"
 
 
+def _csv_num(x: float) -> str:
+    return str(int(x)) if float(x).is_integer() else f"{x:g}"
+
+
+def _after_reflection_total(total: Any, marks: Dict[str, Any], rel: Dict[str, dict]) -> str:
+    """The script total with each released correction swapped in for the part's original mark; blank when
+    nothing was released (or the script has no total yet)."""
+    if not rel or total == "":
+        return ""
+    original = {norm_qid(k): v for k, v in marks.items()}
+    gain = sum(v["total"] - (original.get(norm_qid(k)) if isinstance(original.get(norm_qid(k)), (int, float)) else 0)
+               for k, v in rel.items())
+    return _csv_num(float(total) + gain)
+
+
 def marks_csv(db: Database, jobs: JobStore, ca: Dict[str, Any]) -> str:
     """One row per student: a column per part (see part_columns), total, max and status; blanks for
     students who have not handed in or whose script is not marked yet (their `max` is the sum of the
     column maxima)."""
+    from sms.web.services.student_corrections import released_marks   # lazy: student_corrections imports this module
     template = get_template(db, ca["template_id"])
     if template is None:
         raise ApiError(409, "template_deleted", "This assignment was deleted from the bank — the marks CSV needs its scheme")
@@ -503,11 +519,12 @@ def marks_csv(db: Database, jobs: JobStore, ca: Dict[str, Any]) -> str:
     scheme_max = sum(m for _, _, m in cols)
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
-    w.writerow(["reg_no", "name", *[label for _, label, _ in cols], "total", "max", "status"])
+    w.writerow(["reg_no", "name", *[label for _, label, _ in cols], "total", "max", "status", "after_reflection_total"])
     for r in rows:
         marks = marks_by_sub.get(r["submission_id"], {})
         cells = [marks.get(k, "") for k, _, _ in cols]
         total = "" if r["total"] is None else r["total"]
         maximum = r["total_max"] if r["total_max"] is not None else scheme_max
-        w.writerow([r["reg_no"], r["name"], *cells, total, maximum, r["status"]])
+        rel = released_marks(db, r["submission_id"]) if r["submission_id"] is not None else {}
+        w.writerow([r["reg_no"], r["name"], *cells, total, maximum, r["status"], _after_reflection_total(total, marks, rel)])
     return buf.getvalue()

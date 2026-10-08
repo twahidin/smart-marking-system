@@ -178,9 +178,9 @@ def test_roster_counts_release_gate_and_marks_csv(auth, app):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
     assert 'filename="quadratics-worksheet-3-marks.csv"' in r.headers["content-disposition"]
     lines = r.text.strip().splitlines()
-    assert lines[0] == "reg_no,name,1(a),1(b),2,total,max,status"
-    assert lines[1] == "1,Tan Wei Ling,2,0,1,3,6,released"
-    assert lines[3] == "3,Priya Nair,,,,,6,not_handed_in"
+    assert lines[0] == "reg_no,name,1(a),1(b),2,total,max,status,after_reflection_total"
+    assert lines[1] == "1,Tan Wei Ling,2,0,1,3,6,released,"
+    assert lines[3] == "3,Priya Nair,,,,,6,not_handed_in,"
 
 
 def test_release_needs_an_open_assignment_and_at_least_one_marked_script(auth):
@@ -236,10 +236,10 @@ def test_marks_csv_for_a_criteria_template_uses_the_marked_questions(auth, app):
     r = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}/marks.csv")
     assert r.status_code == 200
     lines = r.text.strip().splitlines()
-    assert lines[0] == "reg_no,name,Q1,Q2,Q3,total,max,status"
-    assert lines[1] == "1,Tan Wei Ling,2,2,,4,4,ready"      # max = 2 per question x 2 questions marked
-    assert lines[2] == "2,Muhammad Danish,,0,2,2,4,ready"
-    assert lines[3] == "3,Priya Nair,,,,,6,not_handed_in"   # max = 2 per question x 3 columns
+    assert lines[0] == "reg_no,name,Q1,Q2,Q3,total,max,status,after_reflection_total"
+    assert lines[1] == "1,Tan Wei Ling,2,2,,4,4,ready,"      # max = 2 per question x 2 questions marked
+    assert lines[2] == "2,Muhammad Danish,,0,2,2,4,ready,"
+    assert lines[3] == "3,Priya Nair,,,,,6,not_handed_in,"   # max = 2 per question x 3 columns
     # the roster totals agree with the CSV
     rows = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}").json()["roster"]["rows"]
     assert (rows[0]["total"], rows[0]["total_max"]) == (4, 4) and (rows[1]["total"], rows[1]["total_max"]) == (2, 4)
@@ -566,3 +566,16 @@ def test_class_assignment_reflect_days_absent_keeps_null_clears_and_is_bounded(a
     assert cleared["reflect_days"] is None and cleared["effective_reflect_days"] == 7
     r = auth.put(url, json={**body, "reflect_days": 61})
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_reflect_days"
+
+
+def test_marks_csv_has_after_reflection_total(auth, app):
+    from tests.web.test_corrections_api import _released_student
+    from fastapi.testclient import TestClient
+    c, ca, sid = _released_student(auth, TestClient(app), app)
+    app.state.db.execute("INSERT INTO student_corrections (submission_id, q_id, reason, text, status, remark_total, remark_max, released_at) "
+                         "VALUES (:s, '1b', 'sign', '9', 'released', 1, 1, CURRENT_TIMESTAMP)", {"s": sid})
+    auth.post("/api/auth/login", json={"password": "letmein"})
+    csv_text = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}/marks.csv").text
+    header, first = csv_text.splitlines()[:2]
+    assert header.endswith("total,max,status,after_reflection_total")
+    assert first.split(",")[-1] == "4"    # 3 + 1 regained on 1(b)

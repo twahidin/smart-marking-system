@@ -14,6 +14,7 @@ from sms.records.builder import Record, TEACHER_TO_REVIEW
 
 HEADERS = ["Question & part", "Marking scheme answer", "Student's answer (extracted)", "Justification",
            "Awarded mark", "Teacher's mark"]
+AFTER_REFLECTION = "After reflection"
 WIDTHS_CM = [2.6, 6.2, 6.2, 6.2, 2.6, 2.6]
 HEADER_FILL = "D9E2F3"   # light blue
 REVIEW_FILL = "FFE8B3"   # amber
@@ -84,12 +85,18 @@ def _picture(cell, data: bytes) -> None:
 
 
 def _table(doc: Document, record: Record) -> None:
-    table = doc.add_table(rows=1, cols=len(HEADERS))
+    show = any(r.after_reflection for r in record.rows)   # the column exists only once a correction was released
+    headers, widths = list(HEADERS), list(WIDTHS_CM)
+    if show:
+        headers.insert(5, AFTER_REFLECTION)
+        widths.insert(5, 2.6)
+    teacher_col = len(headers) - 1
+    table = doc.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for i, (cell, text) in enumerate(zip(table.rows[0].cells, HEADERS)):
+    for i, (cell, text) in enumerate(zip(table.rows[0].cells, headers)):
         _write(cell, text, bold=True)
-        _shade(cell, TEACHER_FILL if i == len(HEADERS) - 1 else HEADER_FILL)
+        _shade(cell, TEACHER_FILL if i == teacher_col else HEADER_FILL)
     for row in record.rows:
         cells = table.add_row().cells
         _write(cells[0], row.label, bold=True)
@@ -101,16 +108,18 @@ def _table(doc: Document, record: Record) -> None:
         _write(cells[4], row.awarded, bold=row.to_review)
         if row.to_review:
             _shade(cells[4], REVIEW_FILL)
-        _write(cells[5], row.teacher)
+        if show:
+            _write(cells[5], row.after_reflection or "")
+        _write(cells[teacher_col], row.teacher)
     for label, value, teacher in (("Total awarded", record.total_text, ""),
                                   ("Total max", str(record.total_max), ""),
                                   ("Teacher's total", "", "")):
         cells = table.add_row().cells
         _write(cells[0], label, bold=True)
         _write(cells[4], value, bold=True)
-        _write(cells[5], teacher)
+        _write(cells[teacher_col], teacher)
     for row in table.rows:
-        for cell, width in zip(row.cells, WIDTHS_CM):
+        for cell, width in zip(row.cells, widths):
             cell.width = Cm(width)
 
 

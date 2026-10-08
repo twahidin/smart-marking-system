@@ -144,3 +144,17 @@ def test_docx_embeds_the_answer_crop_under_the_student_answer():
     corrupt = RecordRow(**{**row.__dict__, "crop_bytes": b"not a jpeg"})
     record.rows = [corrupt]
     Document(io.BytesIO(render_docx(record)))   # a bad crop never breaks the record
+
+
+def test_after_reflection_column_appears_only_when_a_correction_was_released():
+    from sms.records.builder import apply_reflections
+    rec = apply_reflections(_record(), {"1b": {"total": 1.0, "max": 2.0}})
+    assert next(r for r in rec.rows if r.label == "1(b)").after_reflection == "1 / 2"
+    assert all(r.after_reflection is None for r in rec.rows if r.label != "1(b)")
+    doc = Document(io.BytesIO(render_docx(rec)))
+    headers = [c.text for c in doc.tables[0].rows[0].cells]
+    assert "After reflection" in headers
+    cells = [c.text for row in doc.tables[0].rows for c in row.cells]
+    assert "1 / 2" in cells
+    plain = Document(io.BytesIO(render_docx(_record())))
+    assert "After reflection" not in [c.text for c in plain.tables[0].rows[0].cells]

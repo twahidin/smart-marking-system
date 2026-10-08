@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from sms.reasons import REASON_TEXT, TEACHER_TO_REVIEW, reason_text  # noqa: F401 - re-exported for the renderers and tests
-from sms.schemas.scheme import q_label
+from sms.schemas.scheme import norm_qid, q_label
 
 ANSWER_LIMIT = 600
 ELLIPSIS = "…"
@@ -35,6 +35,7 @@ class RecordRow:
     awarded_marks: Optional[int]  # numeric awarded mark for the markbook; None while to review
     max_marks: int
     crop_bytes: Optional[bytes] = None   # the cropped answer region (JPEG) when one was kept
+    after_reflection: Optional[str] = None   # "1 / 2": the released correction of this part, when there is one
 
 
 @dataclass
@@ -174,8 +175,21 @@ def _row_v1(mark: dict, criteria: List[dict]) -> RecordRow:
     ))
 
 
+def _num(x: float) -> str:
+    return str(int(x)) if float(x).is_integer() else f"{x:g}"
+
+
+def apply_reflections(record: Record, reflections: Dict[str, dict]) -> Record:
+    """Stamp the released correction of each part ("1 / 2") onto its row; rows without one stay None."""
+    for row in record.rows:
+        r = reflections.get(norm_qid(row.key)) or reflections.get(row.key)
+        if r is not None:
+            row.after_reflection = f"{_num(r['total'])} / {_num(r['max'])}"
+    return record
+
+
 def build_record(submission_detail: dict, template: Optional[dict] = None, *, model: str = "",
-                 crops: Optional[Dict[str, bytes]] = None) -> Record:
+                 crops: Optional[Dict[str, bytes]] = None, reflections: Optional[Dict[str, dict]] = None) -> Record:
     """Build the record from the detail dict `get_submission` returns and the assignment dict
     `get_template` returns (None when the script has no assignment). `model` is the provider/model
     line for the header. Every text field is sanitised (control characters removed)."""
@@ -206,10 +220,11 @@ def build_record(submission_detail: dict, template: Optional[dict] = None, *, mo
         criteria = (d.get("rubric") or {}).get("criterion_defs") or []
         rows = [_row_v1(m, criteria) for m in d.get("marks") or []]
     totals = d.get("totals") or {}
-    return Record(
+    record = Record(
         title=title, student=sanitise(d.get("label")), marked_at=sanitise(marked_at), model=sanitise(model), rows=rows,
         total_awarded=int(totals.get("total") or 0), total_upper=int(totals.get("total_upper") or 0),
         total_max=int(totals.get("total_max") or 0), to_review_count=sum(1 for r in rows if r.to_review),
         rubric_page=rubric_page, submission_id=int(d.get("id") or 0), kind=kind,
         assignment_id=d.get("assignment_id"), transcription=transcription,
     )
+    return apply_reflections(record, reflections) if reflections else record

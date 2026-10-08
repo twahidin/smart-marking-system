@@ -13,6 +13,7 @@ from sms.records.docx import render_docx
 from sms.web.deps import get_storage, get_db, get_jobs, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.assignments import get_template
+from sms.web.services.student_corrections import released_marks
 from sms.web.services.submissions import get_submission
 
 # Same prefix as the submissions router; registered before it in app.py so /records.zip is never
@@ -35,7 +36,8 @@ def _record(db, jobs, storage, submission_id: int) -> Record:
     template = get_template(db, detail["assignment_id"]) if detail.get("assignment_id") is not None else None
     # The provider/model stamped on the run when it was marked; runs from before that was recorded say so
     # rather than borrowing whatever is configured today.
-    return build_record(detail, template, model=detail.get("marked_by") or "not recorded", crops=_crop_bytes(db, storage, detail))
+    return build_record(detail, template, model=detail.get("marked_by") or "not recorded", crops=_crop_bytes(db, storage, detail),
+                        reflections=released_marks(db, submission_id))
 
 
 def _crop_bytes(db, storage, detail: dict) -> dict:
