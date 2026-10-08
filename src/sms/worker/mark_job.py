@@ -23,6 +23,7 @@ from sms.storage import PageStorage
 from sms.web.services.assignments import get_template
 from sms.web.services.crops import crop_parts, store_part_crops
 from sms.web.services.pages_cleanup import delete_submission_pages
+from sms.worker.events import EventRecorder
 
 log = logging.getLogger("sms.worker")
 
@@ -145,6 +146,8 @@ def run_mark_job(db: Database, storage: PageStorage, settings_store: SettingsSto
     if template is not None:
         # the assignment's subject drives prompts/providers and the run row; the pipeline reads the same key
         pipeline = factory(db=db, settings=settings, subject=template["subject"], bucket=bucket, kind=template["scheme_kind"])
+        if hasattr(pipeline, "on_event"):
+            pipeline.on_event = EventRecorder(db, submission_id).emit
         result = pipeline.run(images=images, template=template, submission_id=submission_id,
                               files=_rendered_files(db, storage, submission_id))
     else:

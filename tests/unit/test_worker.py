@@ -786,3 +786,60 @@ def test_run_mark_job_survives_a_cropping_failure(env, monkeypatch):
     monkeypatch.setattr(mj, "crop_parts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     run_mark_job(db, storage, store, sid, pipeline_factory=lambda **kw: _LocatingPipelineV2(escalations={}))
     assert db.query("SELECT status FROM submissions WHERE id = ?", (sid,))[0]["status"] == "done"
+
+
+# --- stage events are recorded while a v2 script is marked ---------------------------------------
+
+class _TalkingPipelineV2(FakePipelineV2):
+    """Emits a realistic event sequence through whatever listener the worker attached."""
+    def __init__(self, escalations):
+        super().__init__(escalations)
+        self.on_event = None
+
+    def run(self, images, template, submission_id=None, files=None):
+        from sms.pipeline.events import StageEvent
+        for stage in ("read", "mark", "check", "feedback"):
+            self.on_event(StageEvent(stage, "started"))
+            if stage == "mark":
+                self.on_event(StageEvent("mark", "note", "1a", "M1 for the method"))
+            self.on_event(StageEvent(stage, "finished"))
+        self.on_event(StageEvent("done", "finished"))
+        return super().run(images, template, submission_id, files)
+
+
+def _attach_v2_assignment(db, sid):
+    """Give the submission a mark-scheme template so run_mark_job takes the v2 path (same as the v2 dispatch tests)."""
+    tid = _template(db, "mark_scheme")
+    db.execute("UPDATE submissions SET assignment_id = ? WHERE id = ?", (tid, sid))
+
+
+def test_worker_records_stage_events_and_the_current_stage(env):
+    db, store, storage, sid = env
+    _attach_v2_assignment(db, sid)
+    pipe = _TalkingPipelineV2({})
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **k: pipe)
+    rows = db.query("SELECT stage, kind, q_id, note FROM marking_events WHERE submission_id = :s ORDER BY id", {"s": sid})
+    assert [(r["stage"], r["kind"]) for r in rows][:3] == [("read", "started"), ("read", "finished"), ("mark", "started")]
+    assert ("mark", "note", "1a", "M1 for the method") in [(r["stage"], r["kind"], r["q_id"], r["note"]) for r in rows]
+    assert db.query("SELECT stage FROM submissions WHERE id = :s", {"s": sid})[0]["stage"] == "done"
+
+
+def test_recorder_failure_does_not_fail_marking(env, monkeypatch):
+    from sms.worker import events as ev
+    db, store, storage, sid = env
+    _attach_v2_assignment(db, sid)
+    pipe = _TalkingPipelineV2({})
+
+    class _BrokenDb:
+        """Stands in for the database on the recorder only, so the job's own writes still work."""
+        def execute(self, *a, **k):
+            raise RuntimeError("disk full")
+    rec_cls = ev.EventRecorder
+    original = rec_cls.emit
+
+    def emit(self, event):
+        self.db = _BrokenDb()
+        return original(self, event)
+    monkeypatch.setattr(rec_cls, "emit", emit)
+    run_mark_job(db, storage, store, sid, pipeline_factory=lambda **k: pipe)
+    assert db.query("SELECT status FROM submissions WHERE id = :s", {"s": sid})[0]["status"] == "done"
