@@ -15,8 +15,8 @@ from sms.storage import PageStorage
 from sms.web.config import AppConfig
 from sms.web.deps import LoginLimiter, SessionSigner
 from sms.web.errors import install_error_handlers
-from sms.web.routers import (assignments, auth, class_assignments, classes, health, learning, pages, queue, records, setup,
-                             settings, student, submissions)
+from sms.web.routers import (assignments, auth, class_assignments, classes, health, learning, pages, queue, records, room,
+                             setup, settings, student, submissions)
 from sms.worker.jobs import JobStore
 from sms.worker.worker import Worker
 
@@ -81,6 +81,7 @@ def create_app(config: AppConfig) -> FastAPI:
     app.include_router(pages.router)
     app.include_router(pages.crops_router)
     app.include_router(queue.router)
+    app.include_router(room.router)
     app.include_router(learning.router)
     if config.static_dir:
         mount_spa(app, config.static_dir)
