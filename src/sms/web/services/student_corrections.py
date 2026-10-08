@@ -3,7 +3,7 @@ correction per part that lost marks. The AI re-marks it (sms.worker.remark_job);
 overrides or rejects; releasing makes the new mark visible. Never confuse with teacher_corrections,
 which are the teacher's own Review decisions."""
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
@@ -20,6 +20,11 @@ REASONS = ("sign", "method", "rushed", "misread", "other")
 STATUS_WORDS = {"submitted": "sent", "remarked": "waiting for the teacher", "accepted": "waiting for the teacher",
                 "overridden": "waiting for the teacher", "released": "released", "rejected": "rejected"}
 FINAL = ("released", "rejected")
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now, like the DB's timestamps (datetime.utcnow() is deprecated)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _parse(ts) -> Optional[datetime]:
@@ -40,7 +45,7 @@ def window_end(db: Database, ca: Dict[str, Any]) -> Optional[datetime]:
 
 def window_open(db: Database, ca: Dict[str, Any], now: Optional[datetime] = None) -> bool:
     end = window_end(db, ca)
-    return end is not None and (now or datetime.utcnow()) < end
+    return end is not None and (now or _utcnow()) < end
 
 
 def _mark_of(p: dict) -> float:
@@ -97,7 +102,7 @@ def submit_correction(db: Database, storage: PageStorage, jobs: JobStore, *, ca:
     cid = db.insert("INSERT INTO student_corrections (submission_id, q_id, reason, text, page_id, status) "
                     "VALUES (:s, :q, :r, :t, :p, 'submitted') RETURNING id",
                     {"s": sid, "q": key, "r": reason if reason in REASONS else "other", "t": text or None, "p": page_id})
-    jobs.enqueue("remark", submission_id=sid, payload={"correction_id": cid})
+    jobs.enqueue("remark", payload={"correction_id": cid})
     return _row(db.query("SELECT * FROM student_corrections WHERE id = :id", {"id": cid})[0])
 
 
@@ -148,7 +153,7 @@ def released_marks(db: Database, submission_id: int) -> Dict[str, dict]:
 
 def student_reflection(db: Database, ca: Dict[str, Any], detail: dict) -> Dict[str, Any]:
     end = window_end(db, ca)
-    open_ = end is not None and datetime.utcnow() < end
+    open_ = end is not None and _utcnow() < end
     existing = {r["q_id"]: r for r in db.query("SELECT * FROM student_corrections WHERE submission_id = :s", {"s": detail["id"]})}
     parts: Dict[str, dict] = {}
     for key, p in correctable_parts(detail).items():
@@ -160,5 +165,5 @@ def student_reflection(db: Database, ca: Dict[str, Any], detail: dict) -> Dict[s
             if c["status"] == "released":
                 new = float(c["teacher_total"] if c["teacher_total"] is not None else c["remark_total"] or 0)
             parts[key] = {"can_correct": False, "status": c["status"], "new_mark": new}
-    days_left = max(0, (end - datetime.utcnow()).days) if end else 0
+    days_left = max(0, (end - _utcnow()).days) if end else 0
     return {"window_ends_at": iso_utc(end) if end else None, "days_left": days_left, "parts": parts}

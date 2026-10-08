@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
 from sms.web.errors import ApiError
 from sms.web.services import student_corrections as sc
+from sms.web.services.student_corrections import _utcnow
 from sms.web.services.submissions import get_submission
 from sms.worker.jobs import JobStore
 from tests.web.seed_v2 import seed_v2
@@ -26,7 +27,7 @@ def test_window_and_correctable_parts(auth, app):
     ca, sid = _released(auth, app)
     db = app.state.db
     assert sc.window_open(db, ca)
-    assert sc.window_end(db, ca) > datetime.utcnow() + timedelta(days=6)
+    assert sc.window_end(db, ca) > _utcnow() + timedelta(days=6)
     db.execute("UPDATE class_assignments SET reflect_days = 0 WHERE id = :id", {"id": ca["id"]})
     ca["reflect_days"] = 0
     assert sc.window_end(db, ca) is None and not sc.window_open(db, ca)
@@ -40,6 +41,7 @@ def test_submit_enforces_rules_and_enqueues_a_remark(auth, app):
     db = app.state.db
     jobs = JobStore(db)
     detail = get_submission(db, jobs, sid)
+    status_before = db.query("SELECT status FROM submissions WHERE id = :id", {"id": sid})[0]["status"]
     with pytest.raises(ApiError) as e:
         sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=detail, q_id="1a", reason="sign", text="x", photo=None)
     assert e.value.code == "not_correctable"
@@ -49,6 +51,7 @@ def test_submit_enforces_rules_and_enqueues_a_remark(auth, app):
     row = sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=detail, q_id="1b", reason="sign", text="x^2 = 9", photo=None)
     assert row["status"] == "submitted" and row["q_id"] == "1b"
     assert db.query("SELECT kind, payload_json FROM jobs WHERE kind = 'remark'")[0]["payload_json"] == '{"correction_id": %d}' % row["id"]
+    assert db.query("SELECT status FROM submissions WHERE id = :id", {"id": sid})[0]["status"] == status_before == "done"
     with pytest.raises(ApiError) as e:
         sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=detail, q_id="1b", reason="sign", text="again", photo=None)
     assert e.value.code == "already_corrected"
