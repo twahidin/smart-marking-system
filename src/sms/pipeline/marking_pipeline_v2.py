@@ -3,6 +3,7 @@ rubric: extract (segmented by the paper's parts) -> mark per part / criterion ->
 merge with escalation -> feedback -> persist as final_marks_json {"version": 2, ...}."""
 import importlib
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
@@ -10,6 +11,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from sms.files.render import Rendered
 from sms.memory.db import Database
 from sms.memory.extraction_cache import ExtractionCache
+from sms.pipeline.events import READ_DOUBT, OnEvent, StageEvent
 from sms.pipeline.marking_pipeline import image_from_bytes
 from sms.pipeline.router import SubjectRouter
 from sms.reasons import DOUBLE_PENALTY, INPUT_TRUNCATED
@@ -28,6 +30,8 @@ from sms.schemas.marking_v2 import (
 )
 from sms.schemas.scheme import MarkSchemeEntry, Question, RubricCriterionBands, norm_qid
 from sms.schemas.segment import TextSegmentInput, TextSource
+
+log = logging.getLogger(__name__)
 
 # The only strings written to teacher_queue.reason by this pipeline. Each one needs a teacher-facing
 # sentence in sms.reasons.REASON_TEXT (INPUT_TRUNCATED is defined there because the intake side
@@ -206,6 +210,7 @@ class MarkingPipelineV2:
         self.kind = kind
         self.cache = ExtractionCache(db)
         self.confidence_threshold = confidence_threshold
+        self.on_event: Optional[OnEvent] = None  # set by the caller before `run` to follow the crew's progress
 
     # --- run -------------------------------------------------------------------------------------
 
@@ -225,6 +230,7 @@ class MarkingPipelineV2:
         # every other subject's feedback stays in English.
         language = (template.get("language") or "en") if subject == "mt" else "en"
 
+        self._emit("read", "started")
         if not files:
             extracted = self._extract(images, subject, questions, notes, language)
         else:
@@ -239,21 +245,49 @@ class MarkingPipelineV2:
             extracted = self._segment(sources, subject, questions, notes)
             if vision is not None:
                 extracted = _carry_page_doubts(vision, extracted)
+        for q in extracted.questions:
+            if q.needs_human_transcription:
+                self._emit("read", "note", q.q_id, READ_DOUBT)
+        self._emit("read", "finished")
+        self._emit("mark", "started")
         marked = self.marker.run(MarkingInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                 scheme=scheme, notes=notes))
+        for pm in marked.parts:
+            self._emit("mark", "note", pm.q_id, pm.justification)
+        for rm in marked.rubric:
+            self._emit("mark", "note", rm.criterion, rm.justification)
+        self._emit("mark", "finished")
+        self._emit("check", "started")
         reviewed = self.reviewer.run(ReviewInputV2(kind=self.kind, extracted=extracted, questions=questions,
                                                    scheme=scheme, notes=notes, marks=self._blind_script(marked)))
+        for v in reviewed.verdicts:
+            self._emit("check", "note", v.q_id, f"{v.verdict.value}: {v.reviewer_note}".strip())
+        self._emit("check", "finished")
         final, escalations = self._merge(marked, reviewed, extracted, scheme)
         if any(f.truncated for f in files):
             # Something the marker needed may have been cut: every part the merge did not already
             # escalate for a stronger reason goes to the teacher with the original to check against.
             for m in (final.parts or final.rubric):
                 escalations.setdefault(_key(m), INPUT_TRUNCATED)
+        self._emit("feedback", "started")
         feedback_report = self.feedback.run(feedback_input_for_v2(final, reviewed, escalations, language=language))
+        self._emit("feedback", "finished")
         self._persist(run_id, subject, template, questions, scheme, notes, extracted, marked, reviewed,
                       feedback_report, final, escalations, submission_id)
+        for key, reason in escalations.items():
+            self._emit("done", "note", key, reason)
+        self._emit("done", "finished")
         return MarkingResultV2(run_id=run_id, extracted=extracted, final=final, escalations=escalations,
                                feedback=feedback_report)
+
+    def _emit(self, stage: str, kind: str, q_id: Optional[str] = None, note: Optional[str] = None) -> None:
+        """Tell the listener, if any. A listener's failure is logged and never fails marking."""
+        if self.on_event is None:
+            return
+        try:
+            self.on_event(StageEvent(stage=stage, kind=kind, q_id=q_id, note=note))
+        except Exception:  # noqa: BLE001
+            log.exception("stage event listener failed (%s %s)", stage, kind)
 
     # --- stages ----------------------------------------------------------------------------------
 
