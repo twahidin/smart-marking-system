@@ -288,3 +288,31 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .btn-primary { box-shadow: 0 4px 0 var(--crew-marker-ink); }
 .table th { border-bottom-color: var(--butter); }
 @media (prefers-reduced-motion: reduce) { .bob, .slide, .drop-paper { animation: none !important; } }
+
+/* Marking Room */
+.room-layout { display: flex; flex-wrap: wrap; gap: 24px; }
+.room-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.room-side { flex: 1 1 340px; max-width: 440px; }
+.room-scene { position: relative; border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); box-shadow: 0 12px 32px rgba(78,56,10,0.12); }
+.room-scene img { display: block; width: 100%; height: auto; }
+.room-tag { position: absolute; border: 0; cursor: pointer; background: var(--color-text); color: #fff; font: 700 13px var(--font-body); padding: 8px 12px; border-radius: 999px; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 0 #15141A; min-height: 36px; }
+.room-tag:disabled { opacity: 0.55; cursor: default; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot-reader, .dot-read { background: var(--crew-reader); } .dot-marker, .dot-mark { background: var(--crew-marker); } .dot-checker, .dot-check { background: var(--crew-checker); }
+.room-paper { position: absolute; left: 31%; top: 59%; width: 34px; height: 24px; background: #fff; border: 2px solid var(--color-text); border-radius: 3px; box-shadow: 2px 2px 0 var(--color-text); }
+@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes slide { from { transform: translateX(0); } to { transform: translateX(118px); } }
+.bob { animation: bob 1.8s ease-in-out infinite; } .slide { animation: slide 2.4s linear infinite; }
+.room-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.room-tile { background: var(--color-surface); border-radius: var(--radius-md); padding: 14px 16px; border: 2px solid var(--butter); display: flex; flex-direction: column; gap: 4px; }
+.room-tile strong { font-family: var(--font-heading); font-size: 28px; }
+.tile-read { border-color: var(--crew-reader); } .tile-mark { border-color: var(--crew-marker); } .tile-check, .tile-needs_you { border-color: var(--crew-checker); } .tile-done { border-color: var(--mint); }
+.thought-head { display: flex; align-items: center; gap: 12px; }
+.crew-face { width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-md); background: var(--butter); }
+.crew-face-reader { object-position: 12% 40%; } .crew-face-marker { object-position: 50% 40%; } .crew-face-checker { object-position: 88% 40%; }
+.thought-name { font-family: var(--font-heading); font-size: 22px; }
+.thought-who { margin: 12px 0; padding: 10px 14px; background: var(--color-bg); border-radius: var(--radius-sm); }
+.thought-list { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.thought-list li { display: flex; gap: 10px; align-items: flex-start; } .thought-list p { margin: 0; background: #F4F1FA; border-radius: 14px 14px 14px 4px; padding: 10px 12px; font-size: 14px; }
+.thought-at { flex: none; width: 64px; font-size: 12px; color: var(--muted); padding-top: 4px; }
+.desk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; } .desk-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--color-bg); } .desk-list li span { margin-left: auto; }

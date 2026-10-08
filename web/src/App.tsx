@@ -11,6 +11,7 @@ import { Classes } from "./pages/Classes";
 import { ClassAssignmentPage } from "./pages/ClassAssignmentPage";
 import { ClassPage } from "./pages/ClassPage";
 import { Learning } from "./pages/Learning";
+import { MarkingRoom } from "./pages/MarkingRoom";
 import { NewSubmission } from "./pages/NewSubmission";
 import { Review } from "./pages/Review";
 import { Settings } from "./pages/Settings";
@@ -83,7 +84,8 @@ export function App() {
         <Route path="a/:caid/hand-in" element={<HandIn />} />
       </Route>
       <Route element={<Shell />}>
-        <Route index element={<Navigate to="/classes" replace />} />
+        <Route index element={<Navigate to="/room" replace />} />
+        <Route path="/room" element={<MarkingRoom />} />
         <Route path="/classes" element={<Classes />} />
         <Route path="/classes/:id" element={<ClassPage />} />
         <Route path="/classes/:id/assignments/:caid" element={<ClassAssignmentPage />} />
