@@ -35,7 +35,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const me: StudentMe = { class_name: "4E2", code: "CE4R", student_name: "Tan Wei Ling", reg_no: 1 };
-const detail: StudentAssignmentDetail = { id: 1, title: "Worksheet 3", due_at: null, status: "to_hand_in", handed_in_at: null, pages: 0, allow_student_uploads: true, feedback: null, subject: "math", accepts_files: false };
+const detail: StudentAssignmentDetail = { id: 1, title: "Worksheet 3", due_at: null, status: "to_hand_in", handed_in_at: null, pages: 0, allow_student_uploads: true, feedback: null, subject: "math", accepts_files: false, reflection: null };
 const computing: StudentAssignmentDetail = { ...detail, title: "Loops — Task 2", subject: "computing", accepts_files: true };
 const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 

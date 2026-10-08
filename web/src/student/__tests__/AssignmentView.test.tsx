@@ -27,7 +27,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const me: StudentMe = { class_name: "4E2", code: "CE4R", student_name: "Tan Wei Ling", reg_no: 1 };
 const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const detail = (over: Partial<StudentAssignmentDetail>): StudentAssignmentDetail =>
-  ({ id: 1, title: "Worksheet 3", due_at: null, status: "handed_in", handed_in_at: "2026-09-09T07:12:00Z", pages: 4, allow_student_uploads: true, feedback: null, subject: "math", accepts_files: false, ...over });
+  ({ id: 1, title: "Worksheet 3", due_at: null, status: "handed_in", handed_in_at: "2026-09-09T07:12:00Z", pages: 4, allow_student_uploads: true, feedback: null, subject: "math", accepts_files: false, reflection: null, ...over });
 
 function app(path: string) {
   return (
@@ -85,7 +85,7 @@ describe("AssignmentView", () => {
 
   it("marks a question with no comment and keeps the aria-expanded state per question", async () => {
     const fb: StudentFeedback = { summary: "", strengths: [], improvement_plan: [], next_steps: [], total: 2, max: 4,
-      questions: [{ label: "1", mark: 2, max: 4, comment: "", try_next: "", transcription: "" }], pages: [] };
+      questions: [{ label: "1", mark: 2, max: 4, comment: "", try_next: "", transcription: "", q_id: "1", crop_id: null }], pages: [] };
     mockFetch({ "GET /api/student/me": () => ok(me), "GET /api/student/assignments/1": () => ok(detail({ status: "feedback_ready", feedback: fb })) });
     render(app("/s/a/1"));
     const row = await screen.findByRole("button", { name: /1 · 2 \/ 4/ });

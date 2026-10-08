@@ -17,6 +17,7 @@ export interface Settings {
   provider: string; model: string; base_url: string | null; extractor_model: string | null;
   rpm_limit: number; confidence_threshold: number; has_key: boolean; key_hint: string; keys?: Record<string, string>; auto_reflect: boolean;
   delete_pages_after_marking: boolean;
+  reflect_days: number;
   page_retention: PageRetention;
   /** Telegram: linked once a bot token is saved *and* the teacher has pressed /start in the chat. */
   telegram_linked: boolean; telegram_bot_hint: string; telegram_chat_id: string | null;
@@ -155,6 +156,7 @@ export interface ClassAssignment {
   id: number; class_id: number; template_id: number; title: string; due_at: string | null; status: ClassAssignmentStatus;
   derived_status: ClassAssignmentStatus | "marking"; allow_student_uploads: boolean; released_at: string | null;
   template_deleted: boolean; subject: Subject | null; scheme_kind: SchemeKind | null; submission_count: number; created_at: string; updated_at: string;
+  reflect_days: number | null; effective_reflect_days: number;
 }
 export type RosterStatus = "not_handed_in" | "handed_in" | "marking" | "failed" | "needs_you" | "ready" | "released";
 export interface RosterRow { student_id: number; reg_no: number; name: string; submission_id: number | null; pages: number; handed_in_at: string | null; late: boolean; source: "teacher" | "student" | null; status: RosterStatus; total: number | null; total_upper: number | null; total_max: number | null; needs_you_parts: string[] }
@@ -198,13 +200,14 @@ export interface InsightsPayload {
 export type StudentAssignmentStatus = "to_hand_in" | "handed_in" | "checking" | "feedback_ready";
 export interface StudentMe { class_name: string; code: string; student_name: string; reg_no: number }
 export interface StudentAssignment { id: number; title: string; due_at: string | null; status: StudentAssignmentStatus; handed_in_at: string | null; pages: number; allow_student_uploads: boolean }
-export interface StudentFeedback { summary: string; strengths: string[]; improvement_plan: string[]; next_steps: string[]; total: number | null; max: number | null; questions: { label: string; mark: number; max: number; comment: string; try_next: string; transcription: string }[]; pages: number[] }
+export interface StudentFeedback { summary: string; strengths: string[]; improvement_plan: string[]; next_steps: string[]; total: number | null; max: number | null; questions: { label: string; mark: number; max: number; comment: string; try_next: string; transcription: string; q_id: string; crop_id: number | null }[]; pages: number[] }
 export interface StudentAssignmentDetail extends StudentAssignment {
   feedback: StudentFeedback | null;
   /** Null when the teacher deleted the assignment template this was set from. */
   subject: Subject | null;
   /** True for Computing: the hand-in page offers *Add files* beside the photo buttons. */
   accepts_files: boolean;
+  reflection: Reflection | null;
 }
 
 /* ---- bulk upload (slice 4): one zip of a whole class's hand-ins, matched by register number ---- */
@@ -217,3 +220,17 @@ export interface BulkResult {
   created: { reg_no: number; ignored: string[] }[]; skipped: { reg_no: number }[]; failed: { reg_no: number; error: string }[];
   unmatched: string[]; ambiguous: string[];
 }
+
+/* ---- the marking room: live pipeline snapshot, stage events, crew thoughts, student corrections ---- */
+export type Stage = "read" | "mark" | "check" | "feedback" | "done";
+export type Crew = "reader" | "marker" | "checker";
+export interface RoomDesk { stage: Stage; submission_id: number; label: string; reg_no: number | null; since: string }
+export interface RoomSnapshot { counts: Record<"queued" | Stage | "needs_you" | "failed", number>; started_at: string | null; desks: RoomDesk[]; last_event_id: number }
+export interface StageEvent { id: number; submission_id: number; stage: Stage; kind: "started" | "finished"; created_at: string }
+export interface Thought { at: string; q_id: string | null; note: string }
+export type Thoughts = Record<Crew, Thought[]>;
+export type CorrectionStatus = "submitted" | "remarked" | "accepted" | "overridden" | "rejected" | "released";
+/** What a student is told about a correction: a coarse word, never the raw status. */
+export type StudentCorrectionStatus = "sent" | "waiting" | "released" | "rejected";
+export interface Correction { id: number; submission_id: number; submission_label: string; reg_no: number | null; student_name: string | null; q_id: string; reason: string; text: string | null; page_id: number | null; status: CorrectionStatus; remark_total: number | null; remark_max: number | null; remark_note: string | null; teacher_total: number | null; teacher_reason: string | null; error: string | null; submitted_at: string; released_at: string | null }
+export interface Reflection { window_ends_at: string | null; days_left: number; parts: Record<string, { can_correct: boolean; status: StudentCorrectionStatus | null; new_mark: number | null }> }

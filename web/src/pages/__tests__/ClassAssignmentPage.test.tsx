@@ -31,7 +31,7 @@ afterEach(() => vi.unstubAllGlobals());
 const cls: ClassRow = { id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 4, open_assignments: 1, archived_at: null, created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" };
 const clsHandler = { "GET /api/classes/1": () => new Response(JSON.stringify(cls), { status: 200 }) };
 
-const detail: ClassAssignmentDetail = { id: 3, class_id: 1, template_id: 7, title: "Quadratic equations — Worksheet 3", due_at: "2026-09-10T00:00:00Z", status: "open", derived_status: "marking", allow_student_uploads: true, released_at: null, template_deleted: false, subject: "math", scheme_kind: "mark_scheme", submission_count: 3, created_at: "", updated_at: "",
+const detail: ClassAssignmentDetail = { id: 3, class_id: 1, template_id: 7, title: "Quadratic equations — Worksheet 3", due_at: "2026-09-10T00:00:00Z", status: "open", derived_status: "marking", allow_student_uploads: true, released_at: null, template_deleted: false, subject: "math", scheme_kind: "mark_scheme", submission_count: 3, created_at: "", updated_at: "", reflect_days: null, effective_reflect_days: 7,
   roster: { counts: { not_handed_in: 1, handed_in: 0, marking: 1, needs_you: 1, ready: 1 }, rows: [
     { student_id: 1, reg_no: 1, name: "Tan Wei Ling", submission_id: 11, pages: 4, handed_in_at: "2026-09-09T13:02:00Z", late: false, source: "student", status: "needs_you", total: 15, total_upper: 17, total_max: 25, needs_you_parts: ["3"] },
     { student_id: 2, reg_no: 2, name: "Muhammad Danish", submission_id: 12, pages: 3, handed_in_at: "2026-09-11T01:00:00Z", late: true, source: "teacher", status: "ready", total: 21, total_upper: 21, total_max: 25, needs_you_parts: [] },

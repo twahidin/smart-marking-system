@@ -71,7 +71,7 @@ describe("ClassPage", () => {
       "GET /api/classes/1": () => new Response(JSON.stringify(cls), { status: 200 }),
       "GET /api/classes/1/assignments": () => new Response(JSON.stringify(cas), { status: 200 }),
       "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }),
-      "POST /api/classes/1/assignments": () => { cas = [{ id: 3, class_id: 1, template_id: 7, title: "Worksheet 3", due_at: null, status: "draft", derived_status: "draft", allow_student_uploads: true, released_at: null, template_deleted: false, subject: "math", scheme_kind: "mark_scheme", submission_count: 0, created_at: "", updated_at: "" }]; return new Response(JSON.stringify(cas[0]), { status: 201 }); },
+      "POST /api/classes/1/assignments": () => { cas = [{ id: 3, class_id: 1, template_id: 7, title: "Worksheet 3", due_at: null, status: "draft", derived_status: "draft", allow_student_uploads: true, released_at: null, template_deleted: false, subject: "math", scheme_kind: "mark_scheme", submission_count: 0, created_at: "", updated_at: "", reflect_days: null, effective_reflect_days: 7 }]; return new Response(JSON.stringify(cas[0]), { status: 201 }); },
       "PUT /api/classes/1/assignments/3": () => { cas[0] = { ...cas[0], status: "open", derived_status: "open" }; return new Response(JSON.stringify(cas[0]), { status: 200 }); },
     });
     render(app("?tab=assignments"));
@@ -87,7 +87,7 @@ describe("ClassPage", () => {
   });
 
   it("keeps the link to a class assignment whose template was deleted, with the warning beside it", async () => {
-    const gone: ClassAssignment = { id: 4, class_id: 1, template_id: 9, title: "Old worksheet", due_at: null, status: "open", derived_status: "marking", allow_student_uploads: true, released_at: null, template_deleted: true, subject: "math", scheme_kind: "mark_scheme", submission_count: 2, created_at: "", updated_at: "" };
+    const gone: ClassAssignment = { id: 4, class_id: 1, template_id: 9, title: "Old worksheet", due_at: null, status: "open", derived_status: "marking", allow_student_uploads: true, released_at: null, template_deleted: true, subject: "math", scheme_kind: "mark_scheme", submission_count: 2, created_at: "", updated_at: "", reflect_days: null, effective_reflect_days: 7 };
     mockFetch({
       "GET /api/classes/1": () => new Response(JSON.stringify(cls), { status: 200 }),
       "GET /api/classes/1/assignments": () => new Response(JSON.stringify([gone]), { status: 200 }),
