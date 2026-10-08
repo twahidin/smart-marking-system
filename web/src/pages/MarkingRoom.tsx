@@ -4,7 +4,7 @@ import type { Crew } from "../api/types";
 import { Notice } from "../components/Notice";
 import { ThoughtPanel } from "../components/ThoughtPanel";
 import { elapsed } from "../lib/format";
-import { RoomScene2D } from "../scene/RoomScene2D";
+import { CREW_OF, RoomScene2D } from "../scene/RoomScene2D";
 import { useDeviceTier } from "../scene/useDeviceTier";
 import { useRoomEvents } from "../scene/useRoomEvents";
 
@@ -46,11 +46,26 @@ export function MarkingRoom() {
           </div>
         </section>
         <div className="room-side">
-          {picked ? <ThoughtPanel submissionId={picked.id} crew={picked.crew} label={picked.label} onClose={() => setPicked(null)} />
-                  : <div className="card"><h2>On the desks right now</h2>
-                      {snapshot?.desks.length === 0 && <p className="muted">The desks are empty. Feed the sorter to start.</p>}
-                      <ul className="desk-list">{snapshot?.desks.map((d) => <li key={d.submission_id}><i className={`dot dot-${d.stage}`} aria-hidden /><Link to={`/submissions/${d.submission_id}`}>{d.label}</Link><span className="muted tabular">{d.stage} · {elapsed(d.since)}</span></li>)}</ul>
-                    </div>}
+          {picked && <ThoughtPanel submissionId={picked.id} crew={picked.crew} label={picked.label} onClose={() => setPicked(null)} refreshKey={snapshot?.last_event_id ?? 0} />}
+          <div className="card">
+            <h2 id="desk-list-title">On the desks right now</h2>
+            {snapshot?.desks.length === 0 && <p className="muted">The desks are empty. Feed the sorter to start.</p>}
+            <ul className="desk-list" aria-labelledby="desk-list-title">
+              {snapshot?.desks.map((d) => {
+                const crew = CREW_OF[d.stage];
+                const meta = <span className="muted tabular">{d.stage} · {elapsed(d.since)}</span>;
+                return (
+                  <li key={d.submission_id}>
+                    <i className={`dot dot-${d.stage}`} aria-hidden />
+                    {crew
+                      ? <button type="button" className="desk-pick" onClick={() => setPicked({ id: d.submission_id, crew, label: d.label })}>{d.label}</button>
+                      : <Link to={`/submissions/${d.submission_id}`}>{d.label}</Link>}
+                    {meta}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
       </div>
     </div>

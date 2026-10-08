@@ -7,18 +7,19 @@ const NAME: Record<Crew, string> = { reader: "Reader", marker: "Marker", checker
 const ROLE: Record<Crew, string> = { reader: "finds each part on the page and reads the working", marker: "awards each mark against your scheme", checker: "re-marks independently and flags disagreements" };
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-export function ThoughtPanel({ submissionId, crew, label, onClose }: { submissionId: number; crew: Crew; label: string; onClose: () => void }) {
-  const [thoughts, setThoughts] = useState<Thoughts | null>(null);
+export function ThoughtPanel({ submissionId, crew, label, onClose, refreshKey = 0 }: { submissionId: number; crew: Crew; label: string; onClose: () => void; refreshKey?: number }) {
+  const [loaded, setLoaded] = useState<{ id: number; thoughts: Thoughts } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // refreshKey changes as the room moves on: refetch in place, without blanking the notes already shown.
   useEffect(() => {
     let alive = true;
-    setThoughts(null);
     setError(null);
     api.get<Thoughts>(`/api/submissions/${submissionId}/thoughts`)
-      .then((t) => { if (alive) setThoughts(t); })
+      .then((t) => { if (alive) setLoaded({ id: submissionId, thoughts: t }); })
       .catch((e) => { if (alive) setError(e.message); });
     return () => { alive = false; };
-  }, [submissionId]);
+  }, [submissionId, refreshKey]);
+  const thoughts = loaded?.id === submissionId ? loaded.thoughts : null;
   const notes = thoughts?.[crew] ?? [];
   return (
     <aside className="card thought-panel" aria-label={`${NAME[crew]}'s thoughts`}>

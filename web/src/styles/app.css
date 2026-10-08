@@ -292,11 +292,16 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 /* Marking Room */
 .room-layout { display: flex; flex-wrap: wrap; gap: 24px; }
 .room-main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-.room-side { flex: 1 1 340px; max-width: 440px; }
+.room-side { flex: 1 1 340px; max-width: 440px; display: flex; flex-direction: column; gap: 16px; }
 .room-scene { position: relative; border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); box-shadow: 0 12px 32px rgba(78,56,10,0.12); }
 .room-scene img { display: block; width: 100%; height: auto; }
-.room-tag { position: absolute; border: 0; cursor: pointer; background: var(--color-text); color: #fff; font: 700 13px var(--font-body); padding: 8px 12px; border-radius: 999px; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 0 #15141A; min-height: 36px; }
+.room-tags { display: contents; }
+.room-tag { position: absolute; left: var(--tag-left); top: var(--tag-top); white-space: nowrap; max-width: calc(100% - 16px); border: 0; cursor: pointer; background: var(--color-text); color: #fff; font: 700 13px var(--font-body); padding: 8px 12px; border-radius: 999px; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 0 #15141A; min-height: 36px; }
+.room-tag-text { overflow: hidden; text-overflow: ellipsis; }
+.room-tag:focus-visible { outline: 3px solid var(--crew-checker); outline-offset: 2px; }
 .room-tag:disabled { opacity: 0.55; cursor: default; }
+.desk-pick { all: unset; cursor: pointer; font-weight: 700; color: var(--crew-marker-ink); text-decoration: underline; text-underline-offset: 3px; border-radius: 4px; }
+.desk-pick:focus-visible { outline: 3px solid var(--crew-marker-ink); outline-offset: 2px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot-reader, .dot-read { background: var(--crew-reader); } .dot-marker, .dot-mark { background: var(--crew-marker); } .dot-checker, .dot-check { background: var(--crew-checker); }
 .room-paper { position: absolute; left: 31%; top: 59%; width: 34px; height: 24px; background: #fff; border: 2px solid var(--color-text); border-radius: 3px; box-shadow: 2px 2px 0 var(--color-text); }
@@ -323,3 +328,9 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .drop-sorter { width: 260px; max-width: 70%; height: auto; display: block; margin: 0 auto 8px; }
 .drop-paper { position: absolute; left: 50%; top: 10px; margin-left: -23px; width: 46px; height: 60px; background: #fff; border: 3px solid var(--color-text); border-radius: 6px; box-shadow: 3px 3px 0 var(--color-text); animation: drop 1.6s ease-out infinite; }
 @keyframes drop { 0% { transform: translateY(-60px) rotate(-8deg); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(0) rotate(0); } }
+
+/* name tags wrap into a row under the image on phones */
+@media (max-width: 560px) {
+  .room-tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; }
+  .room-tag { position: static; max-width: 100%; }
+}
