@@ -7,7 +7,7 @@ from sms.providers.crypto import KeyCipher
 from sms.providers.settings import Settings, SettingsStore
 from sms.schemas.extraction import ExtractedQuestion, ExtractedScript
 from sms.schemas.marking import ReviewVerdict
-from sms.schemas.marking_v2 import AllocationMark, MarkedScriptV2, PartMark, ReviewVerdictV2, ReviewedScriptV2
+from sms.schemas.marking_v2 import AllocationMark, MarkedScriptV2, PartMark, RubricMark, ReviewVerdictV2, ReviewedScriptV2
 from sms.storage import PageStorage
 from sms.worker.remark_job import run_remark_job
 from tests.unit.test_pipeline_v2_files import Fake
@@ -107,3 +107,58 @@ def test_photo_correction_is_transcribed_first(env):
     assert pipe.marker.calls[0].extracted.questions[0].transcribed_answer == "x = 3\nstep"
     r = db.query("SELECT status, remark_note FROM student_corrections WHERE id = :id", {"id": cid})[0]
     assert r["status"] == "remarked" and r["remark_note"] == "Marker:"
+
+
+def test_a_teacher_decision_made_during_the_run_is_not_overwritten(env):
+    db, store, storage, cid = env
+    marked = MarkedScriptV2(kind="mark_scheme", parts=[PartMark(q_id="1b", awarded=[AllocationMark(label="B1", marks=1, got=True)], total=1)])
+    pipe = _Pipe(marked, ReviewedScriptV2(verdicts=[]))
+    inner = pipe.marker.run
+
+    def run(inp):
+        db.execute("UPDATE student_corrections SET status = 'released' WHERE id = :id", {"id": cid})
+        return inner(inp)
+
+    pipe.marker.run = run
+    run_remark_job(db, storage, store, cid, pipeline_factory=lambda **k: pipe)
+    r = db.query("SELECT status, remark_total, error FROM student_corrections WHERE id = :id", {"id": cid})[0]
+    assert r["status"] == "released" and r["remark_total"] is None and r["error"] is None
+
+
+def test_a_failure_after_a_teacher_decision_writes_no_error(env):
+    db, store, storage, cid = env
+
+    class Boom:
+        class marker:
+            @staticmethod
+            def run(inp):
+                db.execute("UPDATE student_corrections SET status = 'rejected' WHERE id = :id", {"id": cid})
+                raise RuntimeError("provider down")
+
+    with pytest.raises(RuntimeError):
+        run_remark_job(db, storage, store, cid, pipeline_factory=lambda **k: Boom())
+    r = db.query("SELECT status, error FROM student_corrections WHERE id = :id", {"id": cid})[0]
+    assert r["status"] == "rejected" and r["error"] is None
+
+
+def test_rubric_correction_remarks_one_criterion(tmp_path):
+    db = Database(path=str(tmp_path / "r.db"))
+    store = SettingsStore(db, KeyCipher("k"))
+    store.save(Settings(provider="openai", model="gpt-5-mini", api_key="sk-x", rpm_limit=0))
+    scheme = [{"criterion": "Content", "bands": [{"band": "A", "marks": 5, "descriptor": "vivid"}, {"band": "B", "marks": 3, "descriptor": ""}]},
+              {"criterion": "Language", "bands": [{"band": "A", "marks": 4, "descriptor": ""}]}]
+    tid = db.insert("INSERT INTO assignment_templates (title, subject, context, rubric_json, scheme_kind, questions_json, scheme_json) "
+                    "VALUES ('E', 'language', '', '{\"criterion_defs\": []}', 'rubric', :q, :s) RETURNING id",
+                    {"q": json.dumps([{"q_id": "1", "text": "Essay", "max_marks": 9}]), "s": json.dumps(scheme)})
+    sid = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id, scheme_kind) "
+                    "VALUES ('s', 'language', '', '{}', 'done', :t, 'rubric') RETURNING id", {"t": tid})
+    cid = db.insert("INSERT INTO student_corrections (submission_id, q_id, reason, text, status) "
+                    "VALUES (:s, 'Content', 'other', 'a vivid rewrite', 'submitted') RETURNING id", {"s": sid})
+    marked = MarkedScriptV2(kind="rubric", rubric=[RubricMark(criterion="Content", band="A", marks=5, justification="vivid")])
+    pipe = _Pipe(marked, ReviewedScriptV2(verdicts=[]))
+    run_remark_job(db, PageStorage(tmp_path / "data"), store, cid, pipeline_factory=lambda **k: pipe)
+    sent = pipe.marker.calls[0]
+    assert [s.criterion for s in sent.scheme] == ["Content"] and [q.q_id for q in sent.questions] == ["1"]
+    assert sent.extracted.questions[0].q_id == "1" and sent.extracted.questions[0].transcribed_answer == "a vivid rewrite"
+    r = db.query("SELECT status, remark_total, remark_max FROM student_corrections WHERE id = :id", {"id": cid})[0]
+    assert r["status"] == "remarked" and r["remark_total"] == 5 and r["remark_max"] == 5
