@@ -28,7 +28,7 @@ def pg_engine():
 def test_chain_applies_on_postgres(pg_engine):
     upgrade(pg_engine, "head")
     with pg_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0013"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0014"
 
 
 def test_0013_backfills_retention_from_the_boolean(pg_engine):
@@ -43,3 +43,11 @@ def test_0013_backfills_retention_from_the_boolean(pg_engine):
         assert conn.execute(text("SELECT page_retention FROM settings WHERE id = 1")).scalar() == "crops"
         rows = dict(conn.execute(text("SELECT title, page_retention FROM assignment_templates")).all())
     assert rows == {"keep": "pages", "delete": "crops", "default": None}
+
+
+def test_chain_reaches_0014_on_postgres(pg_engine):
+    upgrade(pg_engine, "head")
+    with pg_engine.begin() as conn:
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0014"
+        conn.execute(text("INSERT INTO settings (id, provider, model) VALUES (1, 'p', 'm')"))
+        assert conn.execute(text("SELECT reflect_days FROM settings WHERE id = 1")).scalar() == 7
