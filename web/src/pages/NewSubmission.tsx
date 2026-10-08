@@ -165,8 +165,8 @@ export function NewSubmission() {
           )}
         </div>
         <div>
-          <DropZone onFiles={add} title={takesFiles ? "Drop pages or files here" : undefined}
-            hint={takesFiles ? "PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to 50 MB" : undefined}
+          <DropZone onFiles={add} title={takesFiles ? "Feed the sorter — pages or files" : "Feed the sorter"}
+            hint={takesFiles ? "PDF, JPG, PNG or HEIC, and .py, .sb3, .xlsx or .zip — up to 50 MB" : "Drop photos, PDFs or a class zip — photos are shrunk on your device before upload"}
             accept={takesFiles ? `${PAGE_ACCEPT},${PROGRAM_ACCEPT}` : PAGE_ACCEPT} />
           {files.length > 0 && (
             <>

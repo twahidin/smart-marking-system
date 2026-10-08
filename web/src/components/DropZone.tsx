@@ -1,4 +1,3 @@
-import { Upload } from "lucide-react";
 import { useRef, useState } from "react";
 
 export const PAGE_ACCEPT = ".pdf,.jpg,.jpeg,.png,.heic,.heif,image/*,application/pdf";
@@ -11,7 +10,8 @@ export function DropZone({ onFiles, title = "Drop pages here", hint = "PDF, JPG,
     <div className={`drop ${over ? "over" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); onFiles(Array.from(e.dataTransfer.files)); }}>
-      <Upload size={32} aria-hidden />
+      <span className="drop-paper" aria-hidden />
+      <img className="drop-sorter" src="/art/sorter.jpg" alt="Voxel paper sorter with a funnel on top and three lit output slots" />
       <h3>{title}</h3>
       <p className="help">{hint}</p>
       <button type="button" className="btn btn-secondary" onClick={() => input.current?.click()}>Choose files</button>
