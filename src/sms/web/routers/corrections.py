@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sms.web.deps import get_db, get_jobs, get_storage, require_student, require_teacher
 from sms.web.errors import ApiError
 from sms.web.services.class_assignments import get_class_assignment
-from sms.web.services.student import _visible
+from sms.web.services.student import _status, _visible
 from sms.web.services.student_corrections import decide, list_corrections, release_corrections, submit_correction
 from sms.web.services.submissions import get_submission
 from sms.web.uploads import check_content_length, read_upload_files
@@ -24,7 +24,9 @@ async def student_submit(caid: int, request: Request, q_id: str = Form(...), rea
                          student: dict = Depends(require_student), db=Depends(get_db), storage=Depends(get_storage), jobs=Depends(get_jobs)):
     check_content_length(request)
     rows = await run_in_threadpool(_visible, db, student, caid)
-    if not rows or rows[0]["submission_id"] is None or rows[0]["status"] != "released":
+    # The student's own "feedback ready" predicate: a marked script in a released assignment.
+    if (not rows or rows[0]["submission_id"] is None
+            or _status({"status": rows[0]["sub_status"]}, rows[0]["status"] == "released") != "feedback_ready"):
         raise ApiError(404, "not_found", "No released feedback to correct")
     ca = await run_in_threadpool(get_class_assignment, db, student["class_id"], caid)
     detail = await run_in_threadpool(get_submission, db, jobs, rows[0]["submission_id"])

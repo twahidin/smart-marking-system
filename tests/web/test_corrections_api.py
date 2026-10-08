@@ -43,6 +43,7 @@ def test_teacher_reviews_and_releases(auth, client, app):
     client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
     got = client.get(f"/api/student/assignments/{ca['id']}").json()
     assert got["reflection"]["parts"]["1b"] == {"can_correct": False, "status": "released", "new_mark": 0.5}
+    assert "Marker:" not in str(got) and "B1 earned" not in str(got)
 
 
 def test_correction_routes_are_scoped(auth, client, app):
@@ -74,3 +75,42 @@ def test_student_crop_is_only_the_students_own(auth, client, app):
     client.cookies.clear()
     client.post("/api/student/session", json={"code": c["code"], "reg_no": 2})
     assert client.get(f"/api/student/crops/{cid}").status_code == 404
+
+
+def test_no_correction_against_unfinalised_or_unreleased_marks(auth, client, app):
+    c, ca, sid = _released_student(auth, client, app)
+    url = f"/api/student/assignments/{ca['id']}/corrections"
+    form = {"q_id": "1b", "reason": "sign", "text": "9"}
+    app.state.db.execute("UPDATE submissions SET status = 'needs_you' WHERE id = :id", {"id": sid})
+    r = client.post(url, data=form)
+    assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+    app.state.db.execute("UPDATE submissions SET status = 'done' WHERE id = :id", {"id": sid})
+    app.state.db.execute("UPDATE class_assignments SET status = 'open' WHERE id = :id", {"id": ca["id"]})
+    r = client.post(url, data=form)
+    assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+
+
+def test_released_note_and_reject_reason_never_reach_the_student(auth, client, app):
+    c, ca, sid = _released_student(auth, client, app)
+    cid = client.post(f"/api/student/assignments/{ca['id']}/corrections", data={"q_id": "1b", "reason": "sign", "text": "9"}).json()["id"]
+    auth.post("/api/auth/login", json={"password": "letmein"})
+    app.state.db.execute("UPDATE student_corrections SET status = 'remarked', remark_total = 1, remark_max = 1, remark_note = 'Marker: B1 earned' WHERE id = :id", {"id": cid})
+    assert auth.post(f"/api/corrections/{cid}/accept").status_code == 200
+    assert auth.post(f"/api/class-assignments/{ca['id']}/release-corrections").json() == {"released": 1}
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    got = client.get(f"/api/student/assignments/{ca['id']}").json()
+    assert got["reflection"]["parts"]["1b"] == {"can_correct": False, "status": "released", "new_mark": 1.0}
+    assert "Marker:" not in str(got) and "B1 earned" not in str(got)
+
+
+def test_rejection_shows_status_but_not_the_reason(auth, client, app):
+    c, ca, sid = _released_student(auth, client, app)
+    cid = client.post(f"/api/student/assignments/{ca['id']}/corrections", data={"q_id": "1b", "reason": "sign", "text": "9"}).json()["id"]
+    auth.post("/api/auth/login", json={"password": "letmein"})
+    assert auth.post(f"/api/corrections/{cid}/reject", json={"reason": "Copied from the board"}).status_code == 200
+    client.cookies.clear()
+    client.post("/api/student/session", json={"code": c["code"], "reg_no": 1})
+    got = client.get(f"/api/student/assignments/{ca['id']}").json()
+    assert got["reflection"]["parts"]["1b"] == {"can_correct": False, "status": "rejected", "new_mark": None}
+    assert "Copied from the board" not in str(got)
