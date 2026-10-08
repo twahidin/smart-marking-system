@@ -179,7 +179,11 @@ Click a student's name to see the per-part marks, the transcription and the just
 
 *A marked script, part by part.*
 
-## 13. Release feedback
+## 13. Watch the crew in the Marking Room
+
+Open **Marking Room**. The sorter on the left holds scripts waiting their turn; the three desks show who is working on what. Tap a name tag to read that crew member's notes for the script on the desk, for example the Checker explaining why it flagged 2(a). Nothing here is shown to students. If the live feed drops, the room refreshes every five seconds instead.
+
+## 14. Release feedback
 
 Until you release, students see "Marked — your teacher is checking". **Release feedback** is one action for the whole class and needs every "Needs you" part cleared first. After release students see their total, a short summary, what they did well, each question with a comment and a "Try next", and what to work on.
 
@@ -192,7 +196,11 @@ Releasing closes student hand-ins for that assignment; pages you upload for a st
 ![What the student sees.](images/36-student-feedback.jpg) 
 ![A question expanded.](images/37-student-feedback-expanded.jpg) 
 
-## 14. Insights: where the class lost marks
+## 15. Students reflect and correct
+
+Once feedback is released, each student has a window (7 days unless you change it under Settings or on the assignment) to send one correction per part they lost marks on. On their phone they tap **Try a correction**, pick what went wrong, and type or photograph their corrected working. The Marker re-marks it; you decide under **Review → Corrections** and press **Release corrections** when you are ready. The student's feedback then shows "After reflection" beside that part.
+
+## 16. Insights: where the class lost marks
 
 Once the first script is marked, the assignment's **Insights** tab shows the class as a whole: marks by part with the weakest highlighted, the allocations most often lost, a score distribution, and which students are struggling on which parts.
 
@@ -202,7 +210,7 @@ When the whole set has been marked, and again when you release, the app asks the
 
 *The Insights tab: numbers first, then the narrative and the students to support.*
 
-## 15. Telegram notifications (optional)
+## 17. Telegram notifications (optional)
 
 Get a message when scripts come in and when marking finishes, plus a daily report. In Telegram, message **@BotFather**, send `/newbot`, and copy the token it gives you. In **Settings → Notifications** paste the token and **Save**, then open your new bot in Telegram and press **Start** — within a few seconds the status changes to *Linked ✓*. **Test connection** sends a test message.
 
@@ -212,11 +220,11 @@ You get an instant message for new hand-ins (batched) and one when a class set f
 
 *Settings → Notifications: token, link status, instant messages, daily report time and time zone.*
 
-## 16. Marks and records
+## 18. Marks and records
 
 From the assignment page, **Download marks CSV** gives one row per student with a column per question part, and **Download marking records** gives a Word document per student — mark scheme row by row, the student's answer, the awarded mark and a blank "Teacher's mark" column for moderation — plus a markbook spreadsheet.
 
-## 17. Good to know
+## 19. Good to know
 
 **What is kept after marking.** By default the app keeps the *answer portion* of each part — the region of the page the reader located it on, padded a little — and deletes the full pages once a script is done, so you can check any mark against the student's actual writing with **Show answer** on the submission page (and in Review). Choose *Keep whole pages* under Settings (or per assignment) to keep every photo, or *Delete everything* to keep only the transcription. Crops stay until you remove the hand-in.
 

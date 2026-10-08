@@ -94,6 +94,10 @@ question/part, totals). The default provider is TokenRouter with `z-ai/glm-5.3-f
 from provider** on the Settings page lists every model your key can actually use (some TokenRouter keys
 include the free `z-ai/glm-5.3-free`, limited to 8 requests/min).
 
+**The Marking Room.** Open **Marking Room** to watch a class set being marked. Three crew members pass each script along the desks: the **Reader** finds each part on the page and transcribes it, the **Marker** awards marks against your scheme, and the **Checker** re-marks independently and flags anything the two disagree on. Click a name tag to read what that crew member noted for the script on its desk, with timestamps. The notes are the marker's justifications and the reviewer's reasoning; students never see them. The room updates live (Server-Sent Events) and falls back to refreshing every five seconds.
+
+**Reflect and correct.** After you release feedback, students have a window (`Settings → Reflection window`, default 7 days; set per assignment, 0 turns it off) to send **one correction per part** they lost marks on, typed or photographed. The Marker re-marks the correction against the same scheme; you accept, override or reject it under **Review → Corrections**, then **Release corrections**. The student then sees "After reflection: a / b" on that part. Released corrections appear in the marking record and as an `after_reflection_total` column in the marks CSV.
+
 **Page deletion**: student pages are deleted as soon as a script is done (marked with nothing left to
 review, or the last escalated part resolved); the marking record keeps the transcription and every
 mark. This follows the **"Delete pages after marking"** setting, defaulting on; an individual
@@ -210,6 +214,8 @@ into two zips.
   can override it per-assignment.
 - **Auto reflect** — whether the nightly reflection job (rubric notes / exemplar cases distilled from
   teacher corrections) runs automatically.
+- **Reflection window** (`reflect_days`) — how many days after release students can send corrections
+  (default 7; 0 turns it off). An assignment can override it.
 - **Notifications** — the Telegram bot token, linked-chat status with **Send test message** / **Unlink**,
   an instant-messages toggle, the daily digest time and timezone, and the App URL used in message links.
 - **My models** — custom model ids for OpenRouter and TokenRouter, each shown with a label and whether
