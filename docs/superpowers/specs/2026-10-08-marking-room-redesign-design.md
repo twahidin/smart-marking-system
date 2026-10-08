@@ -129,14 +129,17 @@ database poll every 2 s inside the SSE generator is the fallback when they are s
 ```
 class_assignments.reflect_days INTEGER NULL   -- NULL = follow settings.reflect_days (default 7); 0 = off
 settings.reflect_days INTEGER NOT NULL default 7
-corrections(id, submission_id FK cascade, q_id TEXT, reason TEXT, text TEXT NULL, page_id FK NULL,
+student_corrections(id, submission_id FK cascade, q_id TEXT, reason TEXT, text TEXT NULL, page_id FK NULL,
             submitted_at DateTime, remark_run_id TEXT NULL, remark_total REAL NULL, remark_max REAL NULL,
             remark_note TEXT NULL, status TEXT 'submitted'|'remarked'|'accepted'|'overridden'|'rejected'|'released',
-            teacher_total REAL NULL, teacher_reason TEXT NULL, released_at DateTime NULL)
+            teacher_total REAL NULL, teacher_reason TEXT NULL, error TEXT NULL, released_at DateTime NULL)
 unique (submission_id, q_id)
 ```
 
-Rules, enforced in a `corrections` service and covered by tests:
+(Named `student_corrections` because `teacher_corrections`, the teacher's Review decisions, already exists.
+A correction photo is stored as a `pages` row with `kind = 'correction'`.)
+
+Rules, enforced in a `student_corrections` service and covered by tests:
 
 - A correction is accepted only when the class assignment is released, `now < released_at +
   reflect_days`, the part's mark is below its max, and no correction exists for that part.
