@@ -273,3 +273,18 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .student-read { white-space: pre-wrap; font-style: italic; margin-top: 4px; }
 .student-feedback-pages { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .student-feedback-page { width: 100%; height: auto; border: 1px solid var(--color-divider); background: var(--color-neutral-100); }
+
+/* Marking Room visual system: pill nav, crew colour code, soft cards. */
+.nav { background: var(--color-surface); border-bottom: 3px solid var(--gold); }
+.nav-links a { padding: 0 14px; border-radius: 999px; font-weight: 600; }
+.nav-links a[aria-current="page"] { background: var(--butter); color: var(--color-text); }
+.card { background: var(--color-surface); border-radius: var(--radius-lg); padding: 20px; box-shadow: 0 12px 32px rgba(78, 56, 10, 0.12); }
+.pill { border-radius: 999px; font-weight: 700; }
+.pill-crew-reader { background: var(--crew-reader); color: var(--color-text); }
+.pill-crew-marker { background: var(--crew-marker); color: #fff; }
+.pill-crew-checker { background: var(--crew-checker); color: var(--color-text); }
+.pill-crew-reader::before, .pill-crew-marker::before, .pill-crew-checker::before { display: none; }
+.btn { border-radius: 999px; font-weight: 700; }
+.btn-primary { box-shadow: 0 4px 0 var(--crew-marker-ink); }
+.table th { border-bottom-color: var(--butter); }
+@media (prefers-reduced-motion: reduce) { .bob, .slide, .drop-paper { animation: none !important; } }

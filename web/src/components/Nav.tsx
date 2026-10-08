@@ -8,6 +8,7 @@ export function Nav({ needsYou }: { needsYou: number }) {
     <nav className="nav">
       <NavLink to="/classes" className="nav-brand" end>Smart Marking</NavLink>
       <div className="nav-links">
+        <NavLink to="/room">Marking Room</NavLink>
         <NavLink to="/classes">Classes</NavLink>
         <NavLink to="/submissions">Submissions</NavLink>
         <NavLink to="/assignments">Assignments</NavLink>
