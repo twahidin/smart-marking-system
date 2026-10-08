@@ -218,3 +218,18 @@ Teacher endpoints: `GET /api/review/corrections?class_assignment_id=`,
 Multiplayer avatars or chat with the crew, points or badges beyond the "after reflection" one,
 student-visible model reasoning, moving the worker to a separate service, and the three.js scene
 itself (phase 2).
+
+## 9. Phase 1.1 (deferred from phase 1 at the final review)
+
+Shipped phase 1 differs from §3 in these ways, each deferred rather than dropped:
+
+- Review → Corrections: per-row release (phase 1 releases a whole class set at once); the part label
+  is shown as the normalised id.
+- Thought panel: no "Show answer" button (the crop is reachable from the script page).
+- Marking Room header: no class-set picker, "Needs you" link or full queue below the room; the page takes
+  `?ca=` for a set and links to Review and Submissions.
+- Student delight animations (crew nod, stamp, badge pop) are plain fades.
+- A rejected correction shows "Not accepted — ask your teacher"; the teacher's reason is kept for the
+  teacher's records only (§3.5 said the student sees it; the privacy rule in §6 won).
+- Migration 0014 sets `reflect_days = 0` on class assignments released before the upgrade, so no
+  reflection window opens unexpectedly on existing deployments; teachers can set one per assignment.
