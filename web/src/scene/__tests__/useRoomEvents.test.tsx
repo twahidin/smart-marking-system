@@ -6,6 +6,7 @@ class FakeSource {
   static last: FakeSource | null = null;
   listeners: Record<string, ((e: MessageEvent) => void)[]> = {};
   onerror: null | (() => void) = null;
+  onopen: null | (() => void) = null;
   closed = false;
   constructor(public url: string) { FakeSource.last = this; }
   addEventListener(type: string, fn: (e: MessageEvent) => void) { (this.listeners[type] ??= []).push(fn); }
@@ -45,6 +46,20 @@ describe("useRoomEvents", () => {
     expect((fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("counts only consecutive errors: an open or a stage message resets the count", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(okResponse(1))));
+    vi.stubGlobal("EventSource", FakeSource);
+    const { result } = renderHook(() => useRoomEvents(null));
+    await waitFor(() => expect(FakeSource.last).not.toBeNull());
+    const source = FakeSource.last!;
+    act(() => { source.onerror?.(); source.onerror?.(); source.onopen?.(); source.onerror?.(); source.onerror?.(); });
+    expect(source.closed).toBe(false);
+    act(() => { source.emit("stage", {}); source.onerror?.(); source.onerror?.(); });
+    expect(source.closed).toBe(false);
+    expect(result.current.live).toBe(true);
+    act(() => { source.onerror?.(); });
+    expect(source.closed).toBe(true);
+  });
 
   it("closes the source and clears its timers on unmount", async () => {
     vi.useFakeTimers();

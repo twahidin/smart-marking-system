@@ -5,7 +5,7 @@ import type { RoomSnapshot } from "../api/types";
 const MAX_ERRORS = 3;
 const POLL_MS = 5000;
 
-/** The room snapshot, kept current by the SSE stage stream; after three stream errors (or a failed first load), by polling. */
+/** The room snapshot, kept current by the SSE stage stream; after three stream errors in a row (or a failed first load), by polling. */
 export function useRoomEvents(classAssignmentId: number | null) {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,9 @@ export function useRoomEvents(classAssignmentId: number | null) {
       if (!s || typeof EventSource !== "function") { startPolling(); return; }
       const qs = [`after=${s.last_event_id}`, scope].filter(Boolean).join("&");
       source = new EventSource(`/api/room/events?${qs}`);
-      source.addEventListener("stage", () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(load, 300); });
+      // Only consecutive errors count towards the polling fallback: an open or a message means the stream works.
+      source.onopen = () => { errors = 0; };
+      source.addEventListener("stage", () => { errors = 0; if (debounce) clearTimeout(debounce); debounce = setTimeout(load, 300); });
       source.onerror = () => { if (++errors >= MAX_ERRORS && source) { source.close(); source = null; startPolling(); } };
     });
     return () => { cancelled = true; source?.close(); if (poll) clearInterval(poll); if (debounce) clearTimeout(debounce); };

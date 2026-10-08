@@ -6,7 +6,8 @@ import type { Correction } from "../../api/types";
 import { CorrectionsTab } from "../CorrectionsTab";
 
 const row: Correction = { id: 5, submission_id: 9, submission_label: "#1 Tan", reg_no: 1, student_name: "Tan", q_id: "1b", reason: "sign", text: "x^2 = 9", page_id: null,
-  status: "remarked", remark_total: 1, remark_max: 1, remark_note: "Marker: B1 earned\nChecker: APPROVE: agree", teacher_total: null, teacher_reason: null, error: null, submitted_at: "2026-10-08T01:00:00Z", released_at: null };
+  status: "remarked", remark_total: 1, remark_max: 1, remark_note: "Marker: B1 earned\nChecker: APPROVE: agree", teacher_total: null, teacher_reason: null, error: null, submitted_at: "2026-10-08T01:00:00Z", released_at: null,
+  original_total: 0, original_max: 1, crop_id: 7 };
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -24,12 +25,32 @@ describe("CorrectionsTab", () => {
     await screen.findByText("#1 Tan · 1b");
     expect(screen.getByText("Marker: B1 earned")).toBeInTheDocument();
     expect(screen.getByText("Re-marked 1 / 1")).toBeInTheDocument();
+    expect(screen.getByText("First try: 0 / 1")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "The student's first answer" })).toHaveAttribute("src", "/api/crops/7");
     await userEvent.click(screen.getByRole("button", { name: "Accept 1 / 1" }));
     await userEvent.type(screen.getByLabelText("Override mark"), "0.5");
     await userEvent.click(screen.getByRole("button", { name: "Override" }));
     await userEvent.click(screen.getByRole("button", { name: "Release corrections" }));
     await waitFor(() => expect(posted.map((p) => p.path)).toEqual(["/api/corrections/5/accept", "/api/corrections/5/override", "/api/class-assignments/3/release-corrections"]));
     expect(posted[1].body).toEqual({ total: 0.5 });
+  });
+
+  it("tells the teacher the reject reason stays with them", async () => {
+    const posted: { path: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.startsWith("/api/review/corrections")) return Promise.resolve(new Response(JSON.stringify([{ ...row, crop_id: null }]), { status: 200 }));
+      posted.push({ path, body: init?.body ? JSON.parse(String(init.body)) : null });
+      return Promise.resolve(new Response(JSON.stringify({ ...row, status: "rejected" }), { status: 200 }));
+    }));
+    const prompt = vi.fn(() => "Copied");
+    vi.stubGlobal("prompt", prompt);
+    render(<MemoryRouter><CorrectionsTab classAssignmentId={3} /></MemoryRouter>);
+    await screen.findByText("#1 Tan · 1b");
+    expect(screen.queryByRole("img", { name: "The student's first answer" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Reject" }));
+    expect(prompt).toHaveBeenCalledWith("Why is this not accepted? (kept for your records — the student sees \"Not accepted — ask your teacher\")");
+    await waitFor(() => expect(posted).toEqual([{ path: "/api/corrections/5/reject", body: { reason: "Copied" } }]));
   });
 
   it("drops a slow answer for a set the teacher has already left", async () => {

@@ -112,7 +112,7 @@ figcaption {
 }
 .text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
 :focus { outline: none; }
-:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--crew-marker-ink); outline-offset: 2px; }   /* coral is too faint on paper */
 ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
 
 /* — rules — */
@@ -174,7 +174,7 @@ textarea.input { min-height: 90px; resize: vertical; }
   border-color: var(--color-accent); background: var(--color-accent);
   box-shadow: inset 0 0 0 4px var(--color-bg);
 }
-.radio input:focus-visible + .dot { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.radio input:focus-visible + .dot { outline: 2px solid var(--crew-marker-ink); outline-offset: 2px; }
 .seg {
   display: inline-flex; overflow: hidden;
   border: 1px solid var(--color-divider); border-radius: var(--radius-md);
@@ -186,7 +186,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
 .seg-opt:has(input:checked) { background: var(--color-accent); color: var(--color-bg); }
 .seg-opt:not(:has(input:checked)):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
-.seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--crew-marker-ink); outline-offset: -2px; }
 
 /* — cards — */
 .card {

@@ -232,5 +232,7 @@ export type Thoughts = Record<Crew, Thought[]>;
 export type CorrectionStatus = "submitted" | "remarked" | "accepted" | "overridden" | "rejected" | "released";
 /** What a student is told about a correction: a coarse word, never the raw status. */
 export type StudentCorrectionStatus = "sent" | "waiting" | "released" | "rejected";
-export interface Correction { id: number; submission_id: number; submission_label: string; reg_no: number | null; student_name: string | null; q_id: string; reason: string; text: string | null; page_id: number | null; status: CorrectionStatus; remark_total: number | null; remark_max: number | null; remark_note: string | null; teacher_total: number | null; teacher_reason: string | null; error: string | null; submitted_at: string; released_at: string | null }
+export interface Correction { id: number; submission_id: number; submission_label: string; reg_no: number | null; student_name: string | null; q_id: string; reason: string; text: string | null; page_id: number | null; status: CorrectionStatus; remark_total: number | null; remark_max: number | null; remark_note: string | null; teacher_total: number | null; teacher_reason: string | null; error: string | null; submitted_at: string; released_at: string | null;
+  /** The part's mark when the correction was sent, its max, and the answer crop (teacher crops route) — the student's first try. */
+  original_total: number | null; original_max: number | null; crop_id: number | null }
 export interface Reflection { window_ends_at: string | null; days_left: number; parts: Record<string, { can_correct: boolean; status: StudentCorrectionStatus | null; new_mark: number | null }> }

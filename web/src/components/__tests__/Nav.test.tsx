@@ -11,4 +11,9 @@ describe("Nav", () => {
     expect(screen.getByRole("link", { name: /Marking Room/ })).toHaveAttribute("href", "/room");
     expect(screen.getByRole("link", { name: /Review/ })).toHaveTextContent("3");
   });
+
+  it("takes the brand home to the Marking Room", () => {
+    render(<MemoryRouter><Nav needsYou={0} /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "Smart Marking" })).toHaveAttribute("href", "/room");
+  });
 });

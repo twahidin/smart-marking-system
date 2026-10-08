@@ -59,6 +59,8 @@ export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: numbe
               <span className={`pill ${r.status === "released" ? "pill-outline" : "pill-neutral"}`}>{WORD[r.status]}</span>
             </header>
             <p className="muted">{`Reason given: ${r.reason}`}</p>
+            {r.original_total !== null && <p>{`First try: ${r.original_total}${r.original_max === null ? "" : ` / ${r.original_max}`}`}</p>}
+            {r.crop_id !== null && <img src={`/api/crops/${r.crop_id}`} alt="The student's first answer" style={{ maxWidth: "100%", borderRadius: 12 }} />}
             {r.text && <p className="student-read">{r.text}</p>}
             {r.page_id && <img src={`/api/pages/${r.page_id}`} alt="The student's corrected working" style={{ maxWidth: "100%", borderRadius: 12 }} />}
             {r.error && <Notice kind="error">{`Re-mark failed · mark it yourself: ${r.error}`}</Notice>}
@@ -73,7 +75,7 @@ export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: numbe
                 </label>
                 <button type="button" className="btn btn-secondary btn-sm" disabled={typed === ""} onClick={() => act(r.id, "override", { total: Number(typed) })}>Override</button>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
-                  const reason = window.prompt("Why is this not accepted? (the student sees this)") ?? "";
+                  const reason = window.prompt("Why is this not accepted? (kept for your records — the student sees \"Not accepted — ask your teacher\")") ?? "";
                   if (reason.trim()) act(r.id, "reject", { reason: reason.trim() });
                 }}>Reject</button>
               </div>
