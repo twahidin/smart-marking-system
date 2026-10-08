@@ -281,7 +281,7 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .card { background: var(--color-surface); border-radius: var(--radius-lg); padding: 20px; box-shadow: 0 12px 32px rgba(78, 56, 10, 0.12); }
 .pill { border-radius: 999px; font-weight: 700; }
 .pill-crew-reader { background: var(--crew-reader); color: var(--color-text); }
-.pill-crew-marker { background: var(--crew-marker); color: #fff; }
+.pill-crew-marker { background: var(--crew-marker); color: var(--color-text); }
 .pill-crew-checker { background: var(--crew-checker); color: var(--color-text); }
 .pill-crew-reader::before, .pill-crew-marker::before, .pill-crew-checker::before { display: none; }
 .btn { border-radius: 999px; font-weight: 700; }
