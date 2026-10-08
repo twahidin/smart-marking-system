@@ -212,7 +212,11 @@ function CorrectionsPane() {
   const [params, setParams] = useSearchParams();
   const { sets, error } = useCorrectionSets(true);
   const wanted = Number(params.get("ca")) || null;
-  const selected = wanted ?? sets?.[0]?.id ?? null;
+  // A ?ca= that isn't one of the listed sets must not drive the tab while the picker shows another: fall back to the first.
+  const selected = sets && sets.length > 0 ? (sets.some((s) => s.id === wanted) ? wanted : sets[0].id) : null;
+  useEffect(() => {
+    if (selected !== null && wanted !== null && wanted !== selected) setParams((p) => { const n = new URLSearchParams(p); n.set("ca", String(selected)); return n; }, { replace: true });
+  }, [selected, wanted, setParams]);
   return (
     <div className="page">
       {error && <Notice kind="error">{error}</Notice>}

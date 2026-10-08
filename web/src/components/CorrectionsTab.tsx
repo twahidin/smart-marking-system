@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Correction, CorrectionStatus } from "../api/types";
 import { Notice } from "./Notice";
@@ -13,21 +13,29 @@ export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: numbe
   const [error, setError] = useState<string | null>(null);
   const [override, setOverride] = useState<Record<number, string>>({});
   const [released, setReleased] = useState<number | null>(null);
-  const load = useCallback(
-    () => api.get<Correction[]>(`/api/review/corrections?class_assignment_id=${classAssignmentId}`).then(setRows).catch((e) => setError(message(e))),
-    [classAssignmentId],
-  );
-  useEffect(() => { setRows(null); setReleased(null); load(); }, [load]);
+  // Only the set on screen may write rows or errors: a slow answer for a set the teacher has since left is dropped.
+  const current = useRef(classAssignmentId);
+  current.current = classAssignmentId;
+  const load = useCallback(() => {
+    const id = classAssignmentId;
+    return api.get<Correction[]>(`/api/review/corrections?class_assignment_id=${id}`)
+      .then((r) => { if (current.current === id) setRows(r); })
+      .catch((e) => { if (current.current === id) setError(message(e)); });
+  }, [classAssignmentId]);
+  useEffect(() => { setRows(null); setError(null); setReleased(null); setOverride({}); load(); }, [load]);
   const act = async (id: number, action: "accept" | "override" | "reject", body?: unknown) => {
     setError(null);
-    try { await api.post(`/api/corrections/${id}/${action}`, body); await load(); } catch (e) { setError(message(e)); }
+    const set = classAssignmentId;
+    try { await api.post(`/api/corrections/${id}/${action}`, body); await load(); } catch (e) { if (current.current === set) setError(message(e)); }
   };
   const release = async () => {
     setError(null);
+    const set = classAssignmentId;
     try {
-      const r = await api.post<{ released: number }>(`/api/class-assignments/${classAssignmentId}/release-corrections`);
-      setReleased(r.released); await load();
-    } catch (e) { setError(message(e)); }
+      const r = await api.post<{ released: number }>(`/api/class-assignments/${set}/release-corrections`);
+      if (current.current === set) setReleased(r.released);
+      await load();
+    } catch (e) { if (current.current === set) setError(message(e)); }
   };
   const ready = rows?.filter((r) => r.status === "accepted" || r.status === "overridden").length ?? 0;
   return (
@@ -41,7 +49,8 @@ export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: numbe
       {rows === null && !error && <p className="muted">Loading…</p>}
       {rows?.length === 0 && <p className="muted">No corrections yet.</p>}
       {rows?.map((r) => {
-        const mx = r.remark_max ?? 0;
+        const mx = r.remark_max;   // null when the re-mark failed: there is no maximum to show or bound by
+        const outOf = mx === null ? "" : ` / ${mx}`;
         const typed = override[r.id] ?? "";
         return (
           <article key={r.id} className="card correction">
@@ -53,14 +62,14 @@ export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: numbe
             {r.text && <p className="student-read">{r.text}</p>}
             {r.page_id && <img src={`/api/pages/${r.page_id}`} alt="The student's corrected working" style={{ maxWidth: "100%", borderRadius: 12 }} />}
             {r.error && <Notice kind="error">{`Re-mark failed · mark it yourself: ${r.error}`}</Notice>}
-            {r.remark_total !== null && <p><strong>{`Re-marked ${r.remark_total} / ${mx}`}</strong></p>}
+            {r.remark_total !== null && <p><strong>{`Re-marked ${r.remark_total}${outOf}`}</strong></p>}
             {r.remark_note && r.remark_note.split("\n").map((line, i) => <p key={i} className="thought-note">{line}</p>)}
-            {r.teacher_total !== null && <p>{`Your mark: ${r.teacher_total} / ${mx}`}</p>}
+            {r.teacher_total !== null && <p>{`Your mark: ${r.teacher_total}${outOf}`}</p>}
             {r.status !== "released" && r.status !== "rejected" && (
               <div className="actions" style={{ alignItems: "center" }}>
-                {r.remark_total !== null && <button type="button" className="btn btn-primary btn-sm" onClick={() => act(r.id, "accept")}>{`Accept ${r.remark_total} / ${mx}`}</button>}
+                {r.remark_total !== null && <button type="button" className="btn btn-primary btn-sm" onClick={() => act(r.id, "accept")}>{`Accept ${r.remark_total}${outOf}`}</button>}
                 <label className="help">Override mark
-                  <input aria-label="Override mark" className="input" type="number" min={0} max={mx} step={0.5} value={typed} onChange={(e) => setOverride({ ...override, [r.id]: e.target.value })} />
+                  <input aria-label="Override mark" className="input" type="number" min={0} max={mx ?? undefined} step={0.5} value={typed} onChange={(e) => setOverride({ ...override, [r.id]: e.target.value })} />
                 </label>
                 <button type="button" className="btn btn-secondary btn-sm" disabled={typed === ""} onClick={() => act(r.id, "override", { total: Number(typed) })}>Override</button>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => {

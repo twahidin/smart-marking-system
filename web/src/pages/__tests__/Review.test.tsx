@@ -210,6 +210,13 @@ describe("Review — Corrections tab", () => {
     expect(await screen.findByText("Question 1(b)")).toBeInTheDocument();
   });
 
+  it("falls back to the first listed set when ?ca= names one that isn't listed", async () => {
+    const urls = setupTabs("/review?ca=999");
+    expect(await screen.findByLabelText("Class set")).toHaveValue("3");
+    await vi.waitFor(() => expect(urls).toContain("/api/review/corrections?class_assignment_id=3"));
+    expect(urls).not.toContain("/api/review/corrections?class_assignment_id=999");
+  });
+
   it("opens on the Corrections tab with the set from ?ca= preselected", async () => {
     setupTabs("/review?ca=4");
     expect(await screen.findByLabelText("Class set")).toHaveValue("4");

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -30,5 +30,32 @@ describe("CorrectionsTab", () => {
     await userEvent.click(screen.getByRole("button", { name: "Release corrections" }));
     await waitFor(() => expect(posted.map((p) => p.path)).toEqual(["/api/corrections/5/accept", "/api/corrections/5/override", "/api/class-assignments/3/release-corrections"]));
     expect(posted[1].body).toEqual({ total: 0.5 });
+  });
+
+  it("drops a slow answer for a set the teacher has already left", async () => {
+    const slow: { resolve: (r: Response) => void } = { resolve: () => {} };
+    const other: Correction = { ...row, id: 6, submission_label: "#2 Lim" };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("=3")) return new Promise<Response>((resolve) => { slow.resolve = resolve; });
+      if (path.endsWith("=4")) return Promise.resolve(new Response(JSON.stringify([other]), { status: 200 }));
+      return Promise.reject(new Error(`Unexpected fetch to ${path}`));
+    }));
+    const { rerender } = render(<MemoryRouter><CorrectionsTab classAssignmentId={3} /></MemoryRouter>);
+    rerender(<MemoryRouter><CorrectionsTab classAssignmentId={4} /></MemoryRouter>);
+    await screen.findByText("#2 Lim · 1b");
+    await act(async () => { slow.resolve(new Response(JSON.stringify([row]), { status: 200 })); });
+    expect(screen.getByText("#2 Lim · 1b")).toBeInTheDocument();
+    expect(screen.queryByText("#1 Tan · 1b")).not.toBeInTheDocument();
+  });
+
+  it("shows no maximum and bounds nothing when the re-mark failed", async () => {
+    const failed: Correction = { ...row, status: "submitted", remark_total: null, remark_max: null, remark_note: null, error: "timed out", teacher_total: 2 };
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify([failed]), { status: 200 }))));
+    render(<MemoryRouter><CorrectionsTab classAssignmentId={3} /></MemoryRouter>);
+    expect(await screen.findByText("Re-mark failed · mark it yourself: timed out")).toBeInTheDocument();
+    expect(screen.getByText("Your mark: 2")).toBeInTheDocument();
+    expect(screen.queryByText(/\/ 0/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Override mark")).not.toHaveAttribute("max");
   });
 });
