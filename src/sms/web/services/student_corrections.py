@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
+from sqlalchemy.exc import IntegrityError
 
 from sms.memory.db import Database
 from sms.schemas.scheme import norm_qid
@@ -14,11 +15,12 @@ from sms.storage import PageStorage
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 from sms.web.services.class_assignments import effective_reflect_days
-from sms.worker.jobs import JobStore
+from sms.worker.jobs import JobStore, _payload_json
 
 REASONS = ("sign", "method", "rushed", "misread", "other")
-STATUS_WORDS = {"submitted": "sent", "remarked": "waiting for the teacher", "accepted": "waiting for the teacher",
-                "overridden": "waiting for the teacher", "released": "released", "rejected": "rejected"}
+# What a student may see of a correction's state: the teacher's decision stays hidden until it is released.
+STUDENT_STATUS = {"submitted": "sent", "remarked": "waiting", "accepted": "waiting", "overridden": "waiting",
+                  "released": "released", "rejected": "rejected"}
 FINAL = ("released", "rejected")
 
 
@@ -91,18 +93,25 @@ def submit_correction(db: Database, storage: PageStorage, jobs: JobStore, *, ca:
     sid = submission_detail["id"]
     if db.query("SELECT 1 FROM student_corrections WHERE submission_id = :s AND q_id = :q", {"s": sid, "q": key}):
         raise ApiError(409, "already_corrected", "You have already sent a correction for this part")
-    page_id = None
-    if photo is not None:
-        data = _jpeg(photo)
-        digest, rel = storage.put_jpeg(data)
-        n = db.query("SELECT COUNT(*) AS c FROM pages WHERE submission_id = :s", {"s": sid})[0]["c"]
-        page_id = db.insert("INSERT INTO pages (submission_id, page_index, sha256, storage_path, width, height, kind) "
-                            "VALUES (:s, :i, :d, :p, 0, 0, 'correction') RETURNING id",
-                            {"s": sid, "i": 1000 + int(n), "d": digest, "p": rel})
-    cid = db.insert("INSERT INTO student_corrections (submission_id, q_id, reason, text, page_id, status) "
-                    "VALUES (:s, :q, :r, :t, :p, 'submitted') RETURNING id",
-                    {"s": sid, "q": key, "r": reason if reason in REASONS else "other", "t": text or None, "p": page_id})
-    jobs.enqueue("remark", payload={"correction_id": cid})
+    data = _jpeg(photo) if photo is not None else None
+    digest, rel = storage.put_jpeg(data) if data is not None else (None, None)
+    try:
+        # Page, correction and remark job commit together: a duplicate or a failed enqueue leaves nothing behind.
+        with db.transaction() as tx:
+            page_id = None
+            if digest is not None:
+                n = tx.query("SELECT COUNT(*) AS c FROM pages WHERE submission_id = :s", {"s": sid})[0]["c"]
+                page_id = tx.insert("INSERT INTO pages (submission_id, page_index, sha256, storage_path, width, height, kind) "
+                                    "VALUES (:s, :i, :d, :p, 0, 0, 'correction') RETURNING id",
+                                    {"s": sid, "i": 1000 + int(n), "d": digest, "p": rel})
+            cid = tx.insert("INSERT INTO student_corrections (submission_id, q_id, reason, text, page_id, status) "
+                            "VALUES (:s, :q, :r, :t, :p, 'submitted') RETURNING id",
+                            {"s": sid, "q": key, "r": reason if reason in REASONS else "other", "t": text or None, "p": page_id})
+            # Same row JobStore.enqueue writes, but without a submission_id (the script keeps its status).
+            tx.insert("INSERT INTO jobs (kind, submission_id, status, payload_json) VALUES ('remark', NULL, 'queued', :p) RETURNING id",
+                      {"p": _payload_json({"correction_id": cid})})
+    except IntegrityError as e:
+        raise ApiError(409, "already_corrected", "You have already sent a correction for this part") from e
     return _row(db.query("SELECT * FROM student_corrections WHERE id = :id", {"id": cid})[0])
 
 
@@ -164,6 +173,6 @@ def student_reflection(db: Database, ca: Dict[str, Any], detail: dict) -> Dict[s
             new = None
             if c["status"] == "released":
                 new = float(c["teacher_total"] if c["teacher_total"] is not None else c["remark_total"] or 0)
-            parts[key] = {"can_correct": False, "status": c["status"], "new_mark": new}
+            parts[key] = {"can_correct": False, "status": STUDENT_STATUS.get(c["status"], "waiting"), "new_mark": new}
     days_left = max(0, (end - _utcnow()).days) if end else 0
     return {"window_ends_at": iso_utc(end) if end else None, "days_left": days_left, "parts": parts}

@@ -99,3 +99,45 @@ def test_photo_correction_stores_a_correction_page(auth, app):
     with pytest.raises(ApiError) as e:
         sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=detail, q_id="1b", reason="other", text="", photo=("w.png", b"not an image"))
     assert e.value.code == "bad_photo"
+
+
+def test_duplicate_part_is_a_409_and_leaves_no_page_behind(auth, app):
+    import io
+
+    from PIL import Image
+
+    ca, sid = _released(auth, app)
+    db = app.state.db
+    jobs = JobStore(db)
+    detail = get_submission(db, jobs, sid)
+    db.execute("INSERT INTO student_corrections (submission_id, q_id, status) VALUES (:s, '2', 'submitted')", {"s": sid})
+    pages_before = db.query("SELECT COUNT(*) AS c FROM pages")[0]["c"]
+    jobs_before = db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"]
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), "white").save(buf, format="PNG")
+    # Skip the fast-path SELECT to emulate the losing side of a race: the unique index must still give a 409.
+    real_query = db.query
+    db.query = lambda sql, params=None: [] if "FROM student_corrections WHERE submission_id" in sql else real_query(sql, params)
+    try:
+        with pytest.raises(ApiError) as e:
+            sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=detail, q_id="2", reason="other", text="z", photo=("w.png", buf.getvalue()))
+    finally:
+        db.query = real_query
+    assert e.value.status == 409 and e.value.code == "already_corrected"
+    assert db.query("SELECT COUNT(*) AS c FROM pages")[0]["c"] == pages_before
+    assert db.query("SELECT COUNT(*) AS c FROM jobs")[0]["c"] == jobs_before
+
+
+def test_students_see_only_coarse_status_words(auth, app):
+    ca, sid = _released(auth, app)
+    db = app.state.db
+    jobs = JobStore(db)
+    detail = get_submission(db, jobs, sid)
+    row = sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=detail, q_id="1b", reason="sign", text="9", photo=None)
+    assert sc.student_reflection(db, ca, detail)["parts"]["1b"]["status"] == "sent"
+    db.execute("UPDATE student_corrections SET status = 'accepted', remark_total = 1, remark_max = 1, remark_note = 'secret note', "
+               "teacher_reason = 'secret reason' WHERE id = :id", {"id": row["id"]})
+    view = sc.student_reflection(db, ca, detail)
+    assert view["parts"]["1b"] == {"can_correct": False, "status": "waiting", "new_mark": None}
+    blob = repr(view)
+    assert all(k not in blob for k in ("remark_note", "teacher_reason", "justification", "secret"))
