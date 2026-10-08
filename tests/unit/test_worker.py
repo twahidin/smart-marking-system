@@ -264,6 +264,21 @@ def test_worker_records_insights_errors_on_the_job(env):
     assert row["status"] == "failed" and "not found" in row["error"]
 
 
+def test_worker_dispatches_remark_jobs_with_the_bucket_pool(env):
+    db, store, storage, sid = env
+    JobStore(db).enqueue("remark", payload={"correction_id": 7})
+    calls = []
+
+    def remark_runner(db_, storage_, store_, correction_id, bucket_pool=None):
+        calls.append((correction_id, bucket_pool))
+
+    w = Worker(db, storage, store, runner=lambda *a, **k: pytest.fail("mark runner must not run"),
+               remark_runner=remark_runner)
+    assert w.run_once() is True and w.run_once() is False
+    assert calls == [(7, w.pool)]
+    assert db.query("SELECT status FROM jobs")[0]["status"] == "done"
+
+
 def test_worker_reflect_retry_reuses_the_same_run_row(env):
     db, store, storage, sid = env
     JobStore(db).enqueue("reflect", payload={"subject": "math", "lookback_days": 7})

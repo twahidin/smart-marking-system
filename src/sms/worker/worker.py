@@ -19,6 +19,7 @@ from sms.worker.insights_job import INSIGHTS_KIND, run_insights_job
 from sms.worker.jobs import MAX_ATTEMPTS, JobStore
 from sms.worker.mark_job import run_mark_job
 from sms.worker.reflect_job import open_reflection_run, run_reflect_job
+from sms.worker.remark_job import run_remark_job
 
 log = logging.getLogger("sms.worker")
 
@@ -41,7 +42,8 @@ class Worker:
                  base_backoff_s: float = 30.0, reflect_runner: ReflectRunner = run_reflect_job,
                  paper_runner: ExtractRunner = run_paper_extract_job,
                  scheme_runner: ExtractRunner = run_scheme_extract_job,
-                 insights_runner: InsightsRunner = run_insights_job):
+                 insights_runner: InsightsRunner = run_insights_job,
+                 remark_runner: Runner = run_remark_job):
         self.db = db
         self.storage = storage
         self.settings_store = settings_store
@@ -50,6 +52,7 @@ class Worker:
         self.paper_runner = paper_runner
         self.scheme_runner = scheme_runner
         self.insights_runner = insights_runner
+        self.remark_runner = remark_runner
         self.poll_s = poll_s
         self.max_attempts = max_attempts
         self.base_backoff_s = base_backoff_s
@@ -90,6 +93,9 @@ class Worker:
                 payload = json.loads(job["payload_json"] or "{}")
                 self.insights_runner(self.db, self.jobs, self.settings_store, int(payload["class_assignment_id"]),
                                      bucket_pool=self.pool)
+            elif job["kind"] == "remark":
+                payload = json.loads(job["payload_json"] or "{}")
+                self.remark_runner(self.db, self.storage, self.settings_store, int(payload["correction_id"]), bucket_pool=self.pool)
             else:
                 raise ValueError(f"unknown job kind {job['kind']!r}")
             self.jobs.finish(job["id"])
