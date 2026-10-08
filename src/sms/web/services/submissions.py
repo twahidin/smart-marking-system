@@ -358,7 +358,7 @@ def submission_totals(db: Database, s: dict, *, pending: Optional[Dict[str, dict
 
 
 def list_submissions(db: Database) -> List[Dict[str, Any]]:
-    subs = db.query("SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count, "
+    subs = db.query("SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id AND p.kind = 'student') AS page_count, "
                     "(SELECT COUNT(*) FROM submission_files f WHERE f.submission_id = s.id) AS file_count, "
                     "a.title AS assignment_title, cl.name AS class_name, st.reg_no AS reg_no "
                     "FROM submissions s LEFT JOIN assignment_templates a ON a.id = s.assignment_id "

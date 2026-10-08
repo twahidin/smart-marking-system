@@ -141,3 +141,106 @@ def test_students_see_only_coarse_status_words(auth, app):
     assert view["parts"]["1b"] == {"can_correct": False, "status": "waiting", "new_mark": None}
     blob = repr(view)
     assert all(k not in blob for k in ("remark_note", "teacher_reason", "justification", "secret"))
+
+
+def test_override_after_a_failed_remark_is_bounded_by_the_part_max(auth, app):
+    ca, sid = _released(auth, app)
+    db = app.state.db
+    jobs = JobStore(db)
+    row = sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=get_submission(db, jobs, sid),
+                               q_id="1b", reason="sign", text="9", photo=None)
+    assert row["remark_max"] == 1 and row["original_total"] == 0      # set at submit, before any re-mark
+    db.execute("UPDATE student_corrections SET error = 'timed out' WHERE id = :id", {"id": row["id"]})
+    for bad in (5, -1):
+        with pytest.raises(ApiError) as e:
+            sc.decide(db, row["id"], "override", total=bad)
+        assert e.value.code == "bad_total"
+    assert sc.decide(db, row["id"], "override", total=1)["teacher_total"] == 1
+    sc.release_corrections(db, ca["id"])
+    assert sc.released_marks(db, sid) == {"1b": {"total": 1.0, "max": 1.0}}
+
+
+def test_correction_text_is_capped(auth, app):
+    ca, sid = _released(auth, app)
+    db = app.state.db
+    jobs = JobStore(db)
+    with pytest.raises(ApiError) as e:
+        sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=get_submission(db, jobs, sid),
+                             q_id="1b", reason="sign", text="x" * 4001, photo=None)
+    assert (e.value.status, e.value.code, e.value.message) == (400, "too_long", "Keep your correction under 4,000 characters")
+    assert not db.query("SELECT 1 FROM student_corrections")
+    row = sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=get_submission(db, jobs, sid),
+                               q_id="1b", reason="sign", text="x" * 4000, photo=None)
+    assert row["status"] == "submitted"
+
+
+def test_list_shows_the_first_try_and_the_answer_crop(auth, app):
+    ca, sid = _released(auth, app)
+    db = app.state.db
+    jobs = JobStore(db)
+    gone = db.insert("INSERT INTO part_crops (submission_id, q_id, page_index, box_json, whole_page, storage_path, sha256, width, height, deleted_at) "
+                     "VALUES (:s, '1b', 0, '[]', 1, 'crops/old.jpg', 'old', 10, 10, CURRENT_TIMESTAMP) RETURNING id", {"s": sid})
+    crop = db.insert("INSERT INTO part_crops (submission_id, q_id, page_index, box_json, whole_page, storage_path, sha256, width, height) "
+                     "VALUES (:s, '1(b)', 0, '[]', 1, 'crops/c.jpg', 'c', 10, 10) RETURNING id", {"s": sid})
+    sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=get_submission(db, jobs, sid),
+                         q_id="1b", reason="sign", text="9", photo=None)
+    sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=get_submission(db, jobs, sid),
+                         q_id="2", reason="sign", text="x^2 + 2x + 1", photo=None)
+    rows = {r["q_id"]: r for r in sc.list_corrections(db, ca["id"])}
+    assert (rows["1b"]["original_total"], rows["1b"]["original_max"], rows["1b"]["crop_id"]) == (0, 1, crop) and crop != gone
+    assert (rows["2"]["original_total"], rows["2"]["original_max"], rows["2"]["crop_id"]) == (1, 3, None)
+
+
+def test_days_left_counts_the_last_day(auth, app):
+    ca, sid = _released(auth, app, days=7)
+    db = app.state.db
+    released = _utcnow() - timedelta(days=6, hours=12)          # half a day left
+    db.execute("UPDATE class_assignments SET released_at = :r WHERE id = :id", {"r": released.strftime("%Y-%m-%d %H:%M:%S"), "id": ca["id"]})
+    ca = db.query("SELECT * FROM class_assignments WHERE id = :id", {"id": ca["id"]})[0]
+    assert sc.student_reflection(db, ca, get_submission(db, JobStore(db), sid))["days_left"] == 1
+
+
+def test_a_failed_remark_tells_the_student_it_is_waiting(auth, app):
+    ca, sid = _released(auth, app)
+    db = app.state.db
+    jobs = JobStore(db)
+    detail = get_submission(db, jobs, sid)
+    row = sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=detail, q_id="1b", reason="sign", text="9", photo=None)
+    db.execute("UPDATE student_corrections SET error = 'provider down' WHERE id = :id", {"id": row["id"]})
+    view = sc.student_reflection(db, ca, detail)
+    assert view["parts"]["1b"]["status"] == "waiting" and "provider down" not in repr(view)
+
+
+def _photo_correction(app, ca, sid, q_id):
+    import io
+
+    from PIL import Image
+
+    db = app.state.db
+    jobs = JobStore(db)
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), "white" if q_id == "2" else "black").save(buf, format="PNG")   # distinct files per part
+    row = sc.submit_correction(db, app.state.storage, jobs, ca=ca, submission_detail=get_submission(db, jobs, sid),
+                               q_id=q_id, reason="other", text="", photo=("w.png", buf.getvalue()))
+    page = db.query("SELECT storage_path FROM pages WHERE id = :id", {"id": row["page_id"]})[0]
+    return row, app.state.storage.abs(page["storage_path"])
+
+
+@pytest.mark.parametrize("retention, kept", [("crops", False), ("none", False), ("pages", True)])
+def test_correction_photos_follow_page_retention(auth, app, retention, kept):
+    ca, sid = _released(auth, app)
+    db = app.state.db
+    db.execute("UPDATE assignment_templates SET page_retention = :m", {"m": retention})
+    rejected, rejected_file = _photo_correction(app, ca, sid, "2")
+    released, released_file = _photo_correction(app, ca, sid, "1b")
+    assert rejected_file.is_file() and released_file.is_file()
+    sc.decide(db, rejected["id"], "reject", reason="copied", storage=app.state.storage)
+    db.execute("UPDATE student_corrections SET status = 'remarked', remark_total = 1 WHERE id = :id", {"id": released["id"]})
+    sc.decide(db, released["id"], "accept", storage=app.state.storage)
+    assert db.query("SELECT deleted_at FROM pages WHERE id = :id", {"id": released["page_id"]})[0]["deleted_at"] is None  # accepted: not final yet
+    assert sc.release_corrections(db, ca["id"], storage=app.state.storage) == 1
+    for row, path in ((rejected, rejected_file), (released, released_file)):
+        deleted = db.query("SELECT deleted_at FROM pages WHERE id = :id", {"id": row["page_id"]})[0]["deleted_at"]
+        assert (deleted is None) is kept and path.is_file() is kept
+    listed = {r["id"]: r for r in sc.list_corrections(db, ca["id"])}
+    assert (listed[rejected["id"]]["page_id"] is not None) is kept      # no broken image for a deleted photo

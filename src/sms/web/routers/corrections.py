@@ -62,13 +62,13 @@ def override(correction_id: int, body: OverrideBody, db=Depends(get_db)):
 
 
 @teacher.post("/api/corrections/{correction_id}/reject")
-def reject(correction_id: int, body: RejectBody, db=Depends(get_db)):
-    return decide(db, correction_id, "reject", reason=body.reason)
+def reject(correction_id: int, body: RejectBody, db=Depends(get_db), storage=Depends(get_storage)):
+    return decide(db, correction_id, "reject", reason=body.reason, storage=storage)
 
 
 @teacher.post("/api/class-assignments/{caid}/release-corrections")
-def release(caid: int, db=Depends(get_db)):
-    return {"released": release_corrections(db, caid)}
+def release(caid: int, db=Depends(get_db), storage=Depends(get_storage)):
+    return {"released": release_corrections(db, caid, storage=storage)}
 
 
 router.include_router(teacher)

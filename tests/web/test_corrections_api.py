@@ -114,3 +114,48 @@ def test_rejection_shows_status_but_not_the_reason(auth, client, app):
     got = client.get(f"/api/student/assignments/{ca['id']}").json()
     assert got["reflection"]["parts"]["1b"] == {"can_correct": False, "status": "rejected", "new_mark": None}
     assert "Copied from the board" not in str(got)
+
+
+def test_release_and_reject_routes_delete_correction_photos_under_retention(auth, client, app):
+    import io
+
+    from PIL import Image
+
+    c, ca, sid = _released_student(auth, client, app)
+    app.state.db.execute("UPDATE assignment_templates SET page_retention = 'crops'")
+    ids = {}
+    for q_id, colour in (("1b", "black"), ("2", "white")):
+        buf = io.BytesIO()
+        Image.new("RGB", (20, 20), colour).save(buf, format="PNG")
+        r = client.post(f"/api/student/assignments/{ca['id']}/corrections", data={"q_id": q_id, "reason": "other"},
+                        files={"photo": ("w.png", buf.getvalue(), "image/png")})
+        assert r.status_code == 201
+        ids[q_id] = r.json()["id"]
+    db = app.state.db
+    files = {q: app.state.storage.abs(db.query("SELECT p.storage_path FROM pages p JOIN student_corrections c ON c.page_id = p.id "
+                                               "WHERE c.id = :id", {"id": i})[0]["storage_path"]) for q, i in ids.items()}
+    assert all(f.is_file() for f in files.values())
+    auth.post("/api/auth/login", json={"password": "letmein"})
+    db.execute("UPDATE student_corrections SET status = 'remarked', remark_total = 1 WHERE id = :id", {"id": ids["1b"]})
+    assert auth.post(f"/api/corrections/{ids['1b']}/accept").status_code == 200
+    assert auth.post(f"/api/corrections/{ids['2']}/reject", json={"reason": "copied"}).status_code == 200
+    assert auth.post(f"/api/class-assignments/{ca['id']}/release-corrections").json() == {"released": 1}
+    assert not any(f.exists() for f in files.values())
+    assert all(r["page_id"] is None for r in auth.get(f"/api/review/corrections?class_assignment_id={ca['id']}").json())
+
+
+def test_correction_photos_do_not_count_as_script_pages(auth, client, app):
+    import io
+
+    from PIL import Image
+
+    c, ca, sid = _released_student(auth, client, app)
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "white").save(buf, format="PNG")
+    assert client.post(f"/api/student/assignments/{ca['id']}/corrections", data={"q_id": "1b", "reason": "other"},
+                       files={"photo": ("w.png", buf.getvalue(), "image/png")}).status_code == 201
+    assert [a["pages"] for a in client.get("/api/student/assignments").json()] == [1]
+    auth.post("/api/auth/login", json={"password": "letmein"})
+    assert next(s for s in auth.get("/api/submissions").json() if s["id"] == sid)["page_count"] == 1
+    roster = auth.get(f"/api/classes/{c['id']}/assignments/{ca['id']}").json()["roster"]["rows"]
+    assert next(r for r in roster if r["submission_id"] == sid)["pages"] == 1

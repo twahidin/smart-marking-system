@@ -55,7 +55,7 @@ def _visible(db: Database, student: dict, caid: Optional[int] = None) -> List[di
     """The class's non-draft assignments joined with this student's own hand-in (if any)."""
     sql = ("SELECT a.*, t.subject AS subject, t.scheme_kind AS scheme_kind, "
            "s.id AS submission_id, s.status AS sub_status, s.handed_in_at, s.run_id, "
-           "(SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count "
+           "(SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id AND p.kind = 'student') AS page_count "
            "FROM class_assignments a LEFT JOIN assignment_templates t ON t.id = a.template_id "
            "LEFT JOIN submissions s ON s.class_assignment_id = a.id AND s.student_id = :st "
            "WHERE a.class_id = :c AND a.status != 'draft'")

@@ -28,7 +28,7 @@ def _part_template(template: dict, q_id: str) -> dict:
     else:
         # a rubric correction names a criterion: the question list stays whole, the scheme narrows to it
         questions = list(template.get("questions") or [])
-        scheme = [s for s in template.get("scheme") or [] if s["criterion"] == q_id]
+        scheme = [s for s in template.get("scheme") or [] if norm_qid(s["criterion"]) == key]
     return {**template, "questions": questions, "scheme": scheme}
 
 
@@ -79,12 +79,14 @@ def run_remark_job(db: Database, storage: PageStorage, settings_store: SettingsS
                   else [RubricCriterionBands.model_validate(s) for s in part["scheme"]])
         notes = template.get("context") or ""
         marked = pipeline.marker.run(MarkingInputV2(kind=part["scheme_kind"], extracted=extracted, questions=questions, scheme=scheme, notes=notes))
+        marks = marked.parts or marked.rubric
+        if not marks:   # nothing to check or store: a failure the teacher sees, never a silent 0
+            raise RuntimeError("The Marker returned no mark for this part")
         reviewed = pipeline.reviewer.run(ReviewInputV2(kind=part["scheme_kind"], extracted=extracted, questions=questions, scheme=scheme,
                                                        notes=notes, marks=pipeline._blind_script(marked)))
-        marks = marked.parts or marked.rubric
-        mark = marks[0] if marks else None
-        total = _marks_of(mark, part["scheme_kind"]) if mark else 0.0
-        just = (mark.justification if mark else "") or ""
+        mark = marks[0]
+        total = _marks_of(mark, part["scheme_kind"])
+        just = mark.justification or ""
         verdict = next((v for v in reviewed.verdicts), None)
         if verdict is not None and verdict.verdict == ReviewVerdict.ADJUST and verdict.adjusted is not None:
             total = _marks_of(verdict.adjusted, part["scheme_kind"])

@@ -396,7 +396,7 @@ def roster(db: Database, ca: Dict[str, Any]) -> Dict[str, Any]:
     plus progress counts. `failed` scripts count under `marking` and `released` under `ready`."""
     students = db.query("SELECT id, reg_no, name FROM students WHERE class_id = :c ORDER BY reg_no", {"c": ca["class_id"]})
     subs = {r["student_id"]: r for r in db.query(
-        "SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id) AS page_count "
+        "SELECT s.*, (SELECT COUNT(*) FROM pages p WHERE p.submission_id = s.id AND p.kind = 'student') AS page_count "
         "FROM submissions s WHERE s.class_assignment_id = :a", {"a": ca["id"]})}
     pending: Dict[int, List[str]] = {}
     for q in db.query("SELECT q.submission_id, q.q_id FROM teacher_queue q JOIN submissions s ON s.id = q.submission_id "

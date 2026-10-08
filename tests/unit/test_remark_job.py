@@ -8,6 +8,7 @@ from sms.providers.settings import Settings, SettingsStore
 from sms.schemas.extraction import ExtractedQuestion, ExtractedScript
 from sms.schemas.marking import ReviewVerdict
 from sms.schemas.marking_v2 import AllocationMark, MarkedScriptV2, PartMark, RubricMark, ReviewVerdictV2, ReviewedScriptV2
+from sms.schemas.scheme import norm_qid
 from sms.storage import PageStorage
 from sms.worker.remark_job import run_remark_job
 from tests.unit.test_pipeline_v2_files import Fake
@@ -152,8 +153,9 @@ def test_rubric_correction_remarks_one_criterion(tmp_path):
                     {"q": json.dumps([{"q_id": "1", "text": "Essay", "max_marks": 9}]), "s": json.dumps(scheme)})
     sid = db.insert("INSERT INTO submissions (label, subject, context, rubric_json, status, assignment_id, scheme_kind) "
                     "VALUES ('s', 'language', '', '{}', 'done', :t, 'rubric') RETURNING id", {"t": tid})
+    # submit_correction stores the normalised key ("Content" -> "content"); the job must still find the criterion
     cid = db.insert("INSERT INTO student_corrections (submission_id, q_id, reason, text, status) "
-                    "VALUES (:s, 'Content', 'other', 'a vivid rewrite', 'submitted') RETURNING id", {"s": sid})
+                    "VALUES (:s, :q, 'other', 'a vivid rewrite', 'submitted') RETURNING id", {"s": sid, "q": norm_qid("Content")})
     marked = MarkedScriptV2(kind="rubric", rubric=[RubricMark(criterion="Content", band="A", marks=5, justification="vivid")])
     pipe = _Pipe(marked, ReviewedScriptV2(verdicts=[]))
     run_remark_job(db, PageStorage(tmp_path / "data"), store, cid, pipeline_factory=lambda **k: pipe)
@@ -162,3 +164,13 @@ def test_rubric_correction_remarks_one_criterion(tmp_path):
     assert sent.extracted.questions[0].q_id == "1" and sent.extracted.questions[0].transcribed_answer == "a vivid rewrite"
     r = db.query("SELECT status, remark_total, remark_max FROM student_corrections WHERE id = :id", {"id": cid})[0]
     assert r["status"] == "remarked" and r["remark_total"] == 5 and r["remark_max"] == 5
+
+
+def test_an_empty_marker_answer_is_a_failure_not_a_zero(env):
+    db, store, storage, cid = env
+    pipe = _Pipe(MarkedScriptV2(kind="mark_scheme", parts=[]), ReviewedScriptV2(verdicts=[]))
+    with pytest.raises(RuntimeError, match="The Marker returned no mark for this part"):
+        run_remark_job(db, storage, store, cid, pipeline_factory=lambda **k: pipe)
+    r = db.query("SELECT status, remark_total, error FROM student_corrections WHERE id = :id", {"id": cid})[0]
+    assert r["status"] == "submitted" and r["remark_total"] is None
+    assert r["error"] == "The Marker returned no mark for this part"
