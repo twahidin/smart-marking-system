@@ -118,6 +118,46 @@ describe("ClassAssignmentPage", () => {
     expect(await screen.findByText(/Released/)).toBeInTheDocument();
   });
 
+  it("releases decided corrections and says how many", async () => {
+    const calls = mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+      "POST /api/class-assignments/3/release-corrections": () => new Response(JSON.stringify({ released: 2 }), { status: 200 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Release corrections" }));
+    expect(await screen.findByText("Released 2 corrections")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual(["/api/class-assignments/3/release-corrections"]);
+  });
+
+  it("shows the reflection window as a blank field following the default, and saves a value or clears it", async () => {
+    let current: ClassAssignmentDetail = detail;
+    const calls = mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(current), { status: 200 }),
+      "PUT /api/classes/1/assignments/3": (init) => {
+        const body = JSON.parse(String(init?.body));
+        current = { ...current, reflect_days: body.reflect_days, effective_reflect_days: body.reflect_days ?? 7 };
+        return new Response(JSON.stringify(current), { status: 200 });
+      },
+    });
+    render(app());
+    const field = await screen.findByLabelText("Reflection window (days after release, 0 = off)");
+    expect(field).toHaveValue(null);
+    expect(field).toHaveAttribute("placeholder", "Follow default (7)");
+    await userEvent.type(field, "14");
+    await userEvent.click(screen.getByRole("button", { name: "Save window" }));
+    await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1));
+    expect(JSON.parse(String(calls.find((c) => c.method === "PUT")!.init!.body))).toEqual({ title: detail.title, due_at: detail.due_at, allow_student_uploads: true, status: "open", reflect_days: 14 });
+    expect(await screen.findByText("Reflection window saved.")).toBeInTheDocument();
+    expect(field).toHaveValue(14);
+    await userEvent.clear(field);
+    await userEvent.click(screen.getByRole("button", { name: "Save window" }));
+    await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(2));
+    expect(JSON.parse(String(calls.filter((c) => c.method === "PUT")[1].init!.body)).reflect_days).toBeNull();
+    expect(field).toHaveAttribute("placeholder", "Follow default (7)");
+  });
+
   it("shows the server's reason when release is refused", async () => {
     const ready = { ...detail, derived_status: "open" as const, roster: { ...detail.roster, counts: { ...detail.roster.counts, needs_you: 0 }, rows: detail.roster.rows.map((r) => r.status === "needs_you" ? { ...r, status: "ready" as const, needs_you_parts: [] } : r) } };
     mockFetch({

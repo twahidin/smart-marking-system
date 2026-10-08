@@ -168,3 +168,51 @@ describe("Review — per-part items (v2)", () => {
     expect(posted[0].body).toEqual({ criterion_scores: [2, 0], reason: "" });
   });
 });
+
+describe("Review — Corrections tab", () => {
+  const classes = [{ id: 1, name: "4E2", code: "A", student_count: 4, open_assignments: 1, archived_at: null, created_at: "", updated_at: "" }];
+  const cas = [
+    { id: 3, class_id: 1, title: "Worksheet 3", status: "open" }, { id: 4, class_id: 1, title: "Worksheet 4", status: "released" }, { id: 5, class_id: 1, title: "Draft one", status: "draft" },
+  ];
+  function setupTabs(entry = "/review") {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      urls.push(path);
+      const ok = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      if (path === "/api/queue") return ok([partItem]);
+      if (path === "/api/classes") return ok(classes);
+      if (path === "/api/classes/1/assignments") return ok(cas);
+      if (path.startsWith("/api/review/corrections?class_assignment_id=")) return ok([]);
+      return Promise.reject(new Error(`Unexpected fetch to ${path}`));
+    }));
+    render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes><Route element={<Outlet context={{ refreshQueue: () => {} }} />}><Route path="/review" element={<Review />} /></Route></Routes>
+      </MemoryRouter>,
+    );
+    return urls;
+  }
+
+  it("loads the class sets only when Corrections is opened, then shows the chosen set's corrections", async () => {
+    const urls = setupTabs();
+    expect(await screen.findByText("Question 1(b)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Parts" })).toHaveAttribute("aria-pressed", "true");
+    expect(urls).toEqual(["/api/queue"]);
+    await userEvent.click(screen.getByRole("button", { name: "Corrections" }));
+    const picker = await screen.findByLabelText("Class set");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["4E2 · Worksheet 3", "4E2 · Worksheet 4"]);
+    expect(picker).toHaveValue("3");
+    expect(await screen.findByText("No corrections yet.")).toBeInTheDocument();
+    await userEvent.selectOptions(picker, "4");
+    await vi.waitFor(() => expect(urls).toContain("/api/review/corrections?class_assignment_id=4"));
+    await userEvent.click(screen.getByRole("button", { name: "Parts" }));
+    expect(await screen.findByText("Question 1(b)")).toBeInTheDocument();
+  });
+
+  it("opens on the Corrections tab with the set from ?ca= preselected", async () => {
+    setupTabs("/review?ca=4");
+    expect(await screen.findByLabelText("Class set")).toHaveValue("4");
+    expect(screen.getByRole("button", { name: "Corrections" })).toHaveAttribute("aria-pressed", "true");
+  });
+});

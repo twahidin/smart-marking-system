@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Band, MarkPoint, QueueItem, ResolveBody } from "../api/types";
+import type { Band, ClassAssignment, ClassRow, MarkPoint, QueueItem, ResolveBody } from "../api/types";
 import { AllocationPicker, toggleAllocation } from "../components/AllocationPicker";
 import { BandPicker } from "../components/BandPicker";
 import { Button } from "../components/Button";
+import { CorrectionsTab } from "../components/CorrectionsTab";
 import { CriteriaReview } from "../components/CriteriaTable";
 import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
@@ -35,7 +36,7 @@ const totalMax = (item: QueueItem): number => {
   return Math.max(rowMax, item.proposed_total ?? 0);
 };
 
-export function Review() {
+function ReviewParts() {
   const { refreshQueue } = useOutletContext<{ refreshQueue: () => void }>();
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [i, setI] = useState(0);
@@ -180,6 +181,67 @@ export function Review() {
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+type CorrectionSet = { id: number; label: string };
+
+/** The class sets a teacher can have corrections on — every open or released assignment, labelled "class · title". Loaded
+ *  only once the Corrections tab is opened. */
+function useCorrectionSets(enabled: boolean) {
+  const [sets, setSets] = useState<CorrectionSet[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!enabled || sets) return;
+    let live = true;
+    (async () => {
+      const classes = await api.get<ClassRow[]>("/api/classes");
+      const lists = await Promise.all(classes.filter((c) => !c.archived_at).map(async (c) => {
+        const cas = await api.get<ClassAssignment[]>(`/api/classes/${c.id}/assignments`);
+        return cas.filter((a) => a.status !== "draft").map((a) => ({ id: a.id, label: `${c.name} · ${a.title}` }));
+      }));
+      if (live) setSets(lists.flat());
+    })().catch((e) => { if (live) setError(e instanceof Error ? e.message : "Couldn't load your classes."); });
+    return () => { live = false; };
+  }, [enabled, sets]);
+  return { sets, error };
+}
+
+function CorrectionsPane() {
+  const [params, setParams] = useSearchParams();
+  const { sets, error } = useCorrectionSets(true);
+  const wanted = Number(params.get("ca")) || null;
+  const selected = wanted ?? sets?.[0]?.id ?? null;
+  return (
+    <div className="page">
+      {error && <Notice kind="error">{error}</Notice>}
+      {!sets && !error && <p className="muted">Loading…</p>}
+      {sets && sets.length === 0 && <EmptyState title="No class sets yet"><p>Corrections appear here once an assignment is open or released to a class.</p></EmptyState>}
+      {sets && sets.length > 0 && (
+        <div className="field" style={{ maxWidth: 520 }}>
+          <label htmlFor="correction-set">Class set</label>
+          <select id="correction-set" className="input" value={selected ?? ""} onChange={(e) => setParams((p) => { const n = new URLSearchParams(p); n.set("ca", e.target.value); return n; }, { replace: true })}>
+            {sets.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+      )}
+      {selected !== null && sets && sets.length > 0 && <CorrectionsTab classAssignmentId={selected} />}
+    </div>
+  );
+}
+
+export function Review() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "corrections" || params.has("ca") ? "corrections" : "parts";
+  const choose = (t: "parts" | "corrections") => setParams((p) => { const n = new URLSearchParams(p); if (t === "parts") { n.delete("tab"); n.delete("ca"); } else n.set("tab", "corrections"); return n; }, { replace: true });
+  return (
+    <div>
+      <div className="actions" role="group" aria-label="Review" style={{ marginBottom: 12 }}>
+        <button type="button" className={`btn ${tab === "parts" ? "btn-primary" : "btn-secondary"}`} aria-pressed={tab === "parts"} onClick={() => choose("parts")}>Parts</button>
+        <button type="button" className={`btn ${tab === "corrections" ? "btn-primary" : "btn-secondary"}`} aria-pressed={tab === "corrections"} onClick={() => choose("corrections")}>Corrections</button>
+      </div>
+      {tab === "parts" ? <ReviewParts /> : <CorrectionsPane />}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { Notice } from "../components/Notice";
 import { retentionLabel } from "../lib/format";
 import { SubjectModels } from "./settings/SubjectModels";
 
-type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean; delete_pages_after_marking: boolean; page_retention: PageRetention;
+type Form = { provider: string; model: string; custom_model: string; api_key: string; base_url: string; extractor_model: string; rpm_limit: number; confidence_threshold: number; auto_reflect: boolean; reflect_days: number; delete_pages_after_marking: boolean; page_retention: PageRetention;
               telegram_bot_token: string; telegram_instant: boolean; telegram_daily_time: string; timezone: string; app_url: string };
 /** Offered first in the Time zone select; the browser's full IANA list follows when it can produce one. */
 const COMMON_ZONES = ["Asia/Singapore", "Asia/Kuala_Lumpur", "Asia/Jakarta", "Asia/Manila", "Asia/Bangkok", "Asia/Hong_Kong", "Asia/Tokyo", "Australia/Sydney", "Europe/London", "UTC"];
@@ -50,7 +50,7 @@ export function Settings() {
       const listed = spec.models.some((m) => m.id === s.model);
       setForm({ provider: s.provider, model: listed ? s.model : "__custom__", custom_model: listed ? "" : s.model, api_key: "",
                 base_url: s.base_url ?? "", extractor_model: s.extractor_model ?? "", rpm_limit: s.rpm_limit, confidence_threshold: s.confidence_threshold,
-                auto_reflect: s.auto_reflect, delete_pages_after_marking: s.delete_pages_after_marking ?? true, page_retention: s.page_retention ?? "crops",
+                auto_reflect: s.auto_reflect, reflect_days: s.reflect_days ?? 7, delete_pages_after_marking: s.delete_pages_after_marking ?? true, page_retention: s.page_retention ?? "crops",
                 telegram_bot_token: "", telegram_instant: s.telegram_instant ?? true, telegram_daily_time: s.telegram_daily_time || "07:00",
                 timezone: s.timezone || "Asia/Singapore", app_url: s.app_url ?? "" });
     }).catch((e) => setMsg({ kind: "error", text: e.message }));
@@ -70,7 +70,7 @@ export function Settings() {
   const hasKey = !!form.api_key || !!savedHint;
   const payload = { provider: form.provider, model: modelId, api_key: form.api_key || undefined, base_url: form.base_url || undefined,
                     extractor_model: form.extractor_model || undefined, rpm_limit: form.rpm_limit, confidence_threshold: form.confidence_threshold,
-                    auto_reflect: form.auto_reflect, delete_pages_after_marking: form.page_retention !== "pages", page_retention: form.page_retention,
+                    auto_reflect: form.auto_reflect, reflect_days: form.reflect_days, delete_pages_after_marking: form.page_retention !== "pages", page_retention: form.page_retention,
                     // The PUT body is authoritative for the four below — an omitted field resets to its default — so every save carries them.
                     telegram_bot_token: form.telegram_bot_token || undefined, telegram_instant: form.telegram_instant,
                     telegram_daily_time: form.telegram_daily_time, timezone: form.timezone, app_url: form.app_url.trim() || null };
@@ -286,6 +286,11 @@ export function Settings() {
             Run reflection nightly on new corrections
           </label>
           <span className="help">Turns your Review corrections into draft rubric notes once a day. You can also run it any time from Learning.</span>
+        </div>
+        <div className="field" style={{ maxWidth: 340 }}>
+          <label htmlFor="reflect-days">Reflection window (days after release, 0 = off)</label>
+          <input id="reflect-days" className="input" type="number" min={0} max={60} value={form.reflect_days} onChange={(e) => setForm({ ...form, reflect_days: Number(e.target.value) })} />
+          <span className="help">How long students can correct their work after feedback is released. Each assignment can override this.</span>
         </div>
         <div className="field">
           <label htmlFor="page-retention">After marking, keep (default for new assignments)</label>

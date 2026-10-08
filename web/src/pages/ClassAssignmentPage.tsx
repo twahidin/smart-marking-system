@@ -1,5 +1,5 @@
 import { ArrowRight, Download, Upload } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { ClassAssignment, ClassAssignmentDetail, ClassRow, RosterRow, RosterStatus } from "../api/types";
@@ -54,7 +54,10 @@ export function ClassAssignmentPage() {
   const [uploading, setUploading] = useState<RosterRow | null>(null);
   const [bulking, setBulking] = useState(false);
   const [removing, setRemoving] = useState<RosterRow | null>(null);
-  const [busy, setBusy] = useState<"release" | "csv" | "records" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"release" | "csv" | "records" | "remove" | "corrections" | "window" | null>(null);
+  const [correctionsMsg, setCorrectionsMsg] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState<string | null>(null);   // null = untouched: show what is stored
+  const [windowSaved, setWindowSaved] = useState(false);
   const live = useRef(true);
 
   const base = `/api/classes/${classId}/assignments/${caId}`;
@@ -111,6 +114,22 @@ export function ClassAssignmentPage() {
     try { const fresh = await api.get<ClassAssignmentDetail>(base); if (live.current) setDetail((d) => (d ? { ...d, roster: fresh.roster } : d)); }
     catch (e) { if (live.current) setError(msg(e, "Feedback was released, but the roster couldn't be refreshed — reload the page.")); }
   });
+  const releaseCorrections = () => run("corrections", "Couldn't release corrections — try again.", async () => {
+    setCorrectionsMsg(null);
+    const r = await api.post<{ released: number }>(`/api/class-assignments/${caId}/release-corrections`);
+    if (live.current) setCorrectionsMsg(`Released ${r.released} correction${r.released === 1 ? "" : "s"}`);
+  });
+  // Blank means "follow the default", which the server stores as null; an absent field would keep the old value.
+  const saveWindow = (e: FormEvent) => {
+    e.preventDefault();
+    const typed = (windowDays ?? (detail.reflect_days === null ? "" : String(detail.reflect_days))).trim();
+    return run("window", "Couldn't save the reflection window — try again.", async () => {
+      setWindowSaved(false);
+      const updated = await api.put<ClassAssignment>(base, { title: detail.title, due_at: detail.due_at, allow_student_uploads: detail.allow_student_uploads, status: detail.status, reflect_days: typed === "" ? null : Number(typed) });
+      if (!live.current) return;
+      setDetail((d) => (d ? { ...d, ...updated } : d)); setWindowDays(null); setWindowSaved(true);
+    });
+  };
   const downloadCsv = () => run("csv", "Couldn't download the marks — try again.", () => downloadFile(`${base}/marks.csv`, "marks.csv"));
   const downloadRecords = () => run("records", "Couldn't download the records — try again.", () => downloadFile("/api/submissions/records.zip", "marking-records.zip", { ids: recordIds }));
   const remove = (r: RosterRow) => run("remove", "Couldn't remove the hand-in — try again.", async () => {
@@ -136,13 +155,25 @@ export function ClassAssignmentPage() {
           <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={downloadCsv} disabled={busy !== null}>{busy === "csv" ? "Preparing…" : "Download marks CSV"}</Button>
           <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={downloadRecords} disabled={busy !== null || recordIds.length === 0}
             title={recordIds.length === 0 ? "No marked scripts to download yet." : undefined}>{busy === "records" ? "Preparing…" : "Download marking records"}</Button>
+          <Button variant="secondary" onClick={releaseCorrections} disabled={busy !== null}>{busy === "corrections" ? "Releasing…" : "Release corrections"}</Button>
           {!released && (
             <Button variant="primary" onClick={() => setReleasing(true)} disabled={busy !== null || releaseBlock !== undefined} title={releaseBlock}>Release feedback</Button>
           )}
         </div>
       </div>
       {error && <Notice kind="error">{error}</Notice>}
+      {correctionsMsg && <Notice kind="ok">{correctionsMsg}</Notice>}
       {detail.template_deleted && <Notice>The assignment was deleted from the bank — new hand-ins can't be marked until it is set again.</Notice>}
+
+      <form className="field" onSubmit={saveWindow} style={{ maxWidth: 520, marginTop: 8 }}>
+        <label htmlFor="reflect-days">Reflection window (days after release, 0 = off)</label>
+        <div className="actions" style={{ alignItems: "center" }}>
+          <input id="reflect-days" className="input" type="number" min={0} max={60} style={{ maxWidth: 200 }} placeholder={`Follow default (${detail.effective_reflect_days})`}
+            value={windowDays ?? (detail.reflect_days === null ? "" : String(detail.reflect_days))} onChange={(e) => { setWindowDays(e.target.value); setWindowSaved(false); }} />
+          <Button type="submit" variant="secondary" disabled={busy !== null}>Save window</Button>
+          {windowSaved && <span role="status" className="help">Reflection window saved.</span>}
+        </div>
+      </form>
 
       <div className="seg" role="radiogroup" aria-label="View" style={{ marginTop: 8 }}>
         {TABS.map((t) => (

@@ -149,6 +149,21 @@ describe("Settings — nightly reflection", () => {
   });
 });
 
+describe("Settings — reflection window", () => {
+  it("shows the saved window and sends the edited value with the rest of the settings", async () => {
+    mockFetch(() => new Response(JSON.stringify({ models: [] }), { status: 200 }));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    const field = await screen.findByLabelText("Reflection window (days after release, 0 = off)");
+    expect(field).toHaveValue(7);
+    await userEvent.clear(field);
+    await userEvent.type(field, "0");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    expect(saved[0].reflect_days).toBe(0);
+    expect(field).toHaveValue(0);
+  });
+});
+
 describe("Settings — load models from provider", () => {
   it("adds the account's models to the dropdown, without duplicating curated ones", async () => {
     mockFetch(() => new Response(JSON.stringify({ models: ["z-ai/glm-5.3-flash", "z-ai/glm-5.3-free", "qwen/qwen3-vl-plus"] }), { status: 200 }));
