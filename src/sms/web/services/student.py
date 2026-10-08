@@ -9,6 +9,7 @@ from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 from sms.web.services.class_assignments import get_class_assignment, get_student, hand_in
 from sms.web.services.classes import normalise_code
+from sms.web.services.student_corrections import student_reflection
 from sms.web.services.submissions import get_submission
 from sms.worker.jobs import JobStore
 
@@ -90,13 +91,13 @@ def feedback_view(detail: dict) -> Dict[str, Any]:
             c = comments.get(norm_qid(p["q_id"]), {})
             questions.append({"label": p["label"], "mark": p["teacher"]["total"] if p.get("teacher") else p["total"], "max": p["max"],
                               "comment": c.get("comment", ""), "try_next": c.get("suggested_action", ""),
-                              "transcription": p.get("extracted") or ""})
+                              "transcription": p.get("extracted") or "", "q_id": norm_qid(p["q_id"]), "crop_id": p.get("crop_id")})
     else:
         for m in detail.get("marks") or []:
             c = comments.get(norm_qid(m["q_id"]), {})
             questions.append({"label": m["q_id"], "mark": sum(m["teacher_scores"]) if m.get("teacher_scores") else m["total"], "max": m["max"],
                               "comment": c.get("comment", ""), "try_next": c.get("suggested_action", ""),
-                              "transcription": m.get("evidence") or ""})
+                              "transcription": m.get("evidence") or "", "q_id": norm_qid(m["q_id"]), "crop_id": None})
     totals = detail.get("totals") or {}
     return {"summary": fb.get("summary", ""), "strengths": fb.get("strengths") or [],
             "improvement_plan": fb.get("improvement_plan") or [], "next_steps": fb.get("next_steps") or [],
@@ -116,9 +117,12 @@ def student_assignment(db: Database, jobs: JobStore, student: dict, caid: int) -
     out["subject"] = r["subject"]
     out["accepts_files"] = r["subject"] == "computing" and r["scheme_kind"] in ("mark_scheme", "rubric")
     out["feedback"] = None
+    out["reflection"] = None
     if out["status"] == "feedback_ready":
-        detail = get_submission(db, jobs, r["submission_id"])
+        detail = get_submission(db, jobs, r["submission_id"])   # fetched once for both blocks
         out["feedback"] = feedback_view(detail) if detail else None
+        if detail:
+            out["reflection"] = student_reflection(db, get_class_assignment(db, student["class_id"], caid), detail)
     return out
 
 
@@ -181,4 +185,16 @@ def student_page_path(db: Database, storage: PageStorage, student: dict, page_id
     path = storage.abs(rows[0]["storage_path"])
     if not path.is_file():
         raise ApiError(404, "not_found", "Page image is missing from storage")
+    return path
+
+
+def student_crop_path(db: Database, storage: PageStorage, student: dict, crop_id: int) -> Path:
+    """The answer crop of a part of the student's own hand-in; anyone else's (or a deleted one) is not found."""
+    rows = db.query("SELECT c.storage_path FROM part_crops c JOIN submissions s ON s.id = c.submission_id "
+                    "WHERE c.id = :c AND s.student_id = :st AND c.deleted_at IS NULL", {"c": crop_id, "st": student["student_id"]})
+    if not rows:
+        raise ApiError(404, "not_found", "No such answer crop")
+    path = storage.abs(rows[0]["storage_path"])
+    if not path.is_file():
+        raise ApiError(404, "not_found", "The answer crop file is missing")
     return path

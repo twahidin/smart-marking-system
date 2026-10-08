@@ -9,8 +9,8 @@ from sms.web.deps import (SESSION_MAX_AGE, STUDENT_COOKIE, client_ip, get_db, ge
                           require_student)
 from sms.web.errors import ApiError
 from sms.web.services.student import (MAX_HAND_IN_PAGES, TOO_MANY_UPLOADS, lookup_student, open_for_hand_in, public,
-                                      student_assignment, student_assignments, student_hand_in, student_page_path,
-                                      touch_last_seen)
+                                      student_assignment, student_assignments, student_crop_path, student_hand_in,
+                                      student_page_path, touch_last_seen)
 from sms.web.uploads import check_content_length, read_upload_files
 
 router = APIRouter(prefix="/api/student", tags=["student"])
@@ -91,4 +91,10 @@ async def hand_in_pages(caid: int, request: Request, files: List[UploadFile] = F
 @router.get("/pages/{page_id}")
 def page(page_id: int, student: dict = Depends(require_student), db=Depends(get_db), storage=Depends(get_storage)):
     return FileResponse(student_page_path(db, storage, student, page_id), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.get("/crops/{crop_id}")
+def crop(crop_id: int, student: dict = Depends(require_student), db=Depends(get_db), storage=Depends(get_storage)):
+    return FileResponse(student_crop_path(db, storage, student, crop_id), media_type="image/jpeg",
                         headers={"Cache-Control": "private, max-age=86400"})
