@@ -96,3 +96,11 @@ def test_started_at_is_the_oldest_live_script_not_the_oldest_ever(auth, app):
     assert auth.get("/api/room").json()["started_at"] == "2026-03-05T08:30:00Z"
     app.state.db.execute("UPDATE submissions SET status = 'done' WHERE id = :s", {"s": live})
     assert auth.get("/api/room").json()["started_at"] is None
+
+
+def test_a_queued_script_with_a_leftover_stage_is_not_on_a_desk(auth, app):
+    q, _ = seed_v2(app, label="Retrying", run_id="r-q", queue={})
+    _event(app, q, "mark", "started")
+    app.state.db.execute("UPDATE submissions SET status = 'queued' WHERE id = :s", {"s": q})   # stage stays 'mark'
+    snap = auth.get("/api/room").json()
+    assert snap["desks"] == [] and snap["counts"]["mark"] == 0 and snap["counts"]["queued"] == 1

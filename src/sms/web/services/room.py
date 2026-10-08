@@ -30,7 +30,7 @@ def room_snapshot(db: Database, class_assignment_id: Optional[int] = None) -> Di
     for r in rows:
         if r["status"] in ("done", "needs_you", "failed"):
             counts[r["status"]] += 1
-        elif r["stage"] in DESK_STAGES:
+        elif r["status"] == "marking" and r["stage"] in DESK_STAGES:   # a queued / retrying script keeps its last stage
             counts[r["stage"]] += 1
             desks.append({"stage": r["stage"], "submission_id": r["id"], "label": r["label"], "reg_no": r["reg_no"],
                           "since": iso_utc(began.get(r["id"]) or r["updated_at"])})

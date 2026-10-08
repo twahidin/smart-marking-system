@@ -31,6 +31,8 @@ def upgrade() -> None:
         b.add_column(sa.Column("reflect_days", sa.Integer, nullable=False, server_default="7"))
     with op.batch_alter_table("class_assignments") as b:
         b.add_column(sa.Column("reflect_days", sa.Integer))   # NULL = follow settings.reflect_days
+    # Sets released before this feature get no surprise reflection window: their window is closed (0).
+    op.execute("UPDATE class_assignments SET reflect_days = 0 WHERE released_at IS NOT NULL")
     op.create_table(
         "student_corrections",
         sa.Column("id", sa.Integer, primary_key=True),
@@ -43,6 +45,7 @@ def upgrade() -> None:
         sa.Column("remark_run_id", sa.Text),
         sa.Column("remark_total", sa.Float),
         sa.Column("remark_max", sa.Float),
+        sa.Column("original_total", sa.Float),                 # the part's mark when the correction was sent
         sa.Column("remark_note", sa.Text),
         sa.Column("status", sa.Text, nullable=False, server_default="submitted"),
         sa.Column("teacher_total", sa.Float),
