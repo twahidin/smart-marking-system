@@ -1,7 +1,9 @@
+import asyncio
 import time
-from typing import Iterator, Optional
+from typing import AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
 from sms.web.deps import get_db, require_teacher
@@ -18,18 +20,20 @@ def snapshot(class_assignment_id: Optional[int] = None, db=Depends(get_db)):
 
 
 @router.get("/api/room/events")
-def events(request: Request, after: int = Query(0, ge=0), class_assignment_id: Optional[int] = None,
-           once: int = Query(0), last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"), db=Depends(get_db)):
+async def events(request: Request, after: int = Query(0, ge=0), class_assignment_id: Optional[int] = None,
+                 once: int = Query(0), last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
+                 db=Depends(get_db)):
     """Server-Sent Events: every started/finished stage event after `after` (or the Last-Event-ID
-    header), polled from the database every 2 s, with a comment heartbeat every 15 s. `once=1`
-    returns after the first poll — for tests and for a client that prefers polling."""
+    header), polled from the database every 2 s with a comment heartbeat every 15 s. The loop is async,
+    so an idle stream holds no thread; it ends when the client disconnects. `once=1` returns after the
+    first poll — for tests and for a client that prefers polling."""
     cursor = int(last_event_id) if last_event_id and last_event_id.isdigit() else after
 
-    def gen() -> Iterator[str]:
+    async def gen() -> AsyncIterator[str]:
         nonlocal cursor
         last_beat = time.monotonic()
         while True:
-            batch = events_after(db, cursor, class_assignment_id)
+            batch = await run_in_threadpool(events_after, db, cursor, class_assignment_id)
             for e in batch:
                 cursor = e["id"]
                 yield sse_line(e)
@@ -38,7 +42,9 @@ def events(request: Request, after: int = Query(0, ge=0), class_assignment_id: O
             if time.monotonic() - last_beat > HEARTBEAT_S:
                 last_beat = time.monotonic()
                 yield ": ping\n\n"
-            time.sleep(POLL_S)
+            await asyncio.sleep(POLL_S)
+            if await request.is_disconnected():
+                return
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

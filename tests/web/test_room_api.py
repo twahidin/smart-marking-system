@@ -67,3 +67,32 @@ def test_events_resume_from_last_event_id_header(auth, app):
     with auth.stream("GET", "/api/room/events?once=1", headers={"Last-Event-ID": str(first)}) as r:
         body = "".join(r.iter_text())
     assert body.count("event: stage") == 1 and '"kind": "finished"' in body
+
+
+def test_desk_since_is_the_latest_started_event(auth, app):
+    sid, _ = seed_v2(app, label="Slow", run_id="r-h", queue={})
+    _event(app, sid, "read", "started"); _event(app, sid, "read", "finished"); _event(app, sid, "mark", "started")
+    first, second = [r["id"] for r in app.state.db.query(
+        "SELECT id FROM marking_events WHERE kind = 'started' ORDER BY id")]
+    app.state.db.execute("UPDATE marking_events SET created_at = '2026-03-01 09:00:00' WHERE id = :i", {"i": first})
+    app.state.db.execute("UPDATE marking_events SET created_at = '2026-03-01 09:05:00' WHERE id = :i", {"i": second})
+    app.state.db.execute("UPDATE submissions SET updated_at = '2026-03-01 08:00:00' WHERE id = :s", {"s": sid})
+    desk = auth.get("/api/room").json()["desks"][0]
+    assert desk["since"] == "2026-03-01T09:05:00Z"
+
+
+def test_desk_since_falls_back_to_updated_at_without_a_started_event(auth, app):
+    sid, _ = seed_v2(app, label="Odd", run_id="r-i", queue={}, status="marking")
+    app.state.db.execute("UPDATE submissions SET stage = 'check', updated_at = '2026-03-02 10:00:00' WHERE id = :s", {"s": sid})
+    desk = auth.get("/api/room").json()["desks"][0]
+    assert desk["stage"] == "check" and desk["since"] == "2026-03-02T10:00:00Z"
+
+
+def test_started_at_is_the_oldest_live_script_not_the_oldest_ever(auth, app):
+    old, _ = seed_v2(app, label="Old done", run_id="r-j", queue={})
+    live, _ = seed_v2(app, label="Live", run_id="r-k", queue={}, status="marking")
+    app.state.db.execute("UPDATE submissions SET created_at = '2026-01-01 08:00:00' WHERE id = :s", {"s": old})
+    app.state.db.execute("UPDATE submissions SET created_at = '2026-03-05 08:30:00' WHERE id = :s", {"s": live})
+    assert auth.get("/api/room").json()["started_at"] == "2026-03-05T08:30:00Z"
+    app.state.db.execute("UPDATE submissions SET status = 'done' WHERE id = :s", {"s": live})
+    assert auth.get("/api/room").json()["started_at"] is None

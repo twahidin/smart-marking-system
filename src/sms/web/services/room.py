@@ -22,6 +22,9 @@ def room_snapshot(db: Database, class_assignment_id: Optional[int] = None) -> Di
     rows = db.query("SELECT s.id, s.label, s.status, s.stage, s.updated_at, s.created_at, st.reg_no AS reg_no "
                     "FROM submissions s LEFT JOIN students st ON st.id = s.student_id WHERE 1 = 1" + where +
                     " ORDER BY s.id", params)
+    began = {r["submission_id"]: r["t"] for r in db.query(
+        "SELECT e.submission_id, MAX(e.created_at) AS t FROM marking_events e JOIN submissions s ON s.id = e.submission_id "
+        "WHERE e.kind = 'started'" + where + " GROUP BY e.submission_id", params)}
     counts = {k: 0 for k in ("queued", *DESK_STAGES, "done", "needs_you", "failed")}
     desks: List[dict] = []
     for r in rows:
@@ -30,10 +33,11 @@ def room_snapshot(db: Database, class_assignment_id: Optional[int] = None) -> Di
         elif r["stage"] in DESK_STAGES:
             counts[r["stage"]] += 1
             desks.append({"stage": r["stage"], "submission_id": r["id"], "label": r["label"], "reg_no": r["reg_no"],
-                          "since": iso_utc(r["updated_at"])})
+                          "since": iso_utc(began.get(r["id"]) or r["updated_at"])})
         else:
             counts["queued"] += 1
-    started = db.query("SELECT MIN(s.created_at) AS t FROM submissions s WHERE 1 = 1" + where, params)
+    started = db.query("SELECT MIN(s.created_at) AS t FROM submissions s WHERE s.status NOT IN ('done', 'needs_you', 'failed')"
+                       + where, params)
     last = db.query("SELECT COALESCE(MAX(e.id), 0) AS i FROM marking_events e JOIN submissions s ON s.id = e.submission_id "
                     "WHERE 1 = 1" + where, params)
     return {"counts": counts, "started_at": iso_utc(started[0]["t"]) if started and started[0]["t"] else None,
