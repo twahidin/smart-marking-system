@@ -23,6 +23,7 @@ class Settings:
     auto_reflect: bool = True
     delete_pages_after_marking: bool = True
     page_retention: str = "crops"   # crops | pages | none
+    reflect_days: int = 7   # days a student has to reflect on feedback (0 = no window)
 
     def __post_init__(self) -> None:
         # Legacy callers set only the boolean: "keep pages" is the one state it can express that the default cannot.
@@ -135,6 +136,7 @@ class SettingsStore:
             confidence_threshold=float(r["confidence_threshold"]), auto_reflect=bool(r["auto_reflect"]),
             delete_pages_after_marking=bool(r["delete_pages_after_marking"]),
             page_retention=r.get("page_retention") if r.get("page_retention") in ("crops", "pages", "none") else "crops", keys=hints,
+            reflect_days=int(r["reflect_days"]) if r.get("reflect_days") is not None else 7,
             telegram_bot_token=self._decrypt(r.get("telegram_bot_token_enc")),
             telegram_chat_id=r.get("telegram_chat_id"),
             telegram_instant=bool(r.get("telegram_instant", True)),
@@ -156,6 +158,7 @@ class SettingsStore:
             "rpm": int(settings.rpm_limit), "thr": float(settings.confidence_threshold),
             "auto_reflect": bool(settings.auto_reflect),
             "delete_pages": settings.page_retention != "pages", "page_retention": settings.page_retention,
+            "reflect_days": int(settings.reflect_days),
             "tg_instant": bool(settings.telegram_instant),
             "tg_time": settings.telegram_daily_time or "07:00",
             "tz": settings.timezone or "Asia/Singapore",
@@ -167,6 +170,7 @@ class SettingsStore:
                     "UPDATE settings SET provider = :provider, model = :model, base_url = :base_url, "
                     "extractor_model = :extractor_model, rpm_limit = :rpm, "
                     "confidence_threshold = :thr, auto_reflect = :auto_reflect, delete_pages_after_marking = :delete_pages, page_retention = :page_retention, "
+                    "reflect_days = :reflect_days, "
                     "telegram_instant = :tg_instant, telegram_daily_time = :tg_time, timezone = :tz, app_url = :app_url, "
                     "updated_at = CURRENT_TIMESTAMP WHERE id = 1",
                     params,
@@ -175,9 +179,9 @@ class SettingsStore:
                 tx.execute(
                     "INSERT INTO settings (id, provider, model, base_url, extractor_model, "
                     "rpm_limit, confidence_threshold, auto_reflect, delete_pages_after_marking, page_retention, "
-                    "telegram_instant, telegram_daily_time, timezone, app_url) VALUES (1, :provider, :model, "
+                    "reflect_days, telegram_instant, telegram_daily_time, timezone, app_url) VALUES (1, :provider, :model, "
                     ":base_url, :extractor_model, :rpm, :thr, :auto_reflect, :delete_pages, :page_retention, "
-                    ":tg_instant, :tg_time, :tz, :app_url)",
+                    ":reflect_days, :tg_instant, :tg_time, :tz, :app_url)",
                     params,
                 )
             if stripped_key:

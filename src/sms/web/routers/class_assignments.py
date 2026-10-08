@@ -32,6 +32,7 @@ class EditBody(BaseModel):
     due_at: Optional[str] = None
     allow_student_uploads: bool = True
     status: str
+    reflect_days: Optional[int] = None   # absent keeps the stored value; null follows the settings default
 
 
 @router.get("")
@@ -100,8 +101,9 @@ async def marks(class_id: int, caid: int, db=Depends(get_db), jobs=Depends(get_j
 
 @router.put("/{caid}")
 def edit(class_id: int, caid: int, body: EditBody, db=Depends(get_db)):
+    extra = {"reflect_days": body.reflect_days} if "reflect_days" in body.model_fields_set else {}
     return update_class_assignment(db, class_id, caid, title=body.title, due_at=body.due_at,
-                                   allow_student_uploads=body.allow_student_uploads, status=body.status)
+                                   allow_student_uploads=body.allow_student_uploads, status=body.status, **extra)
 
 
 @router.delete("/{caid}", status_code=204)

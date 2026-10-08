@@ -312,3 +312,12 @@ def test_custom_models_for_aggregators_appear_in_providers(auth):
     auth.post("/api/settings/models/openrouter", json={"model_id": "meta/llama-5-text", "label": "Llama 5", "vision": False})
     m = [m for m in {p["id"]: p for p in auth.get("/api/providers").json()}["openrouter"]["models"] if m["id"] == "meta/llama-5-text"][0]
     assert m["label"] == "Llama 5" and m["vision"] is False
+
+
+def test_reflect_days_defaults_to_seven_and_is_bounded(auth):
+    assert auth.get("/api/settings").json()["reflect_days"] == 7
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "api_key": "sk-x", "rpm_limit": 10,
+                                        "confidence_threshold": 0, "reflect_days": 14})
+    assert r.status_code == 200 and auth.get("/api/settings").json()["reflect_days"] == 14
+    r = auth.put("/api/settings", json={"provider": "openai", "model": "gpt-5-mini", "rpm_limit": 10, "confidence_threshold": 0, "reflect_days": 99})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_reflect_days"

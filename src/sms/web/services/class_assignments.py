@@ -37,6 +37,7 @@ BULK_ZIP_TOO_LARGE = (f"bulk zip is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB 
                       "downsize the photos or split the class into two zips")
 
 STATUSES = ("draft", "open", "released")
+_KEEP: Any = object()  # "argument not given", distinct from an explicit None
 
 _SELECT = ("SELECT a.*, t.subject AS subject, t.scheme_kind AS scheme_kind, "
            "(SELECT COUNT(*) FROM submissions s WHERE s.class_assignment_id = a.id) AS submission_count, "
@@ -44,7 +45,14 @@ _SELECT = ("SELECT a.*, t.subject AS subject, t.scheme_kind AS scheme_kind, "
            "FROM class_assignments a LEFT JOIN assignment_templates t ON t.id = a.template_id")
 
 
-def _row(r: dict) -> Dict[str, Any]:
+def effective_reflect_days(db: Database, ca: Dict[str, Any]) -> int:
+    if ca.get("reflect_days") is not None:
+        return int(ca["reflect_days"])
+    row = db.query("SELECT reflect_days FROM settings WHERE id = 1")
+    return int(row[0]["reflect_days"]) if row and row[0]["reflect_days"] is not None else 7
+
+
+def _row(db: Database, r: dict) -> Dict[str, Any]:
     status = r["status"]
     derived = "marking" if status == "open" and int(r["in_progress"] or 0) > 0 else status
     return {
@@ -53,6 +61,7 @@ def _row(r: dict) -> Dict[str, Any]:
         "allow_student_uploads": bool(r["allow_student_uploads"]), "released_at": iso_utc(r["released_at"]),
         "template_deleted": r["subject"] is None, "subject": r["subject"], "scheme_kind": r["scheme_kind"],
         "submission_count": int(r["submission_count"] or 0),
+        "reflect_days": r["reflect_days"], "effective_reflect_days": effective_reflect_days(db, r),
         "created_at": iso_utc(r["created_at"]), "updated_at": iso_utc(r["updated_at"]),
     }
 
@@ -60,12 +69,12 @@ def _row(r: dict) -> Dict[str, Any]:
 def list_class_assignments(db: Database, class_id: int) -> List[Dict[str, Any]]:
     if get_class(db, class_id) is None:
         raise ApiError(404, "not_found", "No such class")
-    return [_row(r) for r in db.query(_SELECT + " WHERE a.class_id = :c ORDER BY a.due_at IS NULL, a.due_at, a.id DESC", {"c": class_id})]
+    return [_row(db, r) for r in db.query(_SELECT + " WHERE a.class_id = :c ORDER BY a.due_at IS NULL, a.due_at, a.id DESC", {"c": class_id})]
 
 
 def get_class_assignment(db: Database, class_id: int, caid: int) -> Optional[Dict[str, Any]]:
     rows = db.query(_SELECT + " WHERE a.id = :id AND a.class_id = :c", {"id": caid, "c": class_id})
-    return _row(rows[0]) if rows else None
+    return _row(db, rows[0]) if rows else None
 
 
 def require_class_assignment(db: Database, class_id: int, caid: int) -> Dict[str, Any]:
@@ -104,7 +113,8 @@ def set_assignment(db: Database, class_id: int, *, template_id: int, title: Opti
 
 
 def update_class_assignment(db: Database, class_id: int, caid: int, *, title: str, due_at: Optional[str],
-                            allow_student_uploads: bool, status: str) -> Dict[str, Any]:
+                            allow_student_uploads: bool, status: str, reflect_days: Any = _KEEP) -> Dict[str, Any]:
+    """`reflect_days`: omitted keeps the stored value, None clears it (follow the settings default)."""
     ca = require_class_assignment(db, class_id, caid)
     if status not in STATUSES:
         raise ApiError(400, "bad_status", "Status must be draft, open or released")
@@ -117,9 +127,14 @@ def update_class_assignment(db: Database, class_id: int, caid: int, *, title: st
     title = (title or "").strip()
     if not title:
         raise ApiError(400, "bad_title", "Give the assignment a title")
+    if reflect_days is _KEEP:
+        reflect_days = ca["reflect_days"]
+    elif reflect_days is not None and not 0 <= int(reflect_days) <= 60:
+        raise ApiError(400, "bad_reflect_days", "Reflection window must be between 0 and 60 days")
     db.execute("UPDATE class_assignments SET title = :title, due_at = :due, allow_student_uploads = :allow, status = :st, "
-               "updated_at = CURRENT_TIMESTAMP WHERE id = :id",
-               {"title": title[:200], "due": _parse_due(due_at), "allow": bool(allow_student_uploads), "st": status, "id": caid})
+               "reflect_days = :rd, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+               {"title": title[:200], "due": _parse_due(due_at), "allow": bool(allow_student_uploads), "st": status,
+                "rd": reflect_days, "id": caid})
     return get_class_assignment(db, class_id, caid)  # type: ignore[return-value]
 
 

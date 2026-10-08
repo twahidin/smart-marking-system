@@ -32,6 +32,7 @@ class SettingsBody(BaseModel):
     auto_reflect: bool = True
     delete_pages_after_marking: bool = True
     page_retention: Optional[str] = None   # crops | pages | none; absent = derived from the old flag
+    reflect_days: Optional[int] = None   # 0-60; absent keeps the stored value
     telegram_bot_token: Optional[str] = None  # blank keeps whatever is stored
     telegram_instant: bool = True
     telegram_daily_time: str = "07:00"
@@ -109,6 +110,9 @@ def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings
     retention = body.page_retention if body.page_retention is not None else ("crops" if body.delete_pages_after_marking else "pages")
     if retention not in ("crops", "pages", "none"):
         raise ApiError(400, "bad_retention", "page_retention must be crops, pages or none")
+    if body.reflect_days is not None and not 0 <= body.reflect_days <= 60:
+        raise ApiError(400, "bad_reflect_days", "Reflection window must be between 0 and 60 days")
+    reflect_days = body.reflect_days if body.reflect_days is not None else store.load().reflect_days
     try:
         saved = store.save(Settings(
             provider=body.provider, model=model, api_key=(body.api_key or "").strip() or None,
@@ -116,7 +120,7 @@ def put_settings(body: SettingsBody, store: SettingsStore = Depends(get_settings
             extractor_model=(body.extractor_model or "").strip() or None,
             rpm_limit=body.rpm_limit, confidence_threshold=body.confidence_threshold,
             auto_reflect=body.auto_reflect, delete_pages_after_marking=body.delete_pages_after_marking,
-            page_retention=retention,
+            page_retention=retention, reflect_days=reflect_days,
             # A blank token keeps the stored one, exactly like api_key.
             telegram_bot_token=(body.telegram_bot_token or "").strip() or None,
             telegram_instant=body.telegram_instant, telegram_daily_time=daily_time,

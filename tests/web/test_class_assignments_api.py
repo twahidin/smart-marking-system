@@ -540,3 +540,29 @@ def test_bulk_zip_with_an_unreadable_entry_is_a_400_not_a_500(auth, app):
         err = r.json()["error"]
         assert err["code"] == "bad_file" and "bulk.zip" in err["message"]
         assert "could not be unpacked" in err["message"]
+
+
+def test_class_assignment_reflect_days_follows_settings_unless_set(auth):
+    t = auth.post("/api/assignments", json={"title": "W", "subject": "math", "context": "", "rubric": RUBRIC,
+                                            "scheme_kind": "mark_scheme", "questions": QUESTIONS, "scheme": SCHEME}).json()
+    c = auth.post("/api/classes", json={"name": "4E"}).json()
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    assert ca["reflect_days"] is None and ca["effective_reflect_days"] == 7
+    ca = auth.put(f"/api/classes/{c['id']}/assignments/{ca['id']}",
+                  json={"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "draft", "reflect_days": 0}).json()
+    assert ca["reflect_days"] == 0 and ca["effective_reflect_days"] == 0
+
+
+def test_class_assignment_reflect_days_absent_keeps_null_clears_and_is_bounded(auth):
+    t = auth.post("/api/assignments", json={"title": "W", "subject": "math", "context": "", "rubric": RUBRIC,
+                                            "scheme_kind": "mark_scheme", "questions": QUESTIONS, "scheme": SCHEME}).json()
+    c = auth.post("/api/classes", json={"name": "4E"}).json()
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    url = f"/api/classes/{c['id']}/assignments/{ca['id']}"
+    body = {"title": ca["title"], "due_at": None, "allow_student_uploads": True, "status": "draft"}
+    assert auth.put(url, json={**body, "reflect_days": 21}).json()["reflect_days"] == 21
+    assert auth.put(url, json=body).json()["reflect_days"] == 21  # absent keeps
+    cleared = auth.put(url, json={**body, "reflect_days": None}).json()
+    assert cleared["reflect_days"] is None and cleared["effective_reflect_days"] == 7
+    r = auth.put(url, json={**body, "reflect_days": 61})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "bad_reflect_days"
