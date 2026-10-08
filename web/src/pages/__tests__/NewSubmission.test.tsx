@@ -21,6 +21,18 @@ const templates: AssignmentTemplate[] = [
 afterEach(() => vi.unstubAllGlobals());
 
 describe("NewSubmission — saved assignments", () => {
+  it("feeds the sorter: the drop zone carries the sorter title and hint", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/settings") return Promise.resolve(new Response(JSON.stringify(settings), { status: 200 }));
+      if (path === "/api/assignments") return Promise.resolve(new Response(JSON.stringify(templates), { status: 200 }));
+      return Promise.reject(new Error(`Unexpected fetch to ${path}`));
+    }));
+    render(<MemoryRouter><NewSubmission /></MemoryRouter>);
+    expect(await screen.findByRole("heading", { name: "Feed the sorter" })).toBeInTheDocument();
+    expect(screen.getByText("Drop photos, PDFs or a class zip — photos are shrunk on your device before upload")).toBeInTheDocument();
+  });
+
   it("choosing a saved assignment fills subject, context and the criteria table", async () => {
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       const path = String(input);

@@ -287,7 +287,7 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .btn { border-radius: 999px; font-weight: 700; }
 .btn-primary { box-shadow: 0 4px 0 var(--crew-marker-ink); }
 .table th { border-bottom-color: var(--butter); }
-@media (prefers-reduced-motion: reduce) { .bob, .slide, .drop-paper { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .bob, .slide { animation: none !important; } .drop-paper { display: none; } }
 
 /* Marking Room */
 .room-layout { display: flex; flex-wrap: wrap; gap: 24px; }
