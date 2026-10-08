@@ -108,4 +108,36 @@ describe("AssignmentView", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText(/Marking usually takes a day/)).toBeInTheDocument();
   });
+  it("offers one correction per part that lost marks while the window is open, and shows the new mark once released", async () => {
+    const fb: StudentFeedback = { summary: "", strengths: [], improvement_plan: [], next_steps: [], total: 3, max: 6,
+      questions: [
+        { label: "1(b)", mark: 0, max: 1, comment: "6 not 9", try_next: "", transcription: "6", q_id: "1b", crop_id: 55 },
+        { label: "2", mark: 2, max: 3, comment: "", try_next: "", transcription: "", q_id: "2", crop_id: null },
+      ], pages: [] };
+    const reflection = { window_ends_at: "2026-10-15T00:00:00Z", days_left: 5, parts: {
+      "1b": { can_correct: true, status: null, new_mark: null },
+      "2": { can_correct: false, status: "released" as const, new_mark: 3 } } };
+    mockFetch({ "GET /api/student/me": () => ok(me), "GET /api/student/assignments/7": () => ok(detail({ id: 7, status: "feedback_ready", feedback: fb, reflection })) });
+    render(app("/s/a/7"));
+    await screen.findByText("Reflect and correct · 5 days left");
+    expect(screen.getByRole("link", { name: "Try a correction · 1 left" })).toHaveAttribute("href", "/s/a/7/reflect/1b");
+    expect(screen.getByText("After reflection: 3 / 3")).toBeInTheDocument();
+    expect(screen.queryAllByRole("link", { name: /Try a correction/ })).toHaveLength(1);
+  });
+
+  it("says where a sent correction is, and uses the singular on the last day", async () => {
+    const q = (q_id: string) => ({ label: q_id, mark: 0, max: 1, comment: "", try_next: "", transcription: "", q_id, crop_id: null });
+    const fb: StudentFeedback = { summary: "", strengths: [], improvement_plan: [], next_steps: [], total: 0, max: 3, questions: [q("1"), q("2"), q("3")], pages: [] };
+    const reflection = { window_ends_at: "2026-10-15T00:00:00Z", days_left: 1, parts: {
+      "1": { can_correct: false, status: "sent" as const, new_mark: null },
+      "2": { can_correct: false, status: "waiting" as const, new_mark: null },
+      "3": { can_correct: false, status: "rejected" as const, new_mark: null } } };
+    mockFetch({ "GET /api/student/me": () => ok(me), "GET /api/student/assignments/7": () => ok(detail({ id: 7, status: "feedback_ready", feedback: fb, reflection })) });
+    render(app("/s/a/7"));
+    await screen.findByText("Reflect and correct · 1 day left");
+    expect(screen.getByText("Sent to the Marker")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for your teacher")).toBeInTheDocument();
+    expect(screen.getByText("Not accepted — ask your teacher.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Try a correction/ })).not.toBeInTheDocument();
+  });
 });

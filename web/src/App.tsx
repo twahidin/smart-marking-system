@@ -24,6 +24,7 @@ import { Confirm } from "./student/Confirm";
 import { Enter } from "./student/Enter";
 import { HandIn } from "./student/HandIn";
 import { Home } from "./student/Home";
+import { Reflect } from "./student/Reflect";
 import { StudentLayout } from "./student/StudentLayout";
 
 type AuthState = "loading" | "authed" | "anon" | "setup" | "error";
@@ -82,6 +83,7 @@ export function App() {
         <Route index element={<Home />} />
         <Route path="a/:caid" element={<AssignmentView />} />
         <Route path="a/:caid/hand-in" element={<HandIn />} />
+        <Route path="a/:caid/reflect/:qid" element={<Reflect />} />
       </Route>
       <Route element={<Shell />}>
         <Route index element={<Navigate to="/room" replace />} />

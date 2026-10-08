@@ -334,3 +334,14 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
   .room-tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; }
   .room-tag { position: static; max-width: 100%; }
 }
+
+/* student reflect and correct */
+.reflect-pill { display: inline-flex; margin: 4px 0 12px; }
+.qrow-reflect:not(:empty) { padding: 0 0 12px; } .qrow-reflect p { margin: 0; }
+.reflect-link { display: inline-flex; align-items: center; min-height: 44px; }
+.reflect-crop { width: 100%; height: auto; border-radius: var(--radius-sm); border: 2px dashed var(--color-divider); margin: 8px 0; }
+.reflect-reasons { display: flex; flex-wrap: wrap; gap: 8px; }
+.reflect-reasons .btn, .reflect-form > .btn-sm { min-height: 44px; }
+.reflect-chips { display: flex; gap: 8px; margin: 8px 0 14px; }
+.reflect-form textarea { width: 100%; box-sizing: border-box; border: 2px solid var(--color-divider); border-radius: var(--radius-sm); padding: 10px; font: 15px var(--font-body); margin-bottom: 8px; }
+.reflect-form > .btn { margin-top: 8px; }

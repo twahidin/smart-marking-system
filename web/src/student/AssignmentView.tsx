@@ -2,7 +2,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
-import type { StudentAssignmentDetail, StudentFeedback } from "../api/types";
+import type { Reflection, StudentAssignmentDetail, StudentFeedback } from "../api/types";
 import { fmtDate } from "../lib/format";
 import { studentApi as api } from "./api";
 
@@ -30,7 +30,18 @@ function List({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function Feedback({ fb }: { fb: StudentFeedback }) {
+/** What a student can do, or has done, about one question during the reflection window. */
+function ReflectStatus({ r, caid, qId, max }: { r: Reflection["parts"][string] | undefined; caid: string; qId: string; max: number }) {
+  if (!r) return null;
+  if (r.can_correct) return <Link className="btn btn-primary btn-sm reflect-link" to={`/s/a/${caid}/reflect/${qId}`}>Try a correction · 1 left</Link>;
+  if (r.status === "released" && r.new_mark !== null) return <span className="pill pill-crew-reader">{`After reflection: ${r.new_mark} / ${max}`}</span>;
+  if (r.status === "rejected") return <p className="muted">Not accepted — ask your teacher.</p>;
+  if (r.status === "sent") return <p className="muted">Sent to the Marker</p>;
+  if (r.status === "waiting" || r.status === "released") return <p className="muted">Waiting for your teacher</p>;
+  return null;
+}
+
+function Feedback({ fb, reflection, caid }: { fb: StudentFeedback; reflection: Reflection | null; caid: string }) {
   const [open, setOpen] = useState<number | null>(null);
   return (
     <>
@@ -39,6 +50,9 @@ function Feedback({ fb }: { fb: StudentFeedback }) {
         <span className="muted">{`/ ${fb.max ?? "—"}`}</span>
       </div>
       {fb.total !== null && fb.max !== null && <Blocks total={fb.total} max={fb.max} />}
+      {reflection?.window_ends_at && reflection.days_left > 0 && (
+        <p className="pill pill-amber reflect-pill">{`Reflect and correct · ${reflection.days_left} day${reflection.days_left === 1 ? "" : "s"} left`}</p>
+      )}
       {fb.summary && <p className="student-summary">{fb.summary}</p>}
       <List title="What you did well" items={fb.strengths} />
       <section>
@@ -52,6 +66,7 @@ function Feedback({ fb }: { fb: StudentFeedback }) {
                 <strong>{q.label}</strong>
                 <span className="student-qmark">{`${q.mark} / ${q.max}`}{isOpen ? <ChevronUp size={20} aria-hidden /> : <ChevronDown size={20} aria-hidden />}</span>
               </button>
+              <div className="qrow-reflect"><ReflectStatus r={reflection?.parts[q.q_id]} caid={caid} qId={q.q_id} max={q.max} /></div>
               {isOpen && (
                 <div className="qrow-body">
                   <p className="student-comment">{q.comment || "No comment for this question."}</p>
@@ -129,7 +144,7 @@ export function AssignmentView() {
       <Link className="student-back" to="/s">Back to assignments</Link>
       <h1>{detail.title}</h1>
       <p className="muted student-due">{`Handed in ${fmtDate(detail.handed_in_at)}`}</p>
-      <Feedback fb={detail.feedback} />
+      <Feedback fb={detail.feedback} reflection={detail.reflection} caid={String(caid)} />
     </>
   );
 }
