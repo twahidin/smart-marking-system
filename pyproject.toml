@@ -3,6 +3,8 @@ name = "sms"
 version = "0.1.0"
 description = "Smart Marking System: agent-based marking, review and feedback on student scripts"
 requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "alembic>=1.13,<2",
     "anthropic>=0.40",
