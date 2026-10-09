@@ -313,7 +313,7 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .room-tile { background: var(--color-surface); border-radius: var(--radius-md); padding: 14px 16px; border: 2px solid var(--butter); display: flex; flex-direction: column; gap: 4px; }
 .room-tile strong { font-family: var(--font-heading); font-size: 28px; }
 .tile-read { border-color: var(--crew-reader); } .tile-mark { border-color: var(--crew-marker); } .tile-check, .tile-needs_you { border-color: var(--crew-checker); } .tile-done { border-color: var(--mint); }
-.thought-head { display: flex; align-items: center; gap: 12px; }
+.thought-head { display: flex; align-items: center; gap: 12px; } .thought-title { flex: 1; min-width: 0; }
 .crew-face { width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-md); background: var(--butter); }
 .crew-face-reader { object-position: 12% 40%; } .crew-face-marker { object-position: 50% 40%; } .crew-face-checker { object-position: 88% 40%; }
 .thought-name { font-family: var(--font-heading); font-size: 22px; }

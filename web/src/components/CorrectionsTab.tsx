@@ -4,6 +4,7 @@ import type { Correction, CorrectionStatus } from "../api/types";
 import { Notice } from "./Notice";
 
 const WORD: Record<CorrectionStatus, string> = { submitted: "Waiting for the Marker", remarked: "Re-marked", accepted: "Accepted", overridden: "Overridden", rejected: "Rejected", released: "Released" };
+const REASON_WORD: Record<string, string> = { sign: "Sign slip", method: "Wrong method", rushed: "Rushed it", misread: "Misread the question" };
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong — try again.");
 
 /** The corrections a class set's students have sent in: the Marker's re-mark beside each, to accept, override or
@@ -58,7 +59,7 @@ export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: numbe
               <strong>{`${r.submission_label} · ${r.q_id}`}</strong>
               <span className={`pill ${r.status === "released" ? "pill-outline" : "pill-neutral"}`}>{WORD[r.status]}</span>
             </header>
-            <p className="muted">{`Reason given: ${r.reason}`}</p>
+            <p className="muted">{`Reason given: ${REASON_WORD[r.reason] ?? r.reason}`}</p>
             {r.original_total !== null && <p>{`First try: ${r.original_total}${r.original_max === null ? "" : ` / ${r.original_max}`}`}</p>}
             {r.crop_id !== null && <img src={`/api/crops/${r.crop_id}`} alt="The student's first answer" style={{ maxWidth: "100%", borderRadius: 12 }} />}
             {r.text && <p className="student-read">{r.text}</p>}

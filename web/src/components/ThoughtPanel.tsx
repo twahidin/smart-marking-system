@@ -25,7 +25,7 @@ export function ThoughtPanel({ submissionId, crew, label, onClose, refreshKey = 
     <aside className="card thought-panel" aria-label={`${NAME[crew]}'s thoughts`}>
       <div className="thought-head">
         <img src="/art/crew.jpg" alt="" className={`crew-face crew-face-${crew}`} />
-        <div><div className="thought-name">{NAME[crew]}</div><div className="muted">{ROLE[crew]}</div></div>
+        <div className="thought-title"><div className="thought-name">{NAME[crew]}</div><div className="muted">{ROLE[crew]}</div></div>
         <span className="pill pill-neutral">Teachers only</span>
         <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} aria-label="Close">×</button>
       </div>
