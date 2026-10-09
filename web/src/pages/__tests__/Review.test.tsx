@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -184,6 +184,24 @@ describe("Review — the marking desk", () => {
     expect(screen.getByRole("button", { name: "Corrections" })).toHaveAttribute("aria-pressed", "true");
     await userEvent.click(screen.getByRole("button", { name: /Needs you · 2 parts/ }));
     expect(screen.getByRole("button", { name: "Parts" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("Review — keys on the scene", () => {
+  it("leaves Enter on a scene hotspot to the hotspot: nothing is saved and the Parts tab stays chosen", async () => {
+    const posted = setup([partItem]);
+    await screen.findByText("Question 1(b)");
+    await userEvent.keyboard("1");   // a complete decision, so a stray Enter would save it
+    const spot = await screen.findByRole("button", { name: /Needs you · 2 parts/ });
+    act(() => spot.focus());
+    await userEvent.keyboard("{Enter}");
+    expect(posted).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Parts" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("describes the ticked tray's target and the rest", async () => {
+    setup([partItem]);
+    expect(await screen.findByRole("link", { name: /Ready to release · 1 class set/ })).toHaveAttribute("aria-description", "Opens 2E3 · Acids and bases");
   });
 });
 

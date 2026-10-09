@@ -12,7 +12,7 @@ import { Notice } from "../components/Notice";
 import { PagePager } from "../components/PagePager";
 import { qLabel } from "../lib/marks";
 import { ART, FILM } from "../scene/art";
-import { Flag, Paper, Stamp, Tick } from "../scene/effects";
+import { Flag, Paper, Stamp } from "../scene/effects";
 import { Scene, type Cue, type Hotspot } from "../scene/Scene";
 import { useDeviceTier } from "../scene/useDeviceTier";
 
@@ -104,8 +104,11 @@ function ReviewParts({ onSettled }: { onSettled: () => void }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
+      const el = e.target as HTMLElement;
+      const tag = el.tagName;
       if (tag === "TEXTAREA") return;
+      // Enter (and every other shortcut) on a control belongs to that control: the scene's buttons and links, the tabs, a select.
+      if (tag === "BUTTON" || tag === "A" || tag === "SELECT" || el.closest?.(".scene")) return;
       if (e.key === "ArrowLeft" && tag !== "INPUT") setI((x) => Math.max(0, x - 1));
       else if (e.key === "ArrowRight" && tag !== "INPUT") setI((x) => Math.min((items?.length ?? 1) - 1, x + 1));
       else if (e.key.toLowerCase() === "a" && tag !== "INPUT") acceptProposed();
@@ -256,7 +259,7 @@ export function Review() {
   const hotspots: Hotspot[] = [
     { id: "flagged", left: "30%", top: "38%", color: "var(--crew-marker)", label: `Needs you · ${n} part${n === 1 ? "" : "s"}`, sub: "Marker and Checker disagree", onPick: () => choose("parts") },
     ready.length > 0
-      ? { id: "ticked", left: "66%", top: "30%", color: "var(--mint)", label: `Ready to release · ${summary!.ready_to_release} class set${summary!.ready_to_release === 1 ? "" : "s"}`, sub: ready.map((s) => `${s.class_name} · ${s.title}`).join(" · "), href: `/classes/${ready[0].class_id}/assignments/${ready[0].id}` }
+      ? { id: "ticked", left: "66%", top: "30%", color: "var(--mint)", label: `Ready to release · ${summary!.ready_to_release} class set${summary!.ready_to_release === 1 ? "" : "s"}`, sub: `Opens ${ready[0].class_name} · ${ready[0].title}${ready.length > 1 ? ` · also ready: ${ready.slice(1).map((s) => `${s.class_name} · ${s.title}`).join(" · ")}` : ""}`, href: `/classes/${ready[0].class_id}/assignments/${ready[0].id}` }
       : { id: "ticked", left: "66%", top: "30%", color: "var(--mint)", label: "Ready to release · none yet", sub: "Finished class sets wait here", onPick: () => {} },
     { id: "parts-drawer", left: "31%", top: "56%", label: "Parts drawer", sub: "Every part that needs a decision", onPick: () => choose("parts") },
     { id: "corrections-drawer", left: "36%", top: "62%", label: `Corrections drawer${summary && summary.remarked > 0 ? ` · ${summary.remarked} re-marked` : ""}`, sub: "Student corrections, re-marked by the Marker", onPick: () => choose("corrections") },
@@ -265,7 +268,6 @@ export function Review() {
   const effects = <>
     {n > 0 && <Flag left="27.5%" top="38%" />}
     <Paper left="30%" top="43%" />
-    <Tick left="48%" top="47%" />
     <Stamp left="65%" top="33%" text="RELEASED" />
   </>;
   return (
@@ -273,7 +275,7 @@ export function Review() {
       <div className="page-header">
         <div><h1>The marking desk</h1><p className="meta">The Checker keeps two trays: the flagged tray holds the parts where she and the Marker disagree, the ticked tray holds what is ready to release. The drawers are Parts and Corrections.</p></div>
         <div className="actions">
-          <span className="pill pill-crew-marker tabular">{n} need{n === 1 ? "s" : ""} you</span>
+          {(summary || needsYou !== undefined) && <span className="pill pill-crew-marker tabular">{n} need{n === 1 ? "s" : ""} you</span>}
           {summary && <span className="pill tabular" style={{ background: "var(--mint)" }}>{summary.ready_to_release} ready to release</span>}
         </div>
       </div>

@@ -67,7 +67,7 @@ function Shell() {
       </div>
     );
   }
-  return <><Nav needsYou={needsYou} /><Outlet context={{ refreshQueue }} /></>;
+  return <><Nav needsYou={needsYou} /><Outlet context={{ refreshQueue, needsYou }} /></>;
 }
 
 export function App() {
