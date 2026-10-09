@@ -36,9 +36,9 @@ export function Setup() {
   };
   return (
     <div className="sign-in">
+      <Hero>One deployment, one password, one key — then your class can hand in.</Hero>
       <div className="form">
-        <span className="nav-brand">Smart Marking</span>
-        <form className="center" onSubmit={submit} aria-label="Set up Smart Marking">
+        <form onSubmit={submit} aria-label="Set up Smart Marking">
           <p className="eyebrow" style={{ letterSpacing: ".06em", textTransform: "uppercase", fontSize: 12, fontWeight: 700 }}>Step 1 of 2</p>
           <h1 style={{ fontSize: 36 }}>Create the teacher password</h1>
           <p className="meta">This is the password every teacher at your school will use to sign in. Nothing to copy from Railway.</p>
@@ -59,7 +59,6 @@ export function Setup() {
         </form>
         <p className="tertiary" style={{ fontSize: 12 }}>Next: connect a model (paste an API key).</p>
       </div>
-      <Hero>One deployment, one password, one key — then your class can hand in.</Hero>
     </div>
   );
 }

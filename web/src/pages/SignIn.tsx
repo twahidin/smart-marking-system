@@ -22,9 +22,9 @@ export function SignIn() {
   };
   return (
     <div className="sign-in">
+      <Hero>Smart agentic helpers at your service while you rest.</Hero>
       <div className="form">
-        <span className="nav-brand">Smart Marking</span>
-        <form className="center" onSubmit={submit}>
+        <form onSubmit={submit}>
           <h1 style={{ fontSize: 36 }}>Sign in</h1>
           <p className="meta">Teachers only. Enter the password your school set when it deployed Smart Marking.</p>
           {error && <Notice>{error}</Notice>}
@@ -36,7 +36,6 @@ export function SignIn() {
         </form>
         <p className="tertiary" style={{ fontSize: 12 }}>Smart Marking · self-hosted on Railway</p>
       </div>
-      <Hero>Handwritten scripts marked against your rubric. You check the doubtful ones, then release.</Hero>
     </div>
   );
 }

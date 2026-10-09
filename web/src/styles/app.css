@@ -131,14 +131,16 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } .cols > * + * { border-left: 0; border-top: 2px solid var(--color-divider); } }
 .empty { padding: 48px 0; max-width: 520px; }
 .empty h2 { font-size: 26px; }
-.sign-in { display: grid; grid-template-columns: 560px 1fr; min-height: 100vh; }
-.sign-in .form { padding: 32px 48px; border-right: 2px solid var(--color-divider); display: flex; flex-direction: column; }
-.sign-in .form .center { margin: auto 0; max-width: 400px; }
-.sign-in .hero { padding: 56px 64px; }
-.sign-in .hero-art { position: relative; border-radius: var(--radius-lg); overflow: hidden; background: var(--color-neutral-300); }
+/* sign-in and setup: the brand, the painting and its line on the left; the form top-aligned on the right */
+.sign-in { display: grid; grid-template-columns: minmax(0, 1fr) 520px; min-height: 100vh; }
+.sign-in .hero { padding: 32px 48px; border-right: 2px solid var(--color-divider); display: flex; flex-direction: column; gap: 20px; align-items: flex-start; }
+.sign-in .hero-art { position: relative; width: 100%; border-radius: var(--radius-lg); overflow: hidden; background: var(--color-neutral-300); }
 .sign-in .hero-art img { display: block; width: 100%; height: auto; }
-.sign-in .hero p { font-size: 22px; font-weight: 600; margin-top: 24px; }
-@media (max-width: 900px) { .sign-in { grid-template-columns: 1fr; } .sign-in .hero { display: none; } .sign-in .form { border-right: 0; } }
+.sign-in .hero p { font-size: 22px; font-weight: 600; text-wrap: balance; }
+.sign-in .form { padding: 32px 48px; display: flex; flex-direction: column; gap: 24px; }
+.sign-in .form form { max-width: 400px; margin-top: 44px; }
+.sign-in .form .tertiary { margin-top: auto; }
+@media (max-width: 900px) { .sign-in { grid-template-columns: 1fr; min-height: 0; } .sign-in .hero { border-right: 0; padding-bottom: 0; } .sign-in .hero-art, .sign-in .hero p { display: none; } .sign-in .form form { margin-top: 0; } }
 .qrow { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--color-divider); gap: 16px; }
 .qrow button { all: unset; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; }
 .qrow-body { padding: 8px 0 20px; }
