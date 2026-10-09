@@ -55,3 +55,21 @@ def test_due_list_is_open_sets_inside_the_window_soonest_first(auth):
     assert rows[0]["class_name"] == "4E2" and rows[0]["status"] == "open" and rows[0]["due_at"].endswith("Z")
     assert auth.get("/api/class-assignments/due?days=30").json()[-1]["id"] == far["id"]
     assert {past["id"], nodue["id"], draft["id"]}.isdisjoint({r["id"] for r in rows})
+
+
+def test_due_window_reads_stored_utc_text_on_a_non_utc_host(auth, monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "Asia/Singapore")
+    time.tzset()
+    try:
+        t = _template(auth)
+        c = auth.post("/api/classes", json={"name": "4E2"}).json()
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+        ahead = _open_set(auth, c["id"], t["id"], iso(now + timedelta(hours=2)))
+        behind = _open_set(auth, c["id"], t["id"], iso(now - timedelta(hours=2)))
+        ids = [r["id"] for r in auth.get("/api/class-assignments/due?days=1").json()]
+        assert ids == [ahead["id"]] and behind["id"] not in ids
+    finally:
+        monkeypatch.undo()
+        time.tzset()

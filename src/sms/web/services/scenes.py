@@ -24,7 +24,9 @@ def review_summary(db: Database) -> Dict[str, Any]:
 def _as_utc(value) -> datetime:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    return datetime.fromisoformat(str(value).replace(" ", "T").replace("Z", "+00:00")).astimezone(timezone.utc)
+    dt = datetime.fromisoformat(str(value).replace(" ", "T").replace("Z", "+00:00"))
+    # stored text is naive UTC (sms.timeutil convention); astimezone() on a naive value would assume the host's zone
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
 def due_class_assignments(db: Database, days: int) -> List[Dict[str, Any]]:
