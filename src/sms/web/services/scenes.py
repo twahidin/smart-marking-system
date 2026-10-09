@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from sms.memory.db import Database
 from sms.timeutil import iso_utc
 
-_UNSETTLED = "('uploaded', 'queued', 'marking', 'needs_you')"
+_UNSETTLED = "('uploaded', 'queued', 'marking', 'needs_you', 'failed')"
 
 
 def review_summary(db: Database) -> Dict[str, Any]:

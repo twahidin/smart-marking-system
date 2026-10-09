@@ -105,9 +105,6 @@ def update_class(db: Database, class_id: int, *, name: str, subject: Any = _KEEP
     return get_class(db, class_id)  # type: ignore[return-value]
 
 
-rename_class = update_class   # older callers and tests
-
-
 def set_archived(db: Database, class_id: int, archived: bool) -> Dict[str, Any]:
     _require(db, class_id)
     if archived:

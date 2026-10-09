@@ -39,6 +39,16 @@ def test_review_summary_counts_queue_remarked_and_ready_sets(auth, app):
     assert empty["id"] not in [x["id"] for x in s["ready_sets"]]   # nothing handed in yet
 
 
+def test_a_set_whose_only_submission_failed_is_not_ready(auth, app):
+    t = _template(auth)
+    c = auth.post("/api/classes", json={"name": "4E2"}).json()
+    failed_set = _open_set(auth, c["id"], t["id"])
+    sub, _ = seed_v2(app, run_id="r-x", queue={})
+    app.state.db.execute("UPDATE submissions SET class_assignment_id = :ca, status = 'failed' WHERE id = :i", {"ca": failed_set["id"], "i": sub})
+    s = auth.get("/api/review/summary").json()
+    assert s["ready_to_release"] == 0 and s["ready_sets"] == []
+
+
 def test_due_list_is_open_sets_inside_the_window_soonest_first(auth):
     t = _template(auth)
     c = auth.post("/api/classes", json={"name": "4E2"}).json()
