@@ -16,7 +16,7 @@ from sms.web.config import AppConfig
 from sms.web.deps import LoginLimiter, SessionSigner
 from sms.web.errors import install_error_handlers
 from sms.web.routers import (assignments, auth, class_assignments, classes, corrections, health, learning, pages, queue, records, room,
-                             setup, settings, student, submissions)
+                             scenes, setup, settings, student, submissions)
 from sms.worker.jobs import JobStore
 from sms.worker.worker import Worker
 
@@ -79,6 +79,7 @@ def create_app(config: AppConfig) -> FastAPI:
     app.include_router(class_assignments.router)
     app.include_router(student.router)
     app.include_router(corrections.router)
+    app.include_router(scenes.router)
     app.include_router(pages.router)
     app.include_router(pages.crops_router)
     app.include_router(queue.router)
