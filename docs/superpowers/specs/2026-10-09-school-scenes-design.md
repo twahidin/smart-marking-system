@@ -101,8 +101,8 @@ picture loses nothing.
 
 - Header: "The marking desk", two count pills (`N need you` coral, `M ready to release` mint).
 - The scene: the Checker at her desk. Hotspots: the **flagged tray** (Needs you · N parts, opens
-  the Parts tab), the **ticked tray** (Ready to release · M class sets, opens the first such set's
-  page or lists them), the **drawers** (Parts and Corrections tabs; the mint drawer's label carries
+  the Parts tab), the **ticked tray** (Ready to release · M class sets; its label lists them,
+  each a link to that class set's page), the **drawers** (Parts and Corrections tabs; the mint drawer's label carries
   `· N re-marked` while corrections wait), and the **Checker** (label explains what she does; links
   to the Marking Room).
 - Cues: resolving a part slides a script from the flagged tray to the ticked tray; "Released N
