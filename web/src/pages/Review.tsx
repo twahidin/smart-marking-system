@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Band, ClassAssignment, ClassRow, MarkPoint, QueueItem, ResolveBody } from "../api/types";
+import type { Band, ClassAssignment, ClassRow, MarkPoint, QueueItem, ResolveBody, ReviewSummary } from "../api/types";
 import { AllocationPicker, toggleAllocation } from "../components/AllocationPicker";
 import { BandPicker } from "../components/BandPicker";
 import { Button } from "../components/Button";
@@ -11,6 +11,10 @@ import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
 import { PagePager } from "../components/PagePager";
 import { qLabel } from "../lib/marks";
+import { ART, FILM } from "../scene/art";
+import { Flag, Paper, Stamp, Tick } from "../scene/effects";
+import { Scene, type Cue, type Hotspot } from "../scene/Scene";
+import { useDeviceTier } from "../scene/useDeviceTier";
 
 /** The allocations a v2 mark-scheme item is decided against: the scheme row's, or — for a part the scheme has
  *  no row for — the marker's own, which the API accepts in that case. */
@@ -36,7 +40,7 @@ const totalMax = (item: QueueItem): number => {
   return Math.max(rowMax, item.proposed_total ?? 0);
 };
 
-function ReviewParts() {
+function ReviewParts({ onSettled }: { onSettled: () => void }) {
   const { refreshQueue } = useOutletContext<{ refreshQueue: () => void }>();
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [i, setI] = useState(0);
@@ -93,6 +97,7 @@ function ReviewParts() {
       const rest = items!.filter((x) => x.id !== item.id);
       setItems(rest); setI(Math.min(i, Math.max(0, rest.length - 1)));
       refreshQueue();
+      onSettled();
     } catch (e) { setError(e instanceof ApiError ? e.message : "Could not save"); }
     finally { setBusy(false); }
   };
@@ -115,9 +120,9 @@ function ReviewParts() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (error && !items) return <div className="page"><Notice kind="error">{error}</Notice></div>;
-  if (!items) return <div className="page muted">Loading…</div>;
-  if (!item) return <div className="page"><EmptyState title="Nothing needs you"><p>Every question has a mark. New escalations appear here as scripts are marked.</p><Link to="/submissions" className="btn btn-secondary">Back to submissions</Link></EmptyState></div>;
+  if (error && !items) return <div><Notice kind="error">{error}</Notice></div>;
+  if (!items) return <div className="muted">Loading…</div>;
+  if (!item) return <div><EmptyState title="Nothing needs you"><p>Every question has a mark. New escalations appear here as scripts are marked.</p><Link to="/submissions" className="btn btn-secondary">Back to submissions</Link></EmptyState></div>;
 
   const heading = v2 ? (kind === "rubric" ? item.label ?? item.q_id : `Question ${item.label ?? qLabel(item.q_id)}`) : `Question ${qLabel(item.q_id).replace("Q", "")}`;
   const schemeRow = item.scheme_row;
@@ -208,7 +213,7 @@ function useCorrectionSets(enabled: boolean) {
   return { sets, error };
 }
 
-function CorrectionsPane() {
+function CorrectionsPane({ onReleased }: { onReleased: () => void }) {
   const [params, setParams] = useSearchParams();
   const { sets, error } = useCorrectionSets(true);
   const wanted = Number(params.get("ca")) || null;
@@ -218,7 +223,7 @@ function CorrectionsPane() {
     if (selected !== null && wanted !== null && wanted !== selected) setParams((p) => { const n = new URLSearchParams(p); n.set("ca", String(selected)); return n; }, { replace: true });
   }, [selected, wanted, setParams]);
   return (
-    <div className="page">
+    <div>
       {error && <Notice kind="error">{error}</Notice>}
       {!sets && !error && <p className="muted">Loading…</p>}
       {sets && sets.length === 0 && <EmptyState title="No class sets yet"><p>Corrections appear here once an assignment is open or released to a class.</p></EmptyState>}
@@ -230,22 +235,54 @@ function CorrectionsPane() {
           </select>
         </div>
       )}
-      {selected !== null && sets && sets.length > 0 && <CorrectionsTab classAssignmentId={selected} />}
+      {selected !== null && sets && sets.length > 0 && <CorrectionsTab classAssignmentId={selected} onReleased={onReleased} />}
     </div>
   );
 }
 
 export function Review() {
   const [params, setParams] = useSearchParams();
+  const { needsYou } = useOutletContext<{ refreshQueue: () => void; needsYou?: number }>();
   const tab = params.get("tab") === "corrections" || params.has("ca") ? "corrections" : "parts";
   const choose = (t: "parts" | "corrections") => setParams((p) => { const n = new URLSearchParams(p); if (t === "parts") { n.delete("tab"); n.delete("ca"); } else n.set("tab", "corrections"); return n; }, { replace: true });
+  const tier = useDeviceTier();
+  const [summary, setSummary] = useState<ReviewSummary | null>(null);
+  const [cue, setCue] = useState<Cue | null>(null);
+  const play = (name: string) => setCue((c) => ({ name, key: (c?.key ?? 0) + 1 }));
+  const loadSummary = useCallback(() => { api.get<ReviewSummary>("/api/review/summary").then(setSummary).catch(() => {}); }, []);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+  const n = summary?.needs_you ?? needsYou ?? 0;
+  const ready = summary?.ready_sets ?? [];
+  const hotspots: Hotspot[] = [
+    { id: "flagged", left: "30%", top: "38%", color: "var(--crew-marker)", label: `Needs you · ${n} part${n === 1 ? "" : "s"}`, sub: "Marker and Checker disagree", onPick: () => choose("parts") },
+    ready.length > 0
+      ? { id: "ticked", left: "66%", top: "30%", color: "var(--mint)", label: `Ready to release · ${summary!.ready_to_release} class set${summary!.ready_to_release === 1 ? "" : "s"}`, sub: ready.map((s) => `${s.class_name} · ${s.title}`).join(" · "), href: `/classes/${ready[0].class_id}/assignments/${ready[0].id}` }
+      : { id: "ticked", left: "66%", top: "30%", color: "var(--mint)", label: "Ready to release · none yet", sub: "Finished class sets wait here", onPick: () => {} },
+    { id: "parts-drawer", left: "31%", top: "56%", label: "Parts drawer", sub: "Every part that needs a decision", onPick: () => choose("parts") },
+    { id: "corrections-drawer", left: "36%", top: "62%", label: `Corrections drawer${summary && summary.remarked > 0 ? ` · ${summary.remarked} re-marked` : ""}`, sub: "Student corrections, re-marked by the Marker", onPick: () => choose("corrections") },
+    { id: "checker", left: "50%", top: "14%", color: "var(--crew-checker)", label: "Checker", sub: "Flags the parts she and the Marker read differently", href: "/room" },
+  ];
+  const effects = <>
+    {n > 0 && <Flag left="27.5%" top="38%" />}
+    <Paper left="30%" top="43%" />
+    <Tick left="48%" top="47%" />
+    <Stamp left="65%" top="33%" text="RELEASED" />
+  </>;
   return (
-    <div>
-      <div className="actions" role="group" aria-label="Review" style={{ marginBottom: 12 }}>
+    <div className="page">
+      <div className="page-header">
+        <div><h1>The marking desk</h1><p className="meta">The Checker keeps two trays: the flagged tray holds the parts where she and the Marker disagree, the ticked tray holds what is ready to release. The drawers are Parts and Corrections.</p></div>
+        <div className="actions">
+          <span className="pill pill-crew-marker tabular">{n} need{n === 1 ? "s" : ""} you</span>
+          {summary && <span className="pill tabular" style={{ background: "var(--mint)" }}>{summary.ready_to_release} ready to release</span>}
+        </div>
+      </div>
+      <Scene name="The marking desk" art={ART.review} film={FILM.review} alt="The Checker at a wooden desk with a red pen, a magnifier, a stamp, a flagged tray and a ticked tray" hotspots={hotspots} effects={effects} cue={cue} tier={tier} />
+      <div className="actions" role="group" aria-label="Review" style={{ margin: "16px 0 12px" }}>
         <button type="button" className={`btn ${tab === "parts" ? "btn-primary" : "btn-secondary"}`} aria-pressed={tab === "parts"} onClick={() => choose("parts")}>Parts</button>
         <button type="button" className={`btn ${tab === "corrections" ? "btn-primary" : "btn-secondary"}`} aria-pressed={tab === "corrections"} onClick={() => choose("corrections")}>Corrections</button>
       </div>
-      {tab === "parts" ? <ReviewParts /> : <CorrectionsPane />}
+      {tab === "parts" ? <ReviewParts onSettled={() => { play("settle"); loadSummary(); }} /> : <CorrectionsPane onReleased={() => { play("stamp"); loadSummary(); }} />}
     </div>
   );
 }

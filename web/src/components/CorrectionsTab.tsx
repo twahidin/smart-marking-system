@@ -9,7 +9,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "Something wen
 
 /** The corrections a class set's students have sent in: the Marker's re-mark beside each, to accept, override or
  *  reject, and one button to release what has been decided. */
-export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: number }) {
+export function CorrectionsTab({ classAssignmentId, onReleased }: { classAssignmentId: number; onReleased?: () => void }) {
   const [rows, setRows] = useState<Correction[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [override, setOverride] = useState<Record<number, string>>({});
@@ -34,7 +34,7 @@ export function CorrectionsTab({ classAssignmentId }: { classAssignmentId: numbe
     const set = classAssignmentId;
     try {
       const r = await api.post<{ released: number }>(`/api/class-assignments/${set}/release-corrections`);
-      if (current.current === set) setReleased(r.released);
+      if (current.current === set) { setReleased(r.released); onReleased?.(); }
       await load();
     } catch (e) { if (current.current === set) setError(message(e)); }
   };

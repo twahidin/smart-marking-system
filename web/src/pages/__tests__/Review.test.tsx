@@ -25,11 +25,14 @@ const v1Item: QueueItem = {
 
 afterEach(() => vi.unstubAllGlobals());
 
+const summary = { needs_you: 2, remarked: 1, ready_to_release: 1, ready_sets: [{ id: 3, class_id: 1, class_name: "2E3", title: "Acids and bases" }] };
+
 function setup(items: QueueItem[]) {
   const posted: { path: string; body: unknown }[] = [];
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/queue") return Promise.resolve(new Response(JSON.stringify(items), { status: 200 }));
+    if (path === "/api/review/summary") return Promise.resolve(new Response(JSON.stringify(summary), { status: 200 }));
     if (/^\/api\/queue\/\d+\/resolve$/.test(path)) { posted.push({ path, body: JSON.parse(String(init!.body)) }); return Promise.resolve(new Response(JSON.stringify({ id: 1, submission_id: 9, submission_status: "done" }), { status: 200 })); }
     return Promise.reject(new Error(`Unexpected fetch to ${path}`));
   }));
@@ -140,7 +143,8 @@ describe("Review — per-part items (v2)", () => {
   it("a files-only item reads from the transcription instead of an empty page crop", async () => {
     setup([{ ...partItem, page_ids: [], input_kind: "files" }]);
     await screen.findByText("Question 1(b)");
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    // The desk scene's own painting is an image; the student's pages and crop must not be.
+    expect(screen.queryByRole("img", { name: /^(Page \d|Student's answer)/ })).not.toBeInTheDocument();
     expect(screen.getByText("Handed in as files — the transcription below is what was read.")).toBeInTheDocument();
     expect(screen.queryByText(/deleted after marking/i)).not.toBeInTheDocument();
     expect(screen.getByText("y = 2x + 1 = 5")).toBeInTheDocument();
@@ -169,6 +173,20 @@ describe("Review — per-part items (v2)", () => {
   });
 });
 
+describe("Review — the marking desk", () => {
+  it("shows the marking desk with the trays and drawers wired to the tabs", async () => {
+    setup([partItem]);
+    expect(await screen.findByText("The marking desk")).toBeInTheDocument();
+    expect(await screen.findByText("2 need you")).toBeInTheDocument();
+    expect(await screen.findByText("1 ready to release")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Ready to release · 1 class set/ })).toHaveAttribute("href", "/classes/1/assignments/3");
+    await userEvent.click(screen.getByRole("button", { name: /Corrections drawer · 1 re-marked/ }));
+    expect(screen.getByRole("button", { name: "Corrections" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: /Needs you · 2 parts/ }));
+    expect(screen.getByRole("button", { name: "Parts" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
 describe("Review — Corrections tab", () => {
   const classes = [{ id: 1, name: "4E2", code: "A", student_count: 4, open_assignments: 1, archived_at: null, created_at: "", updated_at: "" }];
   const cas = [
@@ -181,6 +199,7 @@ describe("Review — Corrections tab", () => {
       urls.push(path);
       const ok = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
       if (path === "/api/queue") return ok([partItem]);
+      if (path === "/api/review/summary") return ok(summary);
       if (path === "/api/classes") return ok(classes);
       if (path === "/api/classes/1/assignments") return ok(cas);
       if (path.startsWith("/api/review/corrections?class_assignment_id=")) return ok([]);
@@ -198,7 +217,7 @@ describe("Review — Corrections tab", () => {
     const urls = setupTabs();
     expect(await screen.findByText("Question 1(b)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Parts" })).toHaveAttribute("aria-pressed", "true");
-    expect(urls).toEqual(["/api/queue"]);
+    expect(urls.filter((u) => u !== "/api/review/summary")).toEqual(["/api/queue"]);
     await userEvent.click(screen.getByRole("button", { name: "Corrections" }));
     const picker = await screen.findByLabelText("Class set");
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["4E2 · Worksheet 3", "4E2 · Worksheet 4"]);
