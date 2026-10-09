@@ -6,13 +6,13 @@ import type { ClassRow } from "../../api/types";
 import { Classes } from "../Classes";
 
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
-  const calls: { path: string; method: string }[] = [];
+  const calls: { path: string; method: string; body?: unknown }[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       const method = init?.method ?? "GET";
-      calls.push({ path, method });
+      calls.push({ path, method, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
       const handler = handlers[`${method} ${path}`];
       if (!handler) return Promise.reject(new Error(`Unexpected fetch to ${method} ${path}`));
       return Promise.resolve(handler(init));
@@ -59,7 +59,23 @@ describe("Classes", () => {
     await userEvent.selectOptions(screen.getByLabelText("Subject"), "science");
     await userEvent.click(screen.getByRole("button", { name: "Create class" }));
     expect(calls.find((c) => c.method === "POST")?.path).toBe("/api/classes");
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ name: "2E3 Science", subject: "science" });
     expect(await screen.findByRole("link", { name: /2E3 Science/ })).toBeInTheDocument();
+  });
+
+  it("sends subject null when the teacher leaves it on the latest assignment, and creates on Enter", async () => {
+    const list: ClassRow[] = [{ id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 40, open_assignments: 2, subject: "math", marking: 0, needs_you: 0, archived_at: null, created_at: "", updated_at: "" }];
+    const calls = mockFetch({
+      "GET /api/classes": () => new Response(JSON.stringify(list), { status: 200 }),
+      "POST /api/classes": (init) => { const body = JSON.parse(String(init?.body)); list.push({ ...list[0], id: 2, name: body.name, subject: null }); return new Response(JSON.stringify(list[1]), { status: 201 }); },
+    });
+    render(<MemoryRouter><Classes /></MemoryRouter>);
+    await screen.findByRole("link", { name: /4E2 Mathematics/ });
+    await userEvent.click(screen.getByRole("button", { name: "Build a classroom" }));
+    expect(screen.getByLabelText("Subject")).toHaveValue("");
+    await userEvent.type(screen.getByLabelText("Class name"), "Form 1{Enter}");
+    expect(await screen.findByRole("link", { name: /Form 1/ })).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ name: "Form 1", subject: null });
   });
 
   it("shows the empty state", async () => {
