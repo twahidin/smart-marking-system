@@ -107,12 +107,12 @@ function ReviewParts({ onSettled }: { onSettled: () => void }) {
       const el = e.target as HTMLElement;
       const tag = el.tagName;
       if (tag === "TEXTAREA") return;
-      // Enter (and every other shortcut) on a control belongs to that control: the scene's buttons and links, the tabs, a select.
-      if (tag === "BUTTON" || tag === "A" || tag === "SELECT" || el.closest?.(".scene")) return;
+      // Enter on a control belongs to that control: the scene's buttons and links, the tabs, a select.
+      const onControl = tag === "BUTTON" || tag === "A" || tag === "SELECT" || !!el.closest?.(".scene");
       if (e.key === "ArrowLeft" && tag !== "INPUT") setI((x) => Math.max(0, x - 1));
       else if (e.key === "ArrowRight" && tag !== "INPUT") setI((x) => Math.min((items?.length ?? 1) - 1, x + 1));
       else if (e.key.toLowerCase() === "a" && tag !== "INPUT") acceptProposed();
-      else if (e.key === "Enter" && tag !== "INPUT") { e.preventDefault(); save(); }
+      else if (e.key === "Enter" && tag !== "INPUT" && !onControl) { e.preventDefault(); save(); }
       else if (/^[1-9]$/.test(e.key) && item && kind === "mark_scheme" && !typingField(e.target)) { e.preventDefault(); changeGot(toggleAllocation(allocationsOf(item), got, Number(e.key))); }
       else if (/^[0-9]$/.test(e.key) && tag !== "INPUT" && item && !v2) {
         const focusIdx = 0; const max = item.criterion_defs[focusIdx].max_score;

@@ -199,6 +199,15 @@ describe("Review — keys on the scene", () => {
     expect(screen.getByRole("button", { name: "Parts" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("still moves between parts with the arrow keys while a button such as Accept proposed has focus", async () => {
+    setup([partItem, bandItem]);
+    await screen.findByText("Question 1(b)");
+    expect(screen.getByText("1 of 2")).toBeInTheDocument();
+    act(() => screen.getByRole("button", { name: /Accept proposed/ }).focus());
+    await userEvent.keyboard("{ArrowRight}");
+    expect(await screen.findByText("2 of 2")).toBeInTheDocument();
+  });
+
   it("describes the ticked tray's target and the rest", async () => {
     setup([partItem]);
     expect(await screen.findByRole("link", { name: /Ready to release · 1 class set/ })).toHaveAttribute("aria-description", "Opens 2E3 · Acids and bases");
