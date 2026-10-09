@@ -183,6 +183,14 @@ Click a student's name to see the per-part marks, the transcription and the just
 
 Open **Marking Room**. The sorter on the left holds scripts waiting their turn; the three desks show who is working on what. Tap a name tag to read that crew member's notes for the script on the desk, for example the Checker explaining why it flagged 2(a). Nothing here is shown to students. If the live feed drops, the room refreshes every five seconds instead.
 
+![The Marking Room while a script is on the desks — tap a tag to open the thought panel.](images/70-marking-room.jpg)
+
+*The Marking Room while a script is on the desks. Tap a name tag to open the thought panel.*
+
+![The Marker's notes for the script on its desk, teachers only.](images/71-thought-panel.jpg)
+
+![Hand in: drop photos, PDFs or a class zip into the sorter.](images/72-sorter.jpg)
+
 ## 14. Release feedback
 
 Until you release, students see "Marked — your teacher is checking". **Release feedback** is one action for the whole class and needs every "Needs you" part cleared first. After release students see their total, a short summary, what they did well, each question with a comment and a "Try next", and what to work on.
@@ -199,6 +207,18 @@ Releasing closes student hand-ins for that assignment; pages you upload for a st
 ## 15. Students reflect and correct
 
 Once feedback is released, each student has a window (7 days unless you change it under Settings or on the assignment) to send one correction per part they lost marks on. On their phone they tap **Try a correction**, pick what went wrong, and type or photograph their corrected working. The Marker re-marks it; you decide under **Review → Corrections** and press **Release corrections** when you are ready. The student's feedback then shows "After reflection" beside that part.
+
+Assignments released before this version got a window of 0 days, so nothing opens unexpectedly; set a window on an assignment if you want to offer it.
+
+![Released feedback with the reflection window and Try a correction.](images/73-student-reflect-pill.jpg) 
+![The reflect screen: first try, the Marker's comment, what went wrong, corrected working.](images/74-student-reflect-form.jpg) 
+![After release: the new mark beside the part.](images/78-student-after-reflection.jpg) 
+
+![Review → Corrections: first try, crop, re-mark and note, with Accept, Override and Reject.](images/76-corrections-tab.jpg)
+
+*Review → Corrections: first try, crop, re-mark and the crew's notes, with Accept, Override and Reject.*
+
+![Released — the student now sees the new mark.](images/77-corrections-released.jpg)
 
 ## 16. Insights: where the class lost marks
 
