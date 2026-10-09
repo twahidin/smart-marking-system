@@ -84,6 +84,12 @@ question part against the assignment's mark scheme or rubric. Low-confidence, il
 out-of-scheme parts land in **Review**, where you resolve a mark-scheme part by ticking the allocations
 earned (an **allocation picker**) and a rubric criterion by picking its **band** (a **band picker**).
 
+**Mark many** (Submissions → Mark many) takes a whole class against one saved assignment: drop the
+scripts, or one zip of them, and each PDF becomes a script while photos named "Tan Wei Ling-1.jpg",
+"Tan Wei Ling-2.jpg" group into one script in page order. Labels come from the filenames and can be
+edited before you start; scripts upload two at a time through the ordinary endpoint, and any that fail
+stay listed with a retry. The zip is unpacked in the browser, so nothing new runs on the server.
+
 Every marked script has a downloadable **marking record**: a `.docx` with a landing block (title,
 student, marked-on date, model) and a table with six columns — question & part, marking scheme answer,
 student's answer (extracted), justification, awarded mark, and a blank "Teacher's mark" column for

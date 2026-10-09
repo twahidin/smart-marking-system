@@ -1,4 +1,4 @@
-import { Download, Plus } from "lucide-react";
+import { Download, Layers, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -53,6 +53,7 @@ export function Submissions() {
         <div className="actions">
           <Button variant="secondary" icon={<Download size={16} aria-hidden />} onClick={downloadRecords} disabled={downloading || marked.length === 0}
             title={marked.length === 0 ? "No marked scripts to download yet." : selected.size === 0 ? "Records for every script shown." : undefined}>{downloading ? "Preparing…" : downloadLabel}</Button>
+          <Button variant="secondary" icon={<Layers size={16} aria-hidden />} onClick={() => nav("/submissions/bulk")}>Mark many</Button>
           <Button variant="primary" icon={<Plus size={18} />} onClick={() => nav("/submissions/new")}>Mark a script</Button>
         </div>
       </div>

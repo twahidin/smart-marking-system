@@ -12,6 +12,7 @@ import { ClassAssignmentPage } from "./pages/ClassAssignmentPage";
 import { ClassPage } from "./pages/ClassPage";
 import { Learning } from "./pages/Learning";
 import { MarkingRoom } from "./pages/MarkingRoom";
+import { BulkMark } from "./pages/BulkMark";
 import { NewSubmission } from "./pages/NewSubmission";
 import { Review } from "./pages/Review";
 import { Settings } from "./pages/Settings";
@@ -93,6 +94,7 @@ export function App() {
         <Route path="/classes/:id/assignments/:caid" element={<ClassAssignmentPage />} />
         <Route path="/submissions" element={<Submissions />} />
         <Route path="/submissions/new" element={<NewSubmission />} />
+        <Route path="/submissions/bulk" element={<BulkMark />} />
         <Route path="/submissions/:id" element={<SubmissionDetail />} />
         <Route path="/assignments" element={<Assignments />} />
         <Route path="/assignments/:id" element={<AssignmentEditor />} />
