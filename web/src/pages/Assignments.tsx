@@ -18,6 +18,9 @@ type Pending = { kind: "rename"; t: AssignmentTemplate; title: string } | { kind
 /** Deleting needs `?force=true` (and a "Delete anyway" confirmation) once scripts or class assignments reference the template. */
 const inUse = (t: AssignmentTemplate) => (t.submission_count ?? 0) > 0 || (t.class_assignment_count ?? 0) > 0;
 
+/** Rack slots, left to right along the folder rack in the painting. */
+const RACK = [{ left: "56%", top: "37%" }, { left: "59%", top: "38%" }, { left: "62%", top: "39%" }, { left: "65%", top: "40%" }, { left: "68%", top: "41%" }];
+
 export function Assignments() {
   const nav = useNavigate();
   const [rows, setRows] = useState<AssignmentTemplate[] | null>(null);
@@ -66,8 +69,6 @@ export function Assignments() {
     } catch (e) { setError(e instanceof ApiError ? e.message : "Could not export"); }
   };
 
-  /** Rack slots, left to right along the folder rack in the painting. */
-  const RACK = [{ left: "57%", top: "36%" }, { left: "61%", top: "39%" }, { left: "65%", top: "42%" }, { left: "69%", top: "45%" }, { left: "73%", top: "48%" }];
   const bySubject = SUBJECTS.filter((s) => (rows ?? []).some((t) => t.subject === s));
   const hotspots: Hotspot[] = [
     ...bySubject.map((s, i) => {
@@ -77,13 +78,13 @@ export function Assignments() {
     }),
     { id: "pad", left: "46%", top: "46%", label: "Blank pad", sub: "Start a new assignment", href: "/assignments/new" },
     ...(due.length > 0
-      ? [{ id: "pinboard", left: "37%", top: "22%", label: "Pinboard · due this week", sub: due.slice(0, 3).map((d) => `${d.class_name} · ${d.title} · ${fmtDate(d.due_at)}`).join(" · "), href: `/classes/${due[0].class_id}/assignments/${due[0].id}` }]
-      : [{ id: "pinboard", left: "37%", top: "22%", label: "Pinboard", sub: "Nothing due this week", onPick: () => {} }]),
+      ? [{ id: "pinboard", left: "36%", top: "30%", label: "Pinboard · due this week", sub: `Opens ${due[0].class_name} · ${due[0].title} · ${fmtDate(due[0].due_at)}${due.length > 1 ? ` · also due: ${due.slice(1, 3).map((d) => `${d.class_name} · ${d.title} · ${fmtDate(d.due_at)}`).join(" · ")}` : ""}`, href: `/classes/${due[0].class_id}/assignments/${due[0].id}` }]
+      : [{ id: "pinboard", left: "36%", top: "30%", label: "Pinboard", sub: "Nothing due this week", onPick: () => {} }]),
     { id: "lamp", left: "36%", top: "44%", label: marking > 0 ? `Marking now · ${marking} script${marking === 1 ? "" : "s"}` : "Lamp", sub: marking > 0 ? "On the desks in the Marking Room" : "Lights up while scripts are being marked", href: "/room" },
   ];
   const effects = <>
     {marking > 0 && <Glow left="37%" top="46%" size="16%" />}
-    {due.length > 0 && <Paper left="36%" top="24%" />}
+    {due.length > 0 && <Paper left="36%" top="27%" />}
   </>;
   const shown = (rows ?? []).filter((t) => !filter || t.subject === filter);
 

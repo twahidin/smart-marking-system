@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { DeviceTier } from "./useDeviceTier";
 import { useFilm } from "./useFilm";
@@ -12,7 +12,7 @@ interface Props { name: string; art: string; film?: string; alt: string; hotspot
 
 /** A painted scene with hover/tap labels, a Show labels switch, a 3 s Tour, optional film loop, ambient effects and one-shot cues. */
 export function Scene({ name, art, film, alt, hotspots, effects, cue, tier, tourable = true, children }: Props) {
-  const [labels, setLabels] = useSceneLabels();
+  const [labels, setLabels] = useSceneLabels(tier);
   const [filmOn, setFilmOn] = useFilm(tier);
   const tour = useTour(hotspots.length);
   const [hover, setHover] = useState<string | null>(null);
@@ -21,7 +21,7 @@ export function Scene({ name, art, film, alt, hotspots, effects, cue, tier, tour
   const [cueClass, setCueClass] = useState("");
 
   useEffect(() => {
-    if (!cue || tier === "static") return;
+    if (!cue || tier === "static") { setCueClass(""); return; }
     setCueClass(`cue-${cue.name}`);
     const t = setTimeout(() => setCueClass(""), 1500);
     return () => clearTimeout(t);
@@ -48,16 +48,16 @@ export function Scene({ name, art, film, alt, hotspots, effects, cue, tier, tour
           const handlers = { onMouseEnter: () => setHover(h.id), onMouseLeave: () => setHover((v) => (v === h.id ? null : v)), onFocus: () => setHover(h.id), onBlur: () => setHover((v) => (v === h.id ? null : v)) };
           const style = { left: h.left, top: h.top };
           return (
-            <span key={h.id}>
+            <Fragment key={h.id}>
               {h.href
-                ? <Link to={h.href} className="scene-spot" style={style} aria-label={h.label} {...handlers} />
-                : <button type="button" className={`scene-spot ${pinned[h.id] ? "pinned" : ""}`} style={style} aria-label={h.label} aria-pressed={!!pinned[h.id]} {...handlers}
+                ? <Link to={h.href} className="scene-spot" style={style} aria-label={h.label} aria-description={h.sub} {...handlers} />
+                : <button type="button" className={`scene-spot ${pinned[h.id] ? "pinned" : ""}`} style={style} aria-label={h.label} aria-description={h.sub} aria-pressed={!!pinned[h.id]} {...handlers}
                     onClick={() => { setPinned((p) => ({ ...p, [h.id]: !p[h.id] })); h.onPick?.(); }} />}
               <div className={`scene-tag ${isOn(h, i) ? "on" : "off"}`} style={style} aria-hidden="true" data-testid={`tag-${h.id}`}>
                 <b>{h.color && <i className="dot" style={{ background: h.color }} />}{h.label}</b>
                 {h.sub && <span>{h.sub}</span>}
               </div>
-            </span>
+            </Fragment>
           );
         })}
       </div>

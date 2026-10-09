@@ -46,6 +46,20 @@ describe("Scene", () => {
     expect(screen.getAllByTestId(/^tag-/).every((el) => el.classList.contains("on"))).toBe(true);
   });
 
+  it("defaults labels on for the static tier, where nothing can be hovered, unless a preference is saved", () => {
+    const { unmount } = mount({ tier: "static" });
+    expect(screen.getAllByTestId(/^tag-/).every((el) => el.classList.contains("on"))).toBe(true);
+    unmount();
+    localStorage.setItem("sms.scene.labels", "off");
+    mount({ tier: "static" });
+    expect(tag("a")).toHaveClass("off");
+  });
+
+  it("describes each hotspot with its sub text for assistive tech", () => {
+    mount();
+    expect(screen.getByRole("button", { name: "4E2 Mathematics" })).toHaveAttribute("aria-description", "4KEF · 4 students");
+  });
+
   it("renders no effects and no film on the static tier, and the film gate obeys the switch", () => {
     const { unmount } = mount({ tier: "static", film: "/art/film/school.mp4" });
     expect(screen.queryByTestId("fx")).toBeNull();

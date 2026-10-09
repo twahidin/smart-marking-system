@@ -21,7 +21,7 @@ export function Classes() {
   const [subject, setSubject] = useState<Subject | "">("");
   const [busy, setBusy] = useState(false);
   const tier = useDeviceTier();
-  const [labels, setLabels] = useSceneLabels();
+  const [labels, setLabels] = useSceneLabels(tier);
   const [film, setFilm] = useFilm(tier);
   const load = useCallback(async () => {
     try { setRows(await api.get<ClassRow[]>("/api/classes")); setError(null); }
