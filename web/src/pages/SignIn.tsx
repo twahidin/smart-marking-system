@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { Button } from "../components/Button";
 import { Notice } from "../components/Notice";
+import { Hero } from "../components/Hero";
 
 export function SignIn() {
   const [password, setPassword] = useState("");
@@ -35,10 +36,7 @@ export function SignIn() {
         </form>
         <p className="tertiary" style={{ fontSize: 12 }}>Smart Marking · self-hosted on Railway</p>
       </div>
-      <div className="hero">
-        <img className="photo" src="/hero.jpg" alt="" width={1800} height={764} />
-        <p>Handwritten scripts marked against your rubric. You check the doubtful ones, then release.</p>
-      </div>
+      <Hero>Handwritten scripts marked against your rubric. You check the doubtful ones, then release.</Hero>
     </div>
   );
 }

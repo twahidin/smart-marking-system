@@ -1,7 +1,7 @@
 import type { TileKey } from "../lib/format";
-import type { Frame } from "./Scene";
+import type { Frame } from "./Frames";
 
-export const ART = { desk: "/art/desk.jpg", review: "/art/review.jpg", library: "/art/library.jpg", school: "/art/school.jpg" } as const;
+export const ART = { desk: "/art/desk.jpg", review: "/art/review.jpg", library: "/art/library.jpg", school: "/art/school.jpg", room: "/art/room.jpg", hero: "/art/hero.jpg" } as const;
 export const SUBJECT_TILE: Record<TileKey, string> = {
   math: "/art/tile-math.jpg", language: "/art/tile-language.jpg", science: "/art/tile-science.jpg",
   mt: "/art/tile-mt.jpg", computing: "/art/tile-computing.jpg", general: "/art/tile-general.jpg",
@@ -26,5 +26,14 @@ export const FRAMES: Partial<Record<keyof typeof ART, Frame[]>> = {
   library: [
     { src: "/art/frames/library-b.png", left: "40.38%", top: "51.45%", width: "10.88%", delay: 0 },
     { src: "/art/frames/library-c.png", left: "41.29%", top: "54.35%", width: "12.54%", delay: 3 },
+  ],
+  room: [
+    { src: "/art/frames/room-b.png", left: "47.19%", top: "36.41%", width: "11.72%", delay: 0 },
+    { src: "/art/frames/room-c.png", left: "46.48%", top: "43.14%", width: "14.14%", delay: 2 },
+    { src: "/art/frames/room-d.png", left: "36.41%", top: "28.15%", width: "12.11%", delay: 4 },
+  ],
+  hero: [
+    { src: "/art/frames/hero-b.png", left: "31%", top: "36.91%", width: "21.15%", delay: 0 },
+    { src: "/art/frames/hero-c.png", left: "49.27%", top: "32.55%", width: "15.52%", delay: 3 },
   ],
 };

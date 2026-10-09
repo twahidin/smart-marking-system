@@ -1,6 +1,9 @@
 import type { CSSProperties } from "react";
 import type { Crew, RoomDesk, Stage } from "../api/types";
+import { ART, FRAMES } from "./art";
+import { Frames } from "./Frames";
 import type { DeviceTier } from "./useDeviceTier";
+import { useFilm } from "./useFilm";
 
 export const CREW_OF: Record<Stage, Crew | null> = { read: "reader", mark: "marker", check: "checker", feedback: null, done: null };
 const NAME: Record<Crew, string> = { reader: "Reader", marker: "Marker", checker: "Checker" };
@@ -15,9 +18,11 @@ export function RoomScene2D({ desks, tier, onPick }: { desks: RoomDesk[]; tier: 
     if (c) byCrew.set(c, [...(byCrew.get(c) ?? []), d]);
   }
   const busy = desks.some((d) => d.stage === "read");
+  const [filmOn] = useFilm(tier);
   return (
     <div className="room-scene">
-      <img src="/art/room.jpg" alt="The marking room: a paper sorter feeds a conveyor to three desks where the Reader, Marker and Checker work" />
+      <img src={ART.room} alt="The marking room: a paper sorter feeds a conveyor to three desks where the Reader, Marker and Checker work" />
+      {tier === "2d" && filmOn && <Frames frames={FRAMES.room} />}
       {tier === "2d" && busy && <span className="room-paper slide" aria-hidden />}
       <div className="room-tags">
         {(["reader", "marker", "checker"] as Crew[]).map((crew) => {

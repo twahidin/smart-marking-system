@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { Button } from "../components/Button";
 import { Notice } from "../components/Notice";
+import { Hero } from "../components/Hero";
 
 const MIN = 8;
 
@@ -58,10 +59,7 @@ export function Setup() {
         </form>
         <p className="tertiary" style={{ fontSize: 12 }}>Next: connect a model (paste an API key).</p>
       </div>
-      <div className="hero">
-        <img className="photo" src="/hero.jpg" alt="" width={1800} height={764} />
-        <p>One deployment, one password, one key — then your class can hand in.</p>
-      </div>
+      <Hero>One deployment, one password, one key — then your class can hand in.</Hero>
     </div>
   );
 }

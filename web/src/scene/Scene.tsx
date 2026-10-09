@@ -1,14 +1,14 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { DeviceTier } from "./useDeviceTier";
+import { Frames, type Frame } from "./Frames";
 import { useFilm } from "./useFilm";
 import { useSceneLabels } from "./useSceneLabels";
 import { useTour } from "./useTour";
 
 export interface Hotspot { id: string; left: string; top: string; label: string; sub?: string; color?: string; href?: string; onPick?: () => void }
 export interface Cue { name: string; key: number }
-/** A regenerated detail of the painting (a lifted pen, a lit lamp) that fades in over the still; left/top/width are % of the scene. */
-export interface Frame { src: string; left: string; top: string; width: string; delay: number }
+export type { Frame };
 
 interface Props { name: string; art: string; film?: string; frames?: Frame[]; alt: string; hotspots: Hotspot[]; effects?: ReactNode; cue?: Cue | null; tier: DeviceTier; tourable?: boolean; children?: ReactNode }
 
@@ -46,7 +46,7 @@ export function Scene({ name, art, film, frames, alt, hotspots, effects, cue, ti
       <div className={`scene-box ${cueClass}`}>
         <img src={art} alt={alt} />
         {showFilm && <video className="scene-film" src={film} poster={art} autoPlay muted loop playsInline aria-hidden="true" onError={() => setFilmBroken(true)} />}
-        {showFrames && frames!.map((f) => <img key={f.src} className="fx fx-frame" src={f.src} alt="" aria-hidden="true" loading="lazy" style={{ left: f.left, top: f.top, width: f.width, animationDelay: `${f.delay}s` }} />)}
+        {showFrames && <Frames frames={frames} />}
         {live && effects}
         {hotspots.map((h, i) => {
           const handlers = { onMouseEnter: () => setHover(h.id), onMouseLeave: () => setHover((v) => (v === h.id ? null : v)), onFocus: () => setHover(h.id), onBlur: () => setHover((v) => (v === h.id ? null : v)) };
