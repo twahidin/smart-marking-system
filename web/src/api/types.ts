@@ -148,7 +148,9 @@ export interface ReflectionRuns { runs: ReflectionRun[]; pending: string[] }
 export type Stats = Record<string, { count: number; mean_latency_ms: number; total_tokens_in: number; total_tokens_out: number }>;
 
 /* ---- classes, classlists and class assignments (slice 2) ---- */
-export interface ClassRow { id: number; name: string; code: string; student_count: number; open_assignments: number; archived_at: string | null; created_at: string; updated_at: string }
+export interface ClassRow { id: number; name: string; code: string; student_count: number; open_assignments: number; subject: Subject | null; marking: number; needs_you: number; archived_at: string | null; created_at: string; updated_at: string }
+export interface ReviewSummary { needs_you: number; remarked: number; ready_to_release: number; ready_sets: { id: number; class_id: number; class_name: string; title: string }[] }
+export interface DueClassAssignment { id: number; class_id: number; class_name: string; title: string; due_at: string; status: string }
 export interface Student { id: number; reg_no: number; name: string; submissions: number; last_seen_at: string | null }
 export interface ClasslistPreviewRow { reg_no: number | null; raw_reg_no: string; name: string; issues: ("missing_name" | "bad_reg_no" | "duplicate_reg_no")[] }
 export type ClassAssignmentStatus = "draft" | "open" | "released";

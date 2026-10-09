@@ -28,7 +28,7 @@ function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-const cls: ClassRow = { id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 4, open_assignments: 1, archived_at: null, created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" };
+const cls: ClassRow = { id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 4, open_assignments: 1, subject: null, marking: 0, needs_you: 0, archived_at: null, created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" };
 const clsHandler = { "GET /api/classes/1": () => new Response(JSON.stringify(cls), { status: 200 }) };
 
 const detail: ClassAssignmentDetail = { id: 3, class_id: 1, template_id: 7, title: "Quadratic equations — Worksheet 3", due_at: "2026-09-10T00:00:00Z", status: "open", derived_status: "marking", allow_student_uploads: true, released_at: null, template_deleted: false, subject: "math", scheme_kind: "mark_scheme", submission_count: 3, created_at: "", updated_at: "", reflect_days: null, effective_reflect_days: 7,

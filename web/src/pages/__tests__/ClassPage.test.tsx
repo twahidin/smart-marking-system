@@ -23,7 +23,7 @@ function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-const cls: ClassRow = { id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 0, open_assignments: 0, archived_at: null, created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" };
+const cls: ClassRow = { id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 0, open_assignments: 0, subject: null, marking: 0, needs_you: 0, archived_at: null, created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" };
 const app = (tab = "") => (
   <MemoryRouter initialEntries={[`/classes/1${tab}`]}><Routes><Route path="/classes/:id" element={<ClassPage />} /></Routes></MemoryRouter>
 );

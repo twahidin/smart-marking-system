@@ -25,8 +25,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("Classes", () => {
   it("lists classes as cards and creates a new one", async () => {
-    let list: ClassRow[] = [{ id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 40, open_assignments: 2, archived_at: null, created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" },
-      { id: 2, name: "Old 3N1", code: "QWER", student_count: 0, open_assignments: 0, archived_at: "2026-09-01T00:00:00Z", created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" }];
+    let list: ClassRow[] = [{ id: 1, name: "4E2 Mathematics", code: "CE4R", student_count: 40, open_assignments: 2, subject: null, marking: 0, needs_you: 0, archived_at: null, created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" },
+      { id: 2, name: "Old 3N1", code: "QWER", student_count: 0, open_assignments: 0, subject: null, marking: 0, needs_you: 0, archived_at: "2026-09-01T00:00:00Z", created_at: "2026-09-15T00:00:00Z", updated_at: "2026-09-15T00:00:00Z" }];
     const calls = mockFetch({
       "GET /api/classes": () => new Response(JSON.stringify(list), { status: 200 }),
       "POST /api/classes": () => { list = [...list, { ...list[0], id: 3, name: "4E1 Science", code: "TZ7K", student_count: 0, open_assignments: 0 }]; return new Response(JSON.stringify(list[2]), { status: 201 }); },

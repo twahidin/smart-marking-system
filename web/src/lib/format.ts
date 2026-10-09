@@ -20,6 +20,10 @@ export const subjectLabel: Record<string, string> = { math: "Maths", language: "
  *  `SubjectRouter.KNOWN_SUBJECTS`, so a new subject is added in one place, not five. */
 export const SUBJECTS: Subject[] = ["math", "language", "science", "mt", "computing"];
 
+export type TileKey = Subject | "general";
+/** The colour each subject wears on folder tabs, shelf dots and classroom tags. */
+export const subjectColor: Record<Subject, string> = { math: "var(--crew-marker)", language: "var(--mint)", science: "var(--gold)", mt: "var(--lilac)", computing: "var(--sky)" };
+
 /** The three Mother Tongue languages, in the order the Language select offers them. */
 export const languageLabel: Record<string, string> = { zh: "Chinese", ms: "Malay", ta: "Tamil" };
 
