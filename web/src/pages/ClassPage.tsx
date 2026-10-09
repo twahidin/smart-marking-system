@@ -8,7 +8,7 @@ import { ClasslistImport } from "../components/ClasslistImport";
 import { Dialog } from "../components/Dialog";
 import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
-import { fmtDate, schemeLabel } from "../lib/format";
+import { fmtDate, schemeLabel, SUBJECTS, subjectLabel } from "../lib/format";
 
 type Tab = "students" | "assignments" | "settings";
 const TABS: { id: Tab; label: string }[] = [{ id: "students", label: "Students" }, { id: "assignments", label: "Assignments" }, { id: "settings", label: "Settings" }];
@@ -259,6 +259,16 @@ function SettingsTab({ cls, onChange }: { cls: ClassRow; onChange: (c: ClassRow)
           <input id="class-name" className="input" value={name} onChange={(e) => setName(e.target.value)} /></div>
         <Button type="submit" variant="primary" disabled={busy || !name.trim() || name.trim() === cls.name}>Save name</Button>
       </form>
+      <div className="section">
+        <h2 style={{ fontSize: 20 }}>Subject</h2>
+        <p className="help">Picks the classroom's painting in your school. "Follow the latest assignment" uses the subject of the last assignment you set.</p>
+        <div className="field" style={{ maxWidth: 480 }}><label htmlFor="class-subject">Subject</label>
+          <select id="class-subject" className="input" value={cls.subject ?? ""} disabled={busy}
+            onChange={(e) => run("Subject saved.", () => api.put<ClassRow>(`/api/classes/${cls.id}`, { name: cls.name, subject: e.target.value || null }))}>
+            <option value="">Follow the latest assignment</option>
+            {SUBJECTS.map((s) => <option key={s} value={s}>{subjectLabel[s]}</option>)}
+          </select></div>
+      </div>
       <div className="section">
         <h2 style={{ fontSize: 20 }}>Class code</h2>
         <p className="help">Students open <span className="mono">{window.location.origin}/c/{cls.code}</span> and enter their register number. Issue a new code if the link has leaked.</p>

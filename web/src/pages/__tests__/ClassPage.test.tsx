@@ -6,13 +6,13 @@ import type { ClassAssignment, ClassRow, Student } from "../../api/types";
 import { ClassPage } from "../ClassPage";
 
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
-  const calls: { path: string; method: string }[] = [];
+  const calls: { path: string; method: string; body?: unknown }[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       const method = init?.method ?? "GET";
-      calls.push({ path, method });
+      calls.push({ path, method, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
       const handler = handlers[`${method} ${path}`];
       if (!handler) return Promise.reject(new Error(`Unexpected fetch to ${method} ${path}`));
       return Promise.resolve(handler(init));
@@ -97,5 +97,17 @@ describe("ClassPage", () => {
     expect(within(row).getByRole("link", { name: "Old worksheet" })).toHaveAttribute("href", "/classes/1/assignments/4");
     expect(within(row).getByText("Assignment deleted from the bank — set it again")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Open" })).not.toBeInTheDocument();
+  });
+
+  it("lets the teacher set the class subject under Settings", async () => {
+    const calls = mockFetch({
+      "GET /api/classes/1": () => new Response(JSON.stringify(cls), { status: 200 }),
+      "PUT /api/classes/1": (init) => new Response(JSON.stringify({ ...cls, subject: JSON.parse(String(init?.body)).subject }), { status: 200 }),
+    });
+    render(app("?tab=settings"));
+    await userEvent.selectOptions(await screen.findByLabelText("Subject"), "science");
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ name: "4E2 Mathematics", subject: "science" }));
+    expect(await screen.findByText("Subject saved.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Subject")).toHaveValue("science");
   });
 });
