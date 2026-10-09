@@ -151,4 +151,30 @@ describe("Learning", () => {
     await userEvent.click(screen.getByRole("button", { name: "Run reflection" }));
     expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({ subject: "computing" });
   });
+
+  it("shows the library, filters both tables from a shelf, and clears the filter", async () => {
+    const json = (v: unknown) => () => new Response(JSON.stringify(v), { status: 200 });
+    mockFetch({
+      "/api/notes": json([
+        { id: 1, subject: "math", note: "Accept equivalent fractions.", status: "active" },
+        { id: 2, subject: "language", note: "Reward a clear thesis.", status: "draft" },
+      ]),
+      "/api/exemplars": json([{ id: 1, subject: "math", topic: "fractions", answer_text: "3/6", awarded: 1, max_score: 2, why_it_matters: "Unsimplified.", status: "active" }]),
+      "/api/stats": json({}),
+      "/api/reflect/runs": noRuns,
+    });
+    render(
+      <MemoryRouter>
+        <Learning />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("The library")).toBeInTheDocument();
+    expect(screen.getByText("1 active ruling · 1 example")).toBeInTheDocument();
+    expect(screen.getByText("1 draft to approve")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^Maths shelf · 1 ruling/ }));
+    expect(screen.getByLabelText("Subject")).toHaveValue("math");
+    expect(screen.queryByText(/language/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Showing Maths · Show all" }));
+    expect(screen.getByText("language")).toBeInTheDocument();
+  });
 });
