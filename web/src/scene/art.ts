@@ -12,7 +12,7 @@ export const FILM: Partial<Record<keyof typeof ART | TileKey, string>> = {
   math: "/art/film/tile-math.mp4", language: "/art/film/tile-language.mp4", science: "/art/film/tile-science.mp4",
   mt: "/art/film/tile-mt.mp4", computing: "/art/film/tile-computing.mp4", general: "/art/film/tile-general.mp4",
 };
-/** Regenerated details cut from second renders of each painting (scratchpad/scenes/patch.py), positioned in % of the scene.
+/** Regenerated details cut from second renders of each painting (scripts/scene-frame.py), positioned in % of the scene.
  *  Each fades in over the still for ~1.5 s of a 6 s loop; the Film switch turns the cycle off. */
 export const FRAMES: Partial<Record<keyof typeof ART, Frame[]>> = {
   review: [
