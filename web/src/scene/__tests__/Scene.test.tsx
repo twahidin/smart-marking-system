@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -68,6 +68,22 @@ describe("Scene", () => {
     mount({ film: "/art/film/school.mp4" });
     expect(screen.getByTestId("fx")).toBeInTheDocument();
     expect(document.querySelector("video")).toHaveAttribute("src", "/art/film/school.mp4");
+  });
+
+  it("cycles regenerated frames on the live tier only, under the same Film switch", () => {
+    const frames = [{ src: "/art/frames/desk-b.png", left: "44%", top: "34%", width: "7%", delay: 0 }, { src: "/art/frames/desk-c.png", left: "28%", top: "35%", width: "29%", delay: 3 }];
+    const { unmount } = mount({ tier: "static", frames });
+    expect(document.querySelectorAll(".fx-frame")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Film" })).toBeNull();
+    unmount();
+    mount({ frames });
+    const imgs = document.querySelectorAll<HTMLImageElement>(".fx-frame");
+    expect(imgs).toHaveLength(2);
+    expect(imgs[1]).toHaveAttribute("src", "/art/frames/desk-c.png");
+    expect(imgs[1].style.animationDelay).toBe("3s");
+    expect(imgs[1].style.width).toBe("29%");
+    fireEvent.click(screen.getByRole("button", { name: "Film" }));
+    expect(document.querySelectorAll(".fx-frame")).toHaveLength(0);
   });
 
   it("plays a cue as a class for a moment", () => {

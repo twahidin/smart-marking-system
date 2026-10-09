@@ -11,7 +11,7 @@ import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
 import { PagePager } from "../components/PagePager";
 import { qLabel } from "../lib/marks";
-import { ART, FILM } from "../scene/art";
+import { ART, FRAMES } from "../scene/art";
 import { Flag, Paper, Stamp } from "../scene/effects";
 import { Scene, type Cue, type Hotspot } from "../scene/Scene";
 import { useDeviceTier } from "../scene/useDeviceTier";
@@ -279,7 +279,7 @@ export function Review() {
           {summary && <span className="pill tabular" style={{ background: "var(--mint)" }}>{summary.ready_to_release} ready to release</span>}
         </div>
       </div>
-      <Scene name="The marking desk" art={ART.review} film={FILM.review} alt="The Checker at a wooden desk with a red pen, a magnifier, a stamp, a flagged tray and a ticked tray" hotspots={hotspots} effects={effects} cue={cue} tier={tier} />
+      <Scene name="The marking desk" art={ART.review} frames={FRAMES.review} alt="The Checker at a wooden desk with a red pen, a magnifier, a stamp, a flagged tray and a ticked tray" hotspots={hotspots} effects={effects} cue={cue} tier={tier} />
       <div className="actions" role="group" aria-label="Review" style={{ margin: "16px 0 12px" }}>
         <button type="button" className={`btn ${tab === "parts" ? "btn-primary" : "btn-secondary"}`} aria-pressed={tab === "parts"} onClick={() => choose("parts")}>Parts</button>
         <button type="button" className={`btn ${tab === "corrections" ? "btn-primary" : "btn-secondary"}`} aria-pressed={tab === "corrections"} onClick={() => choose("corrections")}>Corrections</button>

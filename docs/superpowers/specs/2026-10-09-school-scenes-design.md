@@ -220,4 +220,7 @@ What shipped differently from this design:
 - A failed decoration fetch is silent rather than shown in the error notice.
 - Tile films play only while the tile is in view, and at most six at once.
 - The desk, marking desk and library have no film loop: at full width the generated clips looked soft and
-  invented detail next to the crisp paintings, so those scenes animate with CSS effects only.
+  invented detail next to the crisp paintings. Instead each cycles through regenerated frames: the painting
+  is re-rendered with one detail changed (pen lifted, lamp lit, book closed), the changed region is cut out
+  as a feathered PNG (`web/public/art/frames/`, positioned in % by `FRAMES` in `art.ts`) and fades in over
+  the still for about 1.5 s of a 6 s loop. The Film switch turns the cycle off; the static tier never shows it.

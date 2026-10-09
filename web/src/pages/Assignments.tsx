@@ -8,7 +8,7 @@ import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
 import { saveBlob } from "../lib/download";
 import { fmtDate, providerLabel, schemeLabel, SUBJECTS, subjectColor, subjectLabel } from "../lib/format";
-import { ART, FILM } from "../scene/art";
+import { ART, FRAMES } from "../scene/art";
 import { Glow, Paper } from "../scene/effects";
 import { Scene, type Hotspot } from "../scene/Scene";
 import { useDeviceTier } from "../scene/useDeviceTier";
@@ -102,7 +102,7 @@ export function Assignments() {
       </div>
       {error && <Notice kind="error">{error}</Notice>}
       {ok && <Notice kind="ok">{ok}</Notice>}
-      <Scene name="The teacher's desk" art={ART.desk} film={FILM.desk} alt="A wooden teacher's desk with a lamp, a stack of worksheets, a rack of coloured folders and a pinboard" hotspots={hotspots} effects={effects} tier={tier} />
+      <Scene name="The teacher's desk" art={ART.desk} frames={FRAMES.desk} alt="A wooden teacher's desk with a lamp, a stack of worksheets, a rack of coloured folders and a pinboard" hotspots={hotspots} effects={effects} tier={tier} />
       {filter && <div className="actions" style={{ marginTop: 12 }}><button type="button" className="btn btn-sm btn-secondary" onClick={() => setFilter(null)}>{`Showing ${subjectLabel[filter]} · Show all`}</button></div>}
       {rows && rows.length === 0 && <EmptyState title="No saved assignments yet."><p className="help">Start with + New assignment, or save one from Mark a script.</p></EmptyState>}
       {rows && rows.length > 0 && (

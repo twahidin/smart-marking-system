@@ -5,7 +5,7 @@ import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { Notice } from "../components/Notice";
 import { fmtDate, SUBJECTS, subjectColor, subjectLabel } from "../lib/format";
-import { ART, FILM } from "../scene/art";
+import { ART, FRAMES } from "../scene/art";
 import { Book, Glow, Star } from "../scene/effects";
 import { Scene, type Cue, type Hotspot } from "../scene/Scene";
 import { useDeviceTier } from "../scene/useDeviceTier";
@@ -88,7 +88,7 @@ export function Learning() {
       </div>
       {error && <div style={{ marginBottom: 16 }}><Notice kind="error">{error}</Notice></div>}
       {queued && !error && <div style={{ marginBottom: 16 }}><Notice kind="ok">Reflection queued — notes appear below when it finishes.</Notice></div>}
-      <Scene name="The library" art={ART.library} film={FILM.library} alt="A library nook with bookshelves, a reading table with an open book, a notice board, a beanbag and a trophy" hotspots={hotspots} effects={effects} cue={cue} tier={tier} />
+      <Scene name="The library" art={ART.library} frames={FRAMES.library} alt="A library nook with bookshelves, a reading table with an open book, a notice board, a beanbag and a trophy" hotspots={hotspots} effects={effects} cue={cue} tier={tier} />
       {filterOn && <div className="actions" style={{ margin: "12px 0" }}><button type="button" className="btn btn-sm btn-secondary" onClick={() => setFilterOn(false)}>{`Showing ${subjectLabel[subject]} · Show all`}</button></div>}
       {stats && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", borderTop: "2px solid var(--color-divider)", borderBottom: "2px solid var(--color-divider)", marginBottom: 32 }}>

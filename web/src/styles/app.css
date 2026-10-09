@@ -363,6 +363,9 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .scene-tag span { font-size: 12px; opacity: .85; overflow: hidden; text-overflow: ellipsis; }
 .scene-tag::after { content: ""; position: absolute; left: 50%; bottom: -10px; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--color-text); }
 .fx { position: absolute; pointer-events: none; }
+/* frame cycle: each regenerated detail fades in over the still for ~1.5 s of a 6 s loop, offset by its delay */
+.fx-frame { height: auto; opacity: 0; animation: fx-frame 6s ease-in-out infinite; }
+@keyframes fx-frame { 0% { opacity: 0; } 10% { opacity: 1; } 25% { opacity: 1; } 35% { opacity: 0; } 100% { opacity: 0; } }
 .fx-glow { aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle, rgba(255, 214, 102, .8) 0%, rgba(255, 214, 102, 0) 70%); animation: fx-glow 2.6s ease-in-out infinite; }
 .fx-flag { width: 3%; aspect-ratio: 1.3; background: var(--crew-marker); clip-path: polygon(0 0, 100% 25%, 0 55%); transform-origin: 0 50%; animation: fx-wave 1.3s ease-in-out infinite; }
 .fx-dots { display: flex; gap: 3px; padding: 4px 6px; border-radius: 999px; background: #fff; border: 1.5px solid var(--color-text); transform: translate(-50%, -50%); animation: fx-bob 1.8s ease-in-out infinite; }
