@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,14 @@ const templates: AssignmentTemplate[] = [
     provider: null, model: null, extractor_model: null, effective_model: { provider: "openrouter", model: "openrouter/auto", extractor_model: null, source: "settings" } },
 ];
 
+// The page also fetches two pieces of scene decoration on mount; every test gets them unless it overrides them.
+const decoration: Record<string, (init?: RequestInit) => Response> = {
+  "GET /api/class-assignments/due?days=7": () => new Response(JSON.stringify([{ id: 9, class_id: 1, class_name: "3N1", title: "Comprehension — Unit 4", due_at: "2026-10-12T08:00:00Z", status: "open" }]), { status: 200 }),
+  "GET /api/room": () => new Response(JSON.stringify({ counts: { queued: 0, read: 1, mark: 0, check: 0, feedback: 0, done: 2, needs_you: 0, failed: 0 }, started_at: null, desks: [], last_event_id: 1 }), { status: 200 }),
+};
+
 function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
+  handlers = { ...decoration, ...handlers };
   const calls: { path: string; method: string; body: any }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -36,17 +43,21 @@ function mockFetch(handlers: Record<string, (init?: RequestInit) => Response>) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+// The desk's folder-rack labels repeat template titles, so the table's own cells are queried through the table.
+const inTable = () => within(screen.getByRole("table"));
+const findInTable = async (text: string) => within(await screen.findByRole("table")).findByText(text);
+
 describe("Assignments", () => {
   it("lists saved assignments with criteria, marks and usage", async () => {
     mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    expect(await screen.findByText("Worksheet 3")).toBeInTheDocument();
-    const row = screen.getByText("Essay draft").closest("tr")!;
+    expect(await findInTable("Worksheet 3")).toBeInTheDocument();
+    const row = inTable().getByText("Essay draft").closest("tr")!;
     expect(row).toHaveTextContent("English");
     expect(row).toHaveTextContent("2");
     expect(row).toHaveTextContent("8");
     expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(2);
-    const ws = screen.getByText("Worksheet 3").closest("tr")!;
+    const ws = inTable().getByText("Worksheet 3").closest("tr")!;
     expect(ws).toHaveTextContent("Mark scheme");
     expect(ws).toHaveTextContent("Paper: 2 pages");
     expect(row).toHaveTextContent("Criteria");
@@ -57,10 +68,10 @@ describe("Assignments", () => {
     const pinned = [{ ...templates[0], provider: "openai", model: "gpt-5.5", extractor_model: null }, templates[1]];
     mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(pinned), { status: 200 }) });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    const ws = (await screen.findByText("Worksheet 3")).closest("tr")!;
+    const ws = (await findInTable("Worksheet 3")).closest("tr")!;
     expect(ws).toHaveTextContent("OpenAI · gpt-5.5");
     // An assignment on Auto says nothing — it follows Settings.
-    expect(screen.getByText("Essay draft").closest("tr")!).not.toHaveTextContent("·");
+    expect(inTable().getByText("Essay draft").closest("tr")!).not.toHaveTextContent("·");
   });
 
   it("renaming carries the assignment's model through unchanged", async () => {
@@ -70,7 +81,7 @@ describe("Assignments", () => {
       "PUT /api/assignments/1": () => new Response(JSON.stringify(pinned[0]), { status: 200 }),
     });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    await screen.findByText("Worksheet 3");
+    await findInTable("Worksheet 3");
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
     await userEvent.type(await screen.findByLabelText("Title"), " v2");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -95,16 +106,32 @@ describe("Assignments", () => {
       "DELETE /api/assignments/1": () => { list = templates.filter((t) => t.id !== 1); return new Response(null, { status: 204 }); },
     });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    await screen.findByText("Worksheet 3");
+    await findInTable("Worksheet 3");
     await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("Worksheet 3");
     // Nothing is deleted until the teacher confirms.
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
     await userEvent.click(screen.getByRole("button", { name: "Delete assignment" }));
-    await waitFor(() => expect(screen.queryByText("Worksheet 3")).not.toBeInTheDocument());
-    expect(screen.getByText("Essay draft")).toBeInTheDocument();
+    await waitFor(() => expect(inTable().queryByText("Worksheet 3")).not.toBeInTheDocument());
+    expect(inTable().getByText("Essay draft")).toBeInTheDocument();
     expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/assignments/1")).toBe(true);
+  });
+});
+
+describe("Assignments — the desk", () => {
+  it("shows the desk, filters the table from the folder rack, and lists what is due on the pinboard", async () => {
+    mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
+    render(<MemoryRouter><Assignments /></MemoryRouter>);
+    expect(await screen.findByText("Your desk")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "The teacher's desk" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /Pinboard · due this week/ })).toHaveAttribute("href", "/classes/1/assignments/9");
+    expect(await screen.findByRole("link", { name: /Marking now · 1 script/ })).toHaveAttribute("href", "/room");
+    await userEvent.click(screen.getByRole("button", { name: /^Maths · 1 folder/ }));
+    expect(screen.getByRole("button", { name: "Showing Maths · Show all" })).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(2); // header + the maths row
+    await userEvent.click(screen.getByRole("button", { name: "Showing Maths · Show all" }));
+    expect(screen.getAllByRole("row")).toHaveLength(3);
   });
 });
 
@@ -116,7 +143,7 @@ describe("Assignments — delete guard", () => {
       "DELETE /api/assignments/1?force=true": () => new Response(null, { status: 204 }),
     });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    await screen.findByText("Worksheet 3");
+    await findInTable("Worksheet 3");
     await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("3 scripts");
@@ -135,7 +162,7 @@ describe("Assignments — delete guard (classes)", () => {
       "DELETE /api/assignments/1?force=true": () => new Response(null, { status: 204 }),
     });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    await screen.findByText("Worksheet 3");
+    await findInTable("Worksheet 3");
     await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("set in 2 classes");
@@ -159,7 +186,7 @@ describe("Assignments — editor links", () => {
   it("+ New assignment opens the editor", async () => {
     mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
     render(app());
-    await screen.findByText("Worksheet 3");
+    await findInTable("Worksheet 3");
     await userEvent.click(screen.getByRole("button", { name: "+ New assignment" }));
     expect(await screen.findByTestId("editor")).toBeInTheDocument();
   });
@@ -167,21 +194,21 @@ describe("Assignments — editor links", () => {
   it("clicking a row opens that assignment; the row's own buttons do not", async () => {
     mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
     render(app());
-    await screen.findByText("Worksheet 3");
+    await findInTable("Worksheet 3");
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.queryByTestId("editor")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await userEvent.click(screen.getByText("Worksheet 3"));
+    await userEvent.click(inTable().getByText("Worksheet 3"));
     expect(await screen.findByTestId("editor")).toBeInTheDocument();
   });
 
   it("flags a typed assignment that has no scheme rows yet", async () => {
     mockFetch({ "GET /api/assignments": () => new Response(JSON.stringify(templates), { status: 200 }) });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    const ws = (await screen.findByText("Worksheet 3")).closest("tr")!;
+    const ws = (await findInTable("Worksheet 3")).closest("tr")!;
     expect(ws).toHaveTextContent("Draft — no scheme yet");
-    expect(screen.getByText("Essay draft").closest("tr")!).not.toHaveTextContent("Draft");
+    expect(inTable().getByText("Essay draft").closest("tr")!).not.toHaveTextContent("Draft");
   });
 });
 
@@ -193,9 +220,9 @@ describe("Assignments — duplicate", () => {
       "POST /api/assignments/1/duplicate": () => { list = [...templates, { ...templates[0], id: 3, title: "Worksheet 3 (copy)" }]; return new Response(JSON.stringify(list[2]), { status: 201 }); },
     });
     render(<MemoryRouter><Assignments /></MemoryRouter>);
-    await screen.findByText("Worksheet 3");
+    await findInTable("Worksheet 3");
     await userEvent.click(screen.getAllByRole("button", { name: "Duplicate" })[0]);
-    expect(await screen.findByText("Worksheet 3 (copy)")).toBeInTheDocument();
+    expect(await findInTable("Worksheet 3 (copy)")).toBeInTheDocument();
     expect(calls.some((c) => c.method === "POST" && c.path === "/api/assignments/1/duplicate")).toBe(true);
   });
 });
