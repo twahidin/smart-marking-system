@@ -58,6 +58,8 @@ Go to **Assignments → + New assignment**. Choose the type: *Maths / Science �
 
 Give it a title, drop the **question paper** (PDF or photos) and click **Read questions** — the app transcribes every question and part into a table you can correct. Then drop the **mark scheme** and click **Read mark scheme**: each row shows the expected answer and its mark allocation (M1, A1, B1…). Add any notes the marker should know ("ECF applies", "accept any correct method"), check the tables, and **Save**.
 
+On the Assignments page (your desk), the folder rack filters the table by subject, and the pinboard shows the class sets due this week.
+
 Saved assignments go into a bank you can reuse across classes and years.
 
 **Subjects.** Maths, English and Science as before, plus **MT** (Mother Tongue — pick Chinese, Malay or Tamil; the script is read in that language and the student's feedback is written in it, while everything you see stays in English) and **Computing**, whose students can hand in program files as well as photos.
@@ -96,7 +98,7 @@ Removing a provider's key while assignments still use it asks you to confirm fir
 
 ## 7. Create a class and load the classlist
 
-Go to **Classes → New class** and name it the way your school does ("4E2 Mathematics"). Every class gets a 4-character code — this one is `4KEF` — that students will type.
+Go to **Classes → Build a classroom** and name it the way your school does ("4E2 Mathematics"). Pick a **Subject**: it chooses the painting on the classroom's tile, and you can change it later under the class's **Settings** tab. Every class gets a 4-character code — this one is `4KEF` — that students will type.
 
 On the **Students** tab, upload a CSV with two columns, `name` and `reg_no` (register number). The preview flags duplicate or missing numbers before anything is saved; click **Confirm classlist** when it looks right.
 
@@ -166,6 +168,8 @@ Students who have already handed in are skipped unless you tick **Replace existi
 The assignment page shows the roster: who has handed in, what is being marked, and what is ready. You can also **Upload pages** for a student yourself (scanned booklets) and **Remove hand-in** so a student can redo it.
 
 Each script is read by one model, marked against the scheme by a second pass, and checked by an independent reviewer. Anything illegible, not covered by the scheme, or where marker and reviewer disagree goes to **Review** with the reason. There you tick the allocations the student earned (or pick the band for an essay) and give a one-line reason — that reason feeds the nightly learning step, so the marker gets closer to your judgement over time.
+
+On the Review page (the marking desk), the flagged tray holds the scripts that need you and the ticked tray those ready to release; the drawers open the **Parts** and **Corrections** tabs. The Learning page is a library: its shelves filter by subject, the reading table holds the drafts and the notice board the worked examples.
 
 Click a student's name to see the per-part marks, the transcription and the justification for each mark.
 

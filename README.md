@@ -96,6 +96,8 @@ include the free `z-ai/glm-5.3-free`, limited to 8 requests/min).
 
 **The Marking Room.** Open **Marking Room** to watch a class set being marked. Three crew members pass each script along the desks: the **Reader** finds each part on the page and transcribes it, the **Marker** awards marks against your scheme, and the **Checker** re-marks independently and flags anything the two disagree on. Click a name tag to read what that crew member noted for the script on its desk, with timestamps. The notes are the marker's justifications and the reviewer's reasoning; students never see them. The room updates live (Server-Sent Events) and falls back to refreshing every five seconds.
 
+**School scenes.** Classes is a school of classroom tiles, Assignments a teacher's desk, Review the Checker's marking desk and Learning a library: the pictures are controls, with labels on hover, a Show labels switch, a 3 s tour, and film loops that switch off under reduced motion.
+
 **Reflect and correct.** After you release feedback, students have a window (`Settings → Reflection window`, default 7 days; set per assignment, 0 turns it off) to send **one correction per part** they lost marks on, typed or photographed. The Marker re-marks the correction against the same scheme; you accept, override or reject it under **Review → Corrections**, then **Release corrections**. The student then sees "After reflection: a / b" on that part. Released corrections appear in the marking record and as an `after_reflection_total` column in the marks CSV.
 
 **Page deletion**: student pages are deleted as soon as a script is done (marked with nothing left to

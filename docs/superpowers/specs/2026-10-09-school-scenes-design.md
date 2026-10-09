@@ -1,7 +1,7 @@
 # School scenes: Classes, Assignments, Review and Learning as places
 
 **Date:** 2026-10-09
-**Status:** approved design (mockups: https://claude.ai/artifact/YKzFPxUW7yTkt6JvFRwW9E)
+**Status:** implemented (plan: docs/superpowers/plans/2026-10-09-school-scenes.md; mockups: https://claude.ai/artifact/YKzFPxUW7yTkt6JvFRwW9E)
 **Builds on:** `2026-10-08-marking-room-redesign-design.md` (phase 1, shipped)
 
 ## 1. Goal
