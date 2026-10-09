@@ -169,7 +169,7 @@ The assignment page shows the roster: who has handed in, what is being marked, a
 
 Each script is read by one model, marked against the scheme by a second pass, and checked by an independent reviewer. Anything illegible, not covered by the scheme, or where marker and reviewer disagree goes to **Review** with the reason. There you tick the allocations the student earned (or pick the band for an essay) and give a one-line reason — that reason feeds the nightly learning step, so the marker gets closer to your judgement over time.
 
-On the Review page (the marking desk), the flagged tray holds the scripts that need you and the ticked tray those ready to release; the drawers open the **Parts** and **Corrections** tabs. The Learning page is a library: its shelves filter by subject, the reading table holds the drafts and the notice board the worked examples.
+On the Review page (the marking desk), the flagged tray holds the parts where the Checker and the Marker disagree and the ticked tray those ready to release; the drawers open the **Parts** and **Corrections** tabs. The Learning page is a library: its shelves filter by subject, the reading table holds the drafts and the notice board the worked examples.
 
 Click a student's name to see the per-part marks, the transcription and the justification for each mark.
 

@@ -91,7 +91,7 @@ picture loses nothing.
   `Marking now · N scripts`, links to `/room`).
 - Clicking a folder-rack hotspot filters the table below to that subject; a subject chip row above
   the table shows the active filter with a clear control, so the filter is visible without the
-  picture. Clicking a pinboard entry opens that class set.
+  picture. The pinboard links to the soonest class set; its label names it and lists the next two.
 - Ambient: lamp glow when marking, notes fluttering on the pinboard when something is due within
   7 days, a paper tab peeking from a folder whose subject has an open class set.
 - The table keeps every column and action it has today; rows gain a subject-coloured tab on the
@@ -101,8 +101,7 @@ picture loses nothing.
 
 - Header: "The marking desk", two count pills (`N need you` coral, `M ready to release` mint).
 - The scene: the Checker at her desk. Hotspots: the **flagged tray** (Needs you · N parts, opens
-  the Parts tab), the **ticked tray** (Ready to release · M class sets; its label lists them,
-  each a link to that class set's page), the **drawers** (Parts and Corrections tabs; the mint drawer's label carries
+  the Parts tab), the **ticked tray** (Ready to release · M class sets; links to the first, its label names it and lists the rest), the **drawers** (Parts and Corrections tabs; the mint drawer's label carries
   `· N re-marked` while corrections wait), and the **Checker** (label explains what she does; links
   to the Marking Room).
 - Cues: resolving a part slides a script from the flagged tray to the ticked tray; "Released N
@@ -211,3 +210,12 @@ picture loses nothing.
 Three.js, Lottie, a student-side school, per-class film loops generated automatically, editing
 class assignments from the pinboard, and moving the Marking Room onto the shared `Scene` component
 (a later clean-up).
+
+## 9. Phase differences
+
+What shipped differently from this design:
+
+- The Classes page has Show labels and Film but no Tour: its tiles are links, not a single painting.
+- The paper-stack-on-the-desk and folder paper-tab effects are not built.
+- A failed decoration fetch is silent rather than shown in the error notice.
+- Tile films play only while the tile is in view, and at most six at once.
