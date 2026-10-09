@@ -69,3 +69,42 @@ def test_preview_reports_file_errors(auth):
     c = _class(auth)
     p = auth.post(f"/api/classes/{c['id']}/students/preview", files=[("file", ("list.csv", b"a,b\n1,2\n", "text/csv"))]).json()
     assert p["rows"] == [] and p["errors"] == ["The first row must have the columns name and reg_no"]
+
+
+def _template(auth, subject="math"):
+    return auth.post("/api/assignments", json={
+        "title": f"{subject} paper", "subject": subject, "context": "",
+        "rubric": {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2}]},
+        "scheme_kind": "mark_scheme", "questions": [{"q_id": "1a", "text": "Solve 3x = 9", "max_marks": 2}],
+        "scheme": [{"q_id": "1a", "answer": "x = 3", "marks": [{"label": "M1", "marks": 1}, {"label": "A1", "marks": 1}], "notes": ""}]}).json()
+
+
+def test_subject_is_saved_validated_or_derived_from_the_latest_class_assignment(auth):
+    c = auth.post("/api/classes", json={"name": "4E2 Mathematics", "subject": "math"}).json()
+    assert c["subject"] == "math" and c["marking"] == 0 and c["needs_you"] == 0
+    assert auth.post("/api/classes", json={"name": "X", "subject": "art"}).json()["error"]["code"] == "bad_subject"
+    d = auth.post("/api/classes", json={"name": "2E3"}).json()
+    assert d["subject"] is None
+    t_sci = _template(auth, "science"); t_eng = _template(auth, "language")
+    auth.post(f"/api/classes/{d['id']}/assignments", json={"template_id": t_sci["id"]})
+    auth.post(f"/api/classes/{d['id']}/assignments", json={"template_id": t_eng["id"]})
+    assert auth.get(f"/api/classes/{d['id']}").json()["subject"] == "language"   # the latest set wins
+    assert auth.put(f"/api/classes/{d['id']}", json={"name": "2E3", "subject": "science"}).json()["subject"] == "science"
+    assert auth.put(f"/api/classes/{d['id']}", json={"name": "2E3 Sci"}).json()["subject"] == "science"   # name-only keeps it
+    assert auth.put(f"/api/classes/{d['id']}", json={"name": "2E3 Sci", "subject": None}).json()["subject"] == "language"  # back to derived
+
+
+def test_marking_and_needs_you_count_this_class_only(auth, app):
+    from tests.web.seed_v2 import seed_v2
+    t = _template(auth)
+    c = auth.post("/api/classes", json={"name": "4E2"}).json()
+    other = auth.post("/api/classes", json={"name": "3N1"}).json()
+    ca = auth.post(f"/api/classes/{c['id']}/assignments", json={"template_id": t["id"]}).json()
+    ca2 = auth.post(f"/api/classes/{other['id']}/assignments", json={"template_id": t["id"]}).json()
+    a, _ = seed_v2(app, run_id="r-1", queue={}); b, _ = seed_v2(app, run_id="r-2", queue={}); x, _ = seed_v2(app, run_id="r-3", queue={})
+    app.state.db.execute("UPDATE submissions SET class_assignment_id = :ca, status = 'marking' WHERE id = :i", {"ca": ca["id"], "i": a})
+    app.state.db.execute("UPDATE submissions SET class_assignment_id = :ca, status = 'needs_you' WHERE id = :i", {"ca": ca["id"], "i": b})
+    app.state.db.execute("UPDATE submissions SET class_assignment_id = :ca, status = 'queued' WHERE id = :i", {"ca": ca2["id"], "i": x})
+    rows = {r["name"]: r for r in auth.get("/api/classes").json()}
+    assert (rows["4E2"]["marking"], rows["4E2"]["needs_you"]) == (1, 1)
+    assert (rows["3N1"]["marking"], rows["3N1"]["needs_you"]) == (1, 0)

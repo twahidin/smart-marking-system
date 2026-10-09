@@ -3,6 +3,7 @@ import secrets
 from typing import Any, Dict, List, Optional
 
 from sms.memory.db import Database
+from sms.pipeline.router import SubjectRouter
 from sms.timeutil import iso_utc
 from sms.web.errors import ApiError
 
@@ -27,18 +28,36 @@ def unique_code(db: Database) -> str:
     raise RuntimeError("could not find an unused class code")
 
 
-_SELECT = ("SELECT c.*, (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id) AS student_count, "
-           "(SELECT COUNT(*) FROM class_assignments a WHERE a.class_id = c.id AND a.status = 'open') AS open_assignments "
-           "FROM classes c")
+_SELECT = (
+    "SELECT c.*, "
+    "(SELECT COUNT(*) FROM students s WHERE s.class_id = c.id) AS student_count, "
+    "(SELECT COUNT(*) FROM class_assignments a WHERE a.class_id = c.id AND a.status = 'open') AS open_assignments, "
+    "COALESCE(c.subject, (SELECT t.subject FROM class_assignments a JOIN assignment_templates t ON t.id = a.template_id "
+    "                     WHERE a.class_id = c.id ORDER BY a.id DESC LIMIT 1)) AS shown_subject, "
+    "(SELECT COUNT(*) FROM submissions s JOIN class_assignments a ON a.id = s.class_assignment_id "
+    " WHERE a.class_id = c.id AND s.status IN ('uploaded', 'queued', 'marking')) AS marking, "
+    "(SELECT COUNT(*) FROM submissions s JOIN class_assignments a ON a.id = s.class_assignment_id "
+    " WHERE a.class_id = c.id AND s.status = 'needs_you') AS needs_you "
+    "FROM classes c")
 
 
 def _row(r: dict) -> Dict[str, Any]:
     return {
         "id": r["id"], "name": r["name"], "code": r["code"],
         "student_count": int(r["student_count"] or 0), "open_assignments": int(r["open_assignments"] or 0),
+        "subject": r["shown_subject"], "marking": int(r["marking"] or 0), "needs_you": int(r["needs_you"] or 0),
         "archived_at": iso_utc(r["archived_at"]),
         "created_at": iso_utc(r["created_at"]), "updated_at": iso_utc(r["updated_at"]),
     }
+
+
+def clean_subject(value: Optional[str]) -> Optional[str]:
+    """None or '' clears the saved subject (the tile then follows the latest class assignment)."""
+    if value is None or value == "":
+        return None
+    if value not in SubjectRouter.KNOWN_SUBJECTS:
+        raise ApiError(400, "bad_subject", f"Unknown subject: {value}")
+    return value
 
 
 def list_classes(db: Database) -> List[Dict[str, Any]]:
@@ -65,17 +84,28 @@ def _clean_name(name: str) -> str:
     return name[:120]
 
 
-def create_class(db: Database, name: str) -> Dict[str, Any]:
-    cid = db.insert("INSERT INTO classes (name, code) VALUES (:n, :c) RETURNING id",
-                    {"n": _clean_name(name), "c": unique_code(db)})
+def create_class(db: Database, name: str, subject: Optional[str] = None) -> Dict[str, Any]:
+    cid = db.insert("INSERT INTO classes (name, code, subject) VALUES (:n, :c, :s) RETURNING id",
+                    {"n": _clean_name(name), "c": unique_code(db), "s": clean_subject(subject)})
     return get_class(db, cid)  # type: ignore[return-value]
 
 
-def rename_class(db: Database, class_id: int, name: str) -> Dict[str, Any]:
+_KEEP: Any = object()
+
+
+def update_class(db: Database, class_id: int, *, name: str, subject: Any = _KEEP) -> Dict[str, Any]:
+    """Rename, and set or clear the subject when the caller sent one (absent = keep)."""
     _require(db, class_id)
-    db.execute("UPDATE classes SET name = :n, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
-               {"n": _clean_name(name), "id": class_id})
+    if subject is _KEEP:
+        db.execute("UPDATE classes SET name = :n, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+                   {"n": _clean_name(name), "id": class_id})
+    else:
+        db.execute("UPDATE classes SET name = :n, subject = :s, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+                   {"n": _clean_name(name), "s": clean_subject(subject), "id": class_id})
     return get_class(db, class_id)  # type: ignore[return-value]
+
+
+rename_class = update_class   # older callers and tests
 
 
 def set_archived(db: Database, class_id: int, archived: bool) -> Dict[str, Any]:

@@ -28,7 +28,7 @@ def pg_engine():
 def test_chain_applies_on_postgres(pg_engine):
     upgrade(pg_engine, "head")
     with pg_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0014"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0015"
 
 
 def test_0013_backfills_retention_from_the_boolean(pg_engine):
@@ -45,9 +45,17 @@ def test_0013_backfills_retention_from_the_boolean(pg_engine):
     assert rows == {"keep": "pages", "delete": "crops", "default": None}
 
 
-def test_chain_reaches_0014_on_postgres(pg_engine):
+def test_chain_reaches_0015_on_postgres(pg_engine):
     upgrade(pg_engine, "head")
     with pg_engine.begin() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0014"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0015"
         conn.execute(text("INSERT INTO settings (id, provider, model) VALUES (1, 'p', 'm')"))
         assert conn.execute(text("SELECT reflect_days FROM settings WHERE id = 1")).scalar() == 7
+
+
+def test_0015_subject_is_nullable_on_postgres(pg_engine):
+    upgrade(pg_engine, "head")
+    with pg_engine.begin() as conn:
+        conn.execute(text("INSERT INTO classes (id, name, code) VALUES (1, '4E2', 'ABCD')"))
+        assert conn.execute(text("SELECT subject FROM classes WHERE id = 1")).scalar() is None
+        conn.execute(text("UPDATE classes SET subject = 'math' WHERE id = 1"))

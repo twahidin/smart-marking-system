@@ -1,12 +1,12 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel
 
 from sms.web.deps import get_db, require_teacher
 from sms.web.errors import ApiError
-from sms.web.services.classes import (create_class, get_class, list_classes, regenerate_code, rename_class,
-                                      set_archived)
+from sms.web.services.classes import (create_class, get_class, list_classes, regenerate_code, set_archived,
+                                      update_class)
 from sms.web.services.classlist import list_students, parse_classlist, replace_classlist
 from sms.web.uploads import read_upload_files
 
@@ -15,6 +15,13 @@ router = APIRouter(prefix="/api/classes", tags=["classes"], dependencies=[Depend
 
 class ClassBody(BaseModel):
     name: str
+    subject: Optional[str] = None
+
+
+class ClassEditBody(BaseModel):
+    name: str
+    # pydantic keeps "sent as null" apart from "absent" through model_fields_set
+    subject: Optional[str] = None
 
 
 class ClasslistBody(BaseModel):
@@ -28,7 +35,7 @@ def index(db=Depends(get_db)):
 
 @router.post("", status_code=201)
 def create(body: ClassBody, db=Depends(get_db)):
-    return create_class(db, body.name)
+    return create_class(db, body.name, body.subject)
 
 
 @router.get("/{class_id}")
@@ -40,8 +47,10 @@ def show(class_id: int, db=Depends(get_db)):
 
 
 @router.put("/{class_id}")
-def rename(class_id: int, body: ClassBody, db=Depends(get_db)):
-    return rename_class(db, class_id, body.name)
+def rename(class_id: int, body: ClassEditBody, db=Depends(get_db)):
+    if "subject" in body.model_fields_set:
+        return update_class(db, class_id, name=body.name, subject=body.subject)
+    return update_class(db, class_id, name=body.name)
 
 
 @router.post("/{class_id}/archive")
