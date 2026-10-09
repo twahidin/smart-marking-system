@@ -9,7 +9,8 @@ export const Glow = (p: At & { size?: string }) => fx("fx-glow", at(p, { width: 
 export const Flag = (p: At) => fx("fx-flag", at(p));
 /** Three bobbing dots: someone is thinking or writing. */
 export const Dots = (p: At) => fx("fx-dots", at(p), <><i /><i /><i /></>);
-export const Paper = (p: At) => fx("fx-paper", at(p));
+/** `still` keeps the paper hidden until a cue moves it (the marking desk); without it the paper lands on its own every few seconds. */
+export const Paper = (p: At & { still?: boolean }) => fx(`fx-paper${p.still ? " fx-still" : ""}`, at(p));
 export const Stamp = (p: At & { text: string }) => fx("fx-stamp", at(p), p.text);
 export const Tick = (p: At) => <svg className="fx fx-tick" style={at(p)} viewBox="0 0 24 24" aria-hidden="true" data-testid="fx"><path d="M4 13l5 5L20 7" /></svg>;
 export const Book = (p: At & { color?: string }) => fx("fx-book", at(p, { background: p.color }));

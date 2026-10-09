@@ -374,6 +374,7 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .fx-book { width: 1.6%; aspect-ratio: .5; background: var(--crew-marker); border: 1.5px solid var(--color-text); border-radius: 1px; opacity: 0; }
 .fx-star { width: 10px; height: 10px; background: var(--gold); clip-path: polygon(50% 0, 61% 38%, 100% 50%, 61% 62%, 50% 100%, 39% 62%, 0 50%, 39% 38%); transform: translate(-50%, -50%) scale(0); animation: fx-twinkle 2.4s ease-in-out infinite; }
 /* one-shot cues: the page sets cue-<name> on .scene-box for 1.5 s */
+.fx-paper.fx-still { animation: none; opacity: 0; }
 .cue-settle .fx-paper { animation: fx-settle 1.4s ease-in-out 1; opacity: 1; }
 .cue-stamp .fx-stamp { animation: fx-thump 1.4s ease-out 1; }
 .cue-tick .fx-tick path { animation: fx-draw 1.2s ease-in-out 1; }

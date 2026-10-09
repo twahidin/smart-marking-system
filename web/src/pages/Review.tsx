@@ -267,7 +267,7 @@ export function Review() {
   ];
   const effects = <>
     {n > 0 && <Flag left="27.5%" top="38%" />}
-    <Paper left="30%" top="43%" />
+    <Paper left="30%" top="43%" still />
     <Stamp left="65%" top="33%" text="RELEASED" />
   </>;
   return (

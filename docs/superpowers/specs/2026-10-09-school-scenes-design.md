@@ -219,3 +219,5 @@ What shipped differently from this design:
 - The paper-stack-on-the-desk and folder paper-tab effects are not built.
 - A failed decoration fetch is silent rather than shown in the error notice.
 - Tile films play only while the tile is in view, and at most six at once.
+- The desk, marking desk and library have no film loop: at full width the generated clips looked soft and
+  invented detail next to the crisp paintings, so those scenes animate with CSS effects only.
