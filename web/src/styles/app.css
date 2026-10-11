@@ -188,6 +188,9 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 .alloc.got { background: var(--ink); color: var(--color-bg); }
 .alloc.lost { color: var(--muted); border-color: var(--color-divider); }
 .picker td:first-child { padding-left: 4px; }
+.picker .mark-box { width: 64px; font-size: 18px; text-align: right; padding: 6px 8px; }
+.picker tr.changed td { background: var(--crew-marker-soft, rgba(242, 131, 107, 0.12)); }
+.picker tr.changed td:last-child .mark-box { border-color: var(--crew-marker, #f2836b); }
 
 /* classes: card grid on the Classes list */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }

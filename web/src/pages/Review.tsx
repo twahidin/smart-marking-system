@@ -27,8 +27,8 @@ function allocationsOf(item: QueueItem): MarkPoint[] {
 }
 const bandsOf = (item: QueueItem): Band[] => (item.scheme_row && "bands" in item.scheme_row ? item.scheme_row.bands : []);
 const proposedGot = (item: QueueItem): string[] => (item.proposed && "awarded" in item.proposed ? item.proposed.awarded.filter((a) => a.got).map((a) => a.label) : []);
-/** True when the key was typed into a text-like input (the digit belongs to the text, not the picker); a focused
- *  checkbox or radio still lets the digit keys toggle allocations. */
+/** True when the key was typed into a text-like input, mark boxes included (the digit belongs to the box, not the
+ *  picker); a focused button, checkbox or radio still lets the digit keys switch allocations. */
 const typingField = (target: EventTarget | null): boolean =>
   target instanceof HTMLInputElement && !["checkbox", "radio"].includes(target.type);
 const proposedBand = (item: QueueItem): string | null => (item.proposed && "band" in item.proposed ? item.proposed.band : null);
@@ -68,7 +68,16 @@ function ReviewParts({ onSettled }: { onSettled: () => void }) {
   const item = items?.[i];
   const v2 = item?.marks_version === 2;
   const kind = v2 ? item!.scheme_kind ?? "mark_scheme" : null;
-  useEffect(() => { if (item) { setValues(item.criterion_defs.map(() => "")); setGot([]); setBand(null); setBandMarks(null); setTotal(null); setDecided(false); setReason(""); setPage(0); } }, [item?.id]);
+  // A mark-scheme part opens on the marker's proposal, so Save & next accepts it and the teacher only edits what they
+  // disagree with; a part with no proposal starts empty and needs a decision.
+  useEffect(() => {
+    if (!item) return;
+    const scheme = item.marks_version === 2 && (item.scheme_kind ?? "mark_scheme") === "mark_scheme";
+    const seeded = scheme && !!item.proposed;
+    setValues(item.criterion_defs.map(() => "")); setBand(null); setBandMarks(null); setReason(""); setPage(0);
+    setGot(seeded ? proposedGot(item) : []); setDecided(seeded);
+    setTotal(seeded && allocationsOf(item).length === 0 ? item.proposed_total ?? null : null);
+  }, [item?.id]);
 
   const noAllocations = kind === "mark_scheme" && !!item && allocationsOf(item).length === 0;
   const complete = useMemo(() => {
@@ -185,7 +194,7 @@ function ReviewParts({ onSettled }: { onSettled: () => void }) {
           <div className="actions" style={{ marginTop: 16, paddingTop: 16, borderTop: "2px solid var(--color-divider)" }}>
             <Button size="lg" onClick={() => setI(Math.max(0, i - 1))} disabled={i === 0}>← Previous</Button>
             <Button size="lg" onClick={acceptProposed} keyHint="A" disabled={v2 && !item.proposed}>Accept proposed</Button>
-            <Button size="lg" variant="primary" wide onClick={save} disabled={!complete || busy} keyHint="↵" title={complete ? undefined : kind === "mark_scheme" ? (noAllocations ? "Type the mark, or accept the proposed total." : "Tick the allocations earned, or accept the proposed marks.") : kind === "rubric" ? "Pick a band." : undefined}>{busy ? "Saving…" : "Save & next"}</Button>
+            <Button size="lg" variant="primary" wide onClick={save} disabled={!complete || busy} keyHint="↵" title={complete ? undefined : kind === "mark_scheme" ? (noAllocations ? "Type the mark, or accept the proposed total." : "Give a mark for each allocation, or accept the proposed marks.") : kind === "rubric" ? "Pick a band." : undefined}>{busy ? "Saving…" : "Save & next"}</Button>
           </div>
         </section>
       </div>

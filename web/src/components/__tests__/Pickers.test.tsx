@@ -19,15 +19,33 @@ function Bands({ initial = null as string | null }) {
 }
 
 describe("AllocationPicker", () => {
-  it("toggles allocations by click and keeps a running total against the row's max", async () => {
+  it("gives each allocation a mark box and keeps a running total against the row's max", async () => {
     render(<Alloc />);
-    expect(screen.getByLabelText("Your mark")).toHaveTextContent("0 / 4");
-    await userEvent.click(screen.getByRole("checkbox", { name: "M1 · 1 mark" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "A1 · 2 marks" }));
-    expect(screen.getByRole("checkbox", { name: "M1 · 1 mark" })).toBeChecked();
-    expect(screen.getByLabelText("Your mark")).toHaveTextContent("3 / 4");
-    await userEvent.click(screen.getByRole("checkbox", { name: "M1 · 1 mark" }));
-    expect(screen.getByLabelText("Your mark")).toHaveTextContent("2 / 4");
+    const total = screen.getByLabelText("Your mark");
+    expect(total).toHaveTextContent("0 / 4");
+    const m1 = screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" });
+    const a1 = screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" });
+    expect(m1).toHaveValue(0);
+    await userEvent.type(m1, "1");
+    await userEvent.type(a1, "2");
+    expect(total).toHaveTextContent("3 / 4");
+    await userEvent.type(m1, "0");
+    expect(total).toHaveTextContent("2 / 4");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("caps a box at its allocation and refuses a part-mark on an all-or-nothing allocation", async () => {
+    render(<Alloc />);
+    const m1 = screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" });
+    await userEvent.type(m1, "5");
+    expect(m1).toHaveValue(1);
+    expect(screen.getByLabelText("Your mark")).toHaveTextContent("1 / 4");
+    const a1 = screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" });
+    await userEvent.type(a1, "1");
+    expect(screen.getByRole("alert")).toHaveTextContent("A1 is all or nothing — give 0 or 2.");
+    expect(screen.getByLabelText("Your mark")).toHaveTextContent("1 / 4");
+    await userEvent.tab();
+    expect(a1).toHaveValue(0);
   });
 
   it("toggleAllocation flips the nth allocation for the digit keys", () => {
@@ -41,19 +59,22 @@ describe("AllocationPicker", () => {
   it("with nothing to tick, takes the mark as a number capped at the part's max", async () => {
     const seen: number[] = [];
     render(<AllocationPicker marks={[]} got={[]} onChange={() => {}} total={null} onTotal={(n) => seen.push(n)} max={2} />);
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.getByText(/no allocations to tick/i)).toBeInTheDocument();
+    expect(screen.getByText(/no allocations/i)).toBeInTheDocument();
     const input = screen.getByRole("spinbutton", { name: "Your mark" });
     expect(input).toHaveAttribute("max", "2");
     await userEvent.type(input, "1");
-    expect(seen).toEqual([1]);
+    expect(seen.at(-1)).toBe(1);
   });
 
-  it("shows the proposed decision per allocation", () => {
-    render(<AllocationPicker marks={marks} got={["M1"]} onChange={() => {}} proposed={[{ label: "M1", marks: 1, got: true }, { label: "A1", marks: 2, got: false }]} />);
+  it("shows the proposed mark per allocation and marks the rows where yours differs", () => {
+    render(<AllocationPicker marks={marks} got={["M1", "A1"]} onChange={() => {}} proposed={[{ label: "M1", marks: 1, got: true }, { label: "A1", marks: 2, got: false }]} />);
+    expect(screen.getByRole("note")).toHaveTextContent("Each mark starts at the marker’s proposal");
     const rows = screen.getAllByRole("row");
-    expect(rows[1]).toHaveTextContent("✓");
-    expect(rows[2]).toHaveTextContent("✗");
+    expect(rows[1].children[1]).toHaveTextContent("1");
+    expect(rows[2].children[1]).toHaveTextContent("0");
+    expect(rows[1]).not.toHaveClass("changed");
+    expect(rows[2]).toHaveClass("changed");
+    expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(2);
   });
 });
 

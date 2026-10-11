@@ -45,7 +45,7 @@ function setup(items: QueueItem[]) {
 }
 
 describe("Review — per-part items (v2)", () => {
-  it("shows the question, scheme row and transcription; digits toggle allocations; save posts the allocations", async () => {
+  it("shows the question, scheme row and transcription; opens on the proposal; digits switch allocations; save posts them", async () => {
     const posted = setup([partItem]);
     expect(await screen.findByText("Question 1(b)")).toBeInTheDocument();
     expect(screen.getByText("Hence find y")).toBeInTheDocument();
@@ -55,11 +55,12 @@ describe("Review — per-part items (v2)", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Marker and reviewer disagreed");
     expect(screen.getByRole("alert")).not.toHaveTextContent("marker/reviewer disagree");
     const save = screen.getByRole("button", { name: /Save & next/ });
-    expect(save).toBeDisabled();
-    await userEvent.keyboard("1");
+    expect(save).toBeEnabled();
+    expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(1);
+    expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(0);
+    expect(screen.getByLabelText("Your mark")).toHaveTextContent("1 / 3");
     await userEvent.keyboard("2");
-    expect(screen.getByRole("checkbox", { name: "M1 · 1 mark" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "A1 · 2 marks" })).toBeChecked();
+    expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(2);
     expect(screen.getByLabelText("Your mark")).toHaveTextContent("3 / 3");
     await userEvent.type(screen.getByLabelText("Reason (kept with your correction)"), "Both earned");
     await userEvent.click(save);
@@ -67,23 +68,25 @@ describe("Review — per-part items (v2)", () => {
     expect(posted[0]).toEqual({ path: "/api/queue/41/resolve", body: { allocations: [{ label: "M1", got: true }, { label: "A1", got: true }], reason: "Both earned" } });
   });
 
-  it("accept proposed [A] fills the allocations from the proposal", async () => {
+  it("Save & next straight away accepts the proposal, and accept proposed [A] puts back an edited part", async () => {
     const posted = setup([partItem]);
     await screen.findByText("Question 1(b)");
+    await userEvent.type(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" }), "0");
+    expect(screen.getByLabelText("Your mark")).toHaveTextContent("0 / 3");
+    await userEvent.click(screen.getByText("Hence find y"));
     await userEvent.keyboard("a");
-    expect(screen.getByRole("checkbox", { name: "M1 · 1 mark" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "A1 · 2 marks" })).not.toBeChecked();
+    expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(1);
+    expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(0);
     await userEvent.click(screen.getByRole("button", { name: /Save & next/ }));
     await vi.waitFor(() => expect(posted).toHaveLength(1));
     expect(posted[0].body).toEqual({ allocations: [{ label: "M1", got: true }, { label: "A1", got: false }], reason: "" });
   });
 
-  it("a deliberate zero-mark resolve is possible: tick then untick leaves Save enabled and every allocation lost", async () => {
+  it("a deliberate zero-mark resolve is possible by typing 0 over the proposal", async () => {
     const posted = setup([partItem]);
     await screen.findByText("Question 1(b)");
-    await userEvent.keyboard("1");
-    await userEvent.keyboard("1");
-    expect(screen.getByRole("checkbox", { name: "M1 · 1 mark" })).not.toBeChecked();
+    await userEvent.type(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" }), "0");
+    expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(0);
     expect(screen.getByLabelText("Your mark")).toHaveTextContent("0 / 3");
     const save = screen.getByRole("button", { name: /Save & next/ });
     expect(save).toBeEnabled();
@@ -92,18 +95,20 @@ describe("Review — per-part items (v2)", () => {
     expect(posted[0].body).toEqual({ allocations: [{ label: "M1", got: false }, { label: "A1", got: false }], reason: "" });
   });
 
-  it("digits typed into the reason box or a text field do not toggle allocations; from a focused checkbox they do", async () => {
+  it("digits typed into the reason box or a mark box stay there; from a focused button they switch allocations", async () => {
     setup([partItem]);
     await screen.findByText("Question 1(b)");
     const reason = screen.getByLabelText("Reason (kept with your correction)");
     await userEvent.type(reason, "12");
     expect(reason).toHaveValue("12");
-    expect(screen.getByRole("checkbox", { name: "M1 · 1 mark" })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "A1 · 2 marks" })).not.toBeChecked();
-    const m1 = screen.getByRole("checkbox", { name: "M1 · 1 mark" });
-    m1.focus();
-    await userEvent.keyboard("2");
-    expect(screen.getByRole("checkbox", { name: "A1 · 2 marks" })).toBeChecked();
+    expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(1);
+    expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(0);
+    await userEvent.type(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" }), "2");
+    expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(1);
+    expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(2);
+    act(() => screen.getByRole("button", { name: /Accept proposed/ }).focus());
+    await userEvent.keyboard("1");
+    expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(0);
   });
 
   it("rubric items pick a band and post it", async () => {
@@ -131,9 +136,10 @@ describe("Review — per-part items (v2)", () => {
   it("a mark-scheme part with no allocations is resolved with a typed total", async () => {
     const posted = setup([{ ...partItem, id: 45, q_id: "3", label: "3", reason: "not in scheme", reason_text: "Not in the scheme", scheme_row: null, proposed: { q_id: "3", awarded: [], total: 2, justification: "" }, proposed_total: 2 }]);
     await screen.findByText("Question 3");
-    expect(screen.getByRole("button", { name: /Save & next/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Save & next/ })).toBeEnabled();
     const input = screen.getByRole("spinbutton", { name: "Your mark" });
     expect(input).toHaveAttribute("max", "2");
+    expect(input).toHaveValue(2);
     await userEvent.type(input, "1");
     await userEvent.click(screen.getByRole("button", { name: /Save & next/ }));
     await vi.waitFor(() => expect(posted).toHaveLength(1));

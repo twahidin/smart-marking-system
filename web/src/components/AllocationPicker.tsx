@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { AwardedAllocation, MarkPoint } from "../api/types";
 
 type Props = {
@@ -19,48 +20,78 @@ export function toggleAllocation(marks: MarkPoint[], got: string[], n: number): 
 export const allocationTotal = (marks: MarkPoint[], got: string[]): number => marks.reduce((s, m) => s + (got.includes(m.label) ? m.marks : 0), 0);
 export const allocationMax = (marks: MarkPoint[]): number => marks.reduce((s, m) => s + m.marks, 0);
 
-/** The mark-scheme row's allocations as checkboxes (M1 / A1 …): tick what the student earned. The proposed
- *  column shows the marker's decision so the teacher can see where they differ. */
+/** A mark box: shows the committed value, but keeps what is being typed (an empty box, a half-typed number) until
+ *  it is a whole mark the caller accepts; on blur it snaps back to the committed value. */
+function MarkBox({ value, max, label, disabled, onCommit }: { value: number; max: number; label: string; disabled: boolean; onCommit: (n: number) => boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input type="number" className="input mark-box" inputMode="numeric" min={0} max={max} step={1} aria-label={label} disabled={disabled}
+      value={draft ?? String(value)} onFocus={(e) => e.target.select()} onBlur={() => setDraft(null)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw === "") return;
+        const n = Math.floor(Number(raw));
+        if (!Number.isFinite(n)) return;
+        const clamped = Math.max(0, Math.min(max, n));
+        if (onCommit(clamped) && clamped !== n) setDraft(String(clamped));
+      }} />
+  );
+}
+
+/** The mark-scheme row's allocations (M1 / A1 …), each with a mark box that starts at the marker's proposal: change
+ *  any you disagree with. An allocation is all or nothing, so its box takes 0 or its full marks. */
 export function AllocationPicker({ marks, got, onChange, proposed, disabled = false, total = null, onTotal, max = 0 }: Props) {
+  const [partial, setPartial] = useState<string | null>(null);
   if (marks.length === 0) {
     const proposedTotal = proposed ? proposed.reduce((s, a) => s + (a.got ? a.marks : 0), 0) : null;
     return (
       <div>
-        <p className="help" role="note">This part has no allocations to tick — give the mark as a number, out of {max}.</p>
+        <p className="help" role="note">This part has no allocations — give the mark as a number, out of {max}.</p>
         <table className="table criteria picker" aria-label="Allocations">
           <thead><tr><th>Part</th><th className="num">Proposed</th><th className="num" style={{ width: 120 }}>Your mark</th></tr></thead>
           <tfoot><tr><td>Part total</td><td className="num">{proposedTotal === null ? "—" : `${proposedTotal} / ${max}`}</td>
-            <td className="num"><input type="number" className="input" inputMode="numeric" min={0} max={max} step={1} value={total ?? ""} disabled={disabled} aria-label="Your mark" style={{ width: 72, fontSize: 18, textAlign: "right" }}
-              onChange={(e) => { const n = Math.floor(Number(e.target.value)); if (e.target.value !== "" && Number.isFinite(n) && onTotal) onTotal(Math.max(0, Math.min(max, n))); }} /> <span className="help">/ {max}</span></td></tr></tfoot>
+            <td className="num"><MarkBox value={total ?? 0} max={max} label="Your mark" disabled={disabled} onCommit={(n) => { onTotal?.(n); return true; }} /> <span className="help">/ {max}</span></td></tr></tfoot>
         </table>
       </div>
     );
   }
   const proposedBy = new Map((proposed ?? []).map((a) => [a.label, a.got]));
   const proposedTotal = proposed ? proposed.reduce((s, a) => s + (a.got ? a.marks : 0), 0) : null;
+  const set = (m: MarkPoint, on: boolean) => onChange(on ? (got.includes(m.label) ? got : [...got, m.label]) : got.filter((l) => l !== m.label));
   return (
-    <table className="table criteria picker" aria-label="Allocations">
-      <thead><tr><th>Allocation</th><th className="num">Proposed</th><th className="num" style={{ width: 88 }}>Your mark</th></tr></thead>
-      <tbody>
-        {marks.map((m, i) => {
-          const on = got.includes(m.label);
-          const p = proposedBy.get(m.label);
-          return (
-            <tr key={`${m.label}-${i}`}>
-              <td>
-                <label className="pick" style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 40, cursor: disabled ? "default" : "pointer" }}>
-                  <input type="checkbox" checked={on} disabled={disabled} onChange={() => onChange(toggleAllocation(marks, got, i + 1))} aria-label={`${m.label} · ${plural(m.marks)}`} style={{ width: 18, height: 18 }} />
-                  <strong>{m.label}</strong><span className="help">{plural(m.marks)}</span>
-                  {i < 9 && <span className="key" aria-hidden>{i + 1}</span>}
-                </label>
-              </td>
-              <td className="num">{p === undefined ? "—" : p ? "✓" : "✗"}</td>
-              <td className="num">{on ? m.marks : 0}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-      <tfoot><tr><td>Part total</td><td className="num">{proposedTotal === null ? "—" : `${proposedTotal} / ${allocationMax(marks)}`}</td><td className="num" style={{ fontSize: 18 }} aria-label="Your mark">{allocationTotal(marks, got)} / {allocationMax(marks)}</td></tr></tfoot>
-    </table>
+    <div>
+      {proposed && <p className="help" role="note">Each mark starts at the marker’s proposal — change any you disagree with.</p>}
+      <table className="table criteria picker" aria-label="Allocations">
+        <thead><tr><th>Allocation</th><th className="num">Proposed</th><th className="num" style={{ width: 120 }}>Your mark</th></tr></thead>
+        <tbody>
+          {marks.map((m, i) => {
+            const on = got.includes(m.label);
+            const p = proposedBy.get(m.label);
+            const changed = p !== undefined && p !== on;
+            return (
+              <tr key={`${m.label}-${i}`} className={changed ? "changed" : undefined}>
+                <td>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 40 }}>
+                    <strong>{m.label}</strong><span className="help">{plural(m.marks)}</span>
+                    {i < 9 && <span className="key" aria-hidden title={`Press ${i + 1} to switch ${m.label} between 0 and ${m.marks}`}>{i + 1}</span>}
+                  </span>
+                </td>
+                <td className="num">{p === undefined ? "—" : p ? m.marks : 0}</td>
+                <td className="num">
+                  <MarkBox value={on ? m.marks : 0} max={m.marks} label={`${m.label} · your mark out of ${m.marks}`} disabled={disabled}
+                    onCommit={(n) => {
+                      if (n === 0 || n === m.marks) { setPartial(null); set(m, n === m.marks); return true; }
+                      setPartial(`${m.label} is all or nothing — give 0 or ${m.marks}.`); return false;
+                    }} /> <span className="help">/ {m.marks}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot><tr><td>Part total</td><td className="num">{proposedTotal === null ? "—" : `${proposedTotal} / ${allocationMax(marks)}`}</td><td className="num" style={{ fontSize: 18 }} aria-label="Your mark">{allocationTotal(marks, got)} / {allocationMax(marks)}</td></tr></tfoot>
+      </table>
+      {partial && <p className="help" role="alert" style={{ color: "var(--color-error, #b3261e)" }}>{partial}</p>}
+    </div>
   );
 }
