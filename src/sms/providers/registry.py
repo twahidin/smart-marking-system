@@ -49,6 +49,10 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         default_model="z-ai/glm-5.3-flash", default_rpm=60,
         models=(
             ModelSpec("z-ai/glm-5.3-flash", "GLM 5.3 Flash", True),
+            # TypeSafe's router: picks a model and reasoning effort per request; reads images,
+            # and passed both probe checks in Oct 2026. (TokenRouter's typesafe/jev-1.13 is a
+            # "decisions" model on a different endpoint and cannot mark.)
+            ModelSpec("typesafe/jev-router", "Jev Router (TypeSafe)", True),
             ModelSpec("anthropic/claude-sonnet-5", "Claude Sonnet 5", True),
             ModelSpec("openai/gpt-5-mini", "GPT-5 mini", True),
             ModelSpec("qwen/qwen3-vl-plus", "Qwen3 VL Plus", True),
