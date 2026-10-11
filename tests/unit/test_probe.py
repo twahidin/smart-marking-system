@@ -67,6 +67,14 @@ def test_probe_passes_timeout_to_both_calls():
     assert [c["timeout"] for c in fake.calls] == [PROBE_TIMEOUT_S, PROBE_TIMEOUT_S] and PROBE_TIMEOUT_S == 60
 
 
+def test_probe_caps_replies_only_for_anthropic():
+    """Newer OpenAI models reject max_tokens, and TokenRouter passes it through, so only Anthropic (which requires it) gets one."""
+    for provider, capped in (("anthropic", True), ("openai", False), ("tokenrouter", False), ("openrouter", False)):
+        fake = FakeInstructor(vision_number=5)
+        probe(provider, "m", "k", client_factory=lambda *a, **k: fake)
+        assert [("max_tokens" in c) for c in fake.calls] == [capped, capped], provider
+
+
 def test_probe_uses_extractor_model_for_vision(monkeypatch):
     fake = FakeInstructor(vision_number=5)
     monkeypatch.setattr("sms.providers.probe.random.randint", lambda a, b: 5)

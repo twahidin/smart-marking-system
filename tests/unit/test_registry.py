@@ -12,8 +12,8 @@ def test_default_provider_is_tokenrouter_glm_flash():
     assert p.default_model == "z-ai/glm-5.3-flash"
     assert p.default_rpm == 60
     assert p.base_url == "https://api.tokenrouter.com/v1"
-    free = next(m for m in p.models if m.id == "z-ai/glm-5.3-free")
-    assert "if your key allows" in free.label and free.vision
+    assert p.models[0].id == p.default_model and all(m.vision for m in p.models)
+    assert "z-ai/glm-5.3-free" not in {m.id for m in p.models}
 
 
 def test_all_seven_providers_present_with_vision_default():

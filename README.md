@@ -97,8 +97,8 @@ notes on paper or a moderation pass. A part still needing a teacher's decision s
 review"** instead of a mark. From **Submissions**, select several scripts and download a **bulk `.zip`**
 of one `.docx` per student plus a `markbook.xlsx` summary (one row per student, one column per
 question/part, totals). The default provider is TokenRouter with `z-ai/glm-5.3-flash`; **Load models
-from provider** on the Settings page lists every model your key can actually use (some TokenRouter keys
-include the free `z-ai/glm-5.3-free`, limited to 8 requests/min).
+from provider** on the Settings page lists every model your key can actually use. The OpenRouter and
+TokenRouter presets run cheapest first, from GLM 5.3 Flash and Claude Haiku 5.5 up to Claude Opus 5.5.
 
 **The Marking Room.** Open **Marking Room** to watch a class set being marked. Three crew members pass each script along the desks: the **Reader** finds each part on the page and transcribes it, the **Marker** awards marks against your scheme, and the **Checker** re-marks independently and flags anything the two disagree on. Click a name tag to read what that crew member noted for the script on its desk, with timestamps. The notes are the marker's justifications and the reviewer's reasoning; students never see them. The room updates live (Server-Sent Events) and falls back to refreshing every five seconds.
 

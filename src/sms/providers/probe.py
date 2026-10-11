@@ -9,6 +9,7 @@ import instructor
 from pydantic import BaseModel, Field
 
 from sms.providers.client import build_client
+from sms.providers.registry import get_provider
 from sms.providers.errors import error_message
 
 PROBE_TIMEOUT_S = 60
@@ -71,9 +72,17 @@ def _timed(fn: Callable[[], Any]) -> Check:
         return Check(ok=False, latency_ms=int((time.monotonic() - t0) * 1000), error=error_message(e))
 
 
+def _reply_cap(provider: str) -> dict:
+    """The output cap for the two tiny probe replies. Anthropic's API requires max_tokens; OpenAI-compatible
+    routes are left uncapped, because newer OpenAI models reject max_tokens (they want max_completion_tokens)
+    and some gateways, TokenRouter among them, pass it through untranslated. Marking sends no cap either."""
+    return {"max_tokens": 256} if get_provider(provider).transport == "anthropic" else {}
+
+
 def probe(provider: str, model: str, api_key: str, extractor_model: Optional[str] = None,
           base_url: Optional[str] = None, client_factory: Callable[..., Any] = build_client) -> ProbeResult:
     client = client_factory(provider, api_key, base_url=base_url)
+    cap = _reply_cap(provider)
 
     def text_check() -> None:
         out = client.chat.completions.create(
@@ -81,8 +90,8 @@ def probe(provider: str, model: str, api_key: str, extractor_model: Optional[str
             response_model=Pong,
             messages=[{"role": "user", "content": "Reply with ok=true."}],
             max_retries=0,
-            max_tokens=256,
             timeout=PROBE_TIMEOUT_S,
+            **cap,
         )
         assert out.ok, "Model replied but did not return ok=true"
 
@@ -103,8 +112,8 @@ def probe(provider: str, model: str, api_key: str, extractor_model: Optional[str
                 ],
             }],
             max_retries=0,
-            max_tokens=256,
             timeout=PROBE_TIMEOUT_S,
+            **cap,
         )
         assert out.number == number, f"Model read {out.number}, expected {number} — it may not support images"
 

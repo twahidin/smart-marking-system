@@ -33,29 +33,41 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         id="tokenrouter", label="TokenRouter", transport="openai_compatible",
         base_url="https://api.tokenrouter.com/v1", mode="JSON",
         default_model="z-ai/glm-5.3-flash", default_rpm=60,
+        # Cheapest first. Every preset passed the Settings connection test (text + reading an image)
+        # through TokenRouter in Oct 2026; z-ai/glm-5.3-free is no longer offered.
         models=(
             ModelSpec("z-ai/glm-5.3-flash", "GLM 5.3 Flash", True),
-            ModelSpec("z-ai/glm-5.3-free", "GLM 5.3 (free — if your key allows it)", True),
+            ModelSpec("anthropic/claude-haiku-5.5", "Claude Haiku 5.5", True),
+            ModelSpec("openai/gpt-6-luna", "GPT-6 Luna", True),
+            ModelSpec("qwen/qwen3.8-flash", "Qwen3.8 Flash", True),
+            ModelSpec("google/gemini-3.8-flash", "Gemini 3.8 Flash", True),
+            ModelSpec("anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5", True),
+            ModelSpec("openai/gpt-6.1-sol", "GPT-6.1 Sol", True),
+            ModelSpec("anthropic/claude-opus-5.5", "Claude Opus 5.5", True),
         ),
         key_url="https://www.tokenrouter.com/",
-        note="Use “Load models from provider” to see exactly what your key can use. Some keys "
-             "include the free z-ai/glm-5.3-free model (8 requests a minute — set Requests per "
-             "minute to 8 if you pick it).",
+        note="Models are listed cheapest first. Use “Load models from provider” to see everything "
+             "your key can use.",
         custom_models=True,
     ),
     ProviderSpec(
         id="openrouter", label="OpenRouter", transport="openai_compatible",
         base_url="https://openrouter.ai/api/v1", mode="JSON",
         default_model="z-ai/glm-5.3-flash", default_rpm=60,
+        # Cheapest first; every preset passed the Settings connection test (text + reading an image)
+        # through OpenRouter in Oct 2026.
         models=(
             ModelSpec("z-ai/glm-5.3-flash", "GLM 5.3 Flash", True),
-            # TypeSafe's router: picks a model and reasoning effort per request; reads images,
-            # and passed both probe checks in Oct 2026. (TokenRouter's typesafe/jev-1.13 is a
-            # "decisions" model on a different endpoint and cannot mark.)
+            ModelSpec("anthropic/claude-haiku-5.5", "Claude Haiku 5.5", True),
+            ModelSpec("openai/gpt-6-luna", "GPT-6 Luna", True),
+            ModelSpec("qwen/qwen3.8-flash", "Qwen3.8 Flash", True),
+            ModelSpec("google/gemini-3.8-flash", "Gemini 3.8 Flash", True),
+            ModelSpec("anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5", True),
+            ModelSpec("openai/gpt-6.1-sol", "GPT-6.1 Sol", True),
+            ModelSpec("anthropic/claude-opus-5.5", "Claude Opus 5.5", True),
+            # TypeSafe's router: picks a model and reasoning effort per request, so its price varies.
+            # (TokenRouter's typesafe/jev-1.13 is a "decisions" model on another endpoint and cannot mark.)
             ModelSpec("typesafe/jev-router", "Jev Router (TypeSafe)", True),
-            ModelSpec("anthropic/claude-sonnet-5", "Claude Sonnet 5", True),
-            ModelSpec("openai/gpt-5-mini", "GPT-5 mini", True),
-            ModelSpec("qwen/qwen3-vl-plus", "Qwen3 VL Plus", True),
             # Auto Router picks a model per request; it may choose a text-only model,
             # so it is marked text-only — pair it with a vision model for reading pages.
             ModelSpec("openrouter/auto", "Auto Router (picks a model per request)", False),
