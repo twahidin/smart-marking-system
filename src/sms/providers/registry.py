@@ -80,12 +80,14 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         custom_models=True,
     ),
     ProviderSpec(
+        # Current lines, cheapest first. All accept a forced tool call and structured outputs; they reject
+        # max_tokens, which no OpenAI call in the app sends (api_params stays None, the probe is uncapped).
         id="openai", label="OpenAI", transport="openai", base_url=None, mode="TOOLS",
-        default_model="gpt-5-mini", default_rpm=60,
+        default_model="gpt-6-luna", default_rpm=60,
         models=(
-            ModelSpec("gpt-5-mini", "GPT-5 mini", True),
-            ModelSpec("gpt-5.4-mini", "GPT-5.4 mini", True),
-            ModelSpec("gpt-5.5", "GPT-5.5", True),
+            ModelSpec("gpt-6-luna", "GPT-6 Luna", True),
+            ModelSpec("gpt-6.1-sol", "GPT-6.1 Sol", True),
+            ModelSpec("gpt-6-astra", "GPT-6 Astra (most capable, priciest)", True),
         ),
         key_url="https://platform.openai.com/api-keys",
     ),

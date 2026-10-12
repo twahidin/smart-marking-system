@@ -60,6 +60,8 @@ def test_anthropic_requires_max_tokens_param():
     assert get_provider("anthropic").default_model == "claude-opus-5-5"
     assert {m.id for m in get_provider("anthropic").models} == {"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"}
     assert get_provider("openai").api_params is None
+    assert get_provider("openai").default_model == "gpt-6-luna"
+    assert [m.id for m in get_provider("openai").models] == ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"]
 
 
 def test_build_client_base_url_override():
