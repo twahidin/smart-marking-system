@@ -139,8 +139,9 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         default_model="gemini-3.8-flash", default_rpm=10,
         models=(
             ModelSpec("gemini-3.8-flash", "Gemini 3.8 Flash", True),
-            ModelSpec("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", True),
-            ModelSpec("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite (cheapest)", True),
+            # 3.1 Flash-Lite was dropped: it misread the connection test's digit 2 times in 5 (Oct 2026),
+            # and 3.5 Flash-Lite replaces it at a similar price.
+            ModelSpec("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite (cheapest)", True),
             ModelSpec("gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview, most capable)", True),
         ),
         key_url="https://aistudio.google.com/apikey",
