@@ -80,12 +80,19 @@ def test_openrouter_auto_router_is_listed_text_only():
     assert "openrouter/auto" in get_provider("openrouter").note
 
 
+def test_moonshot_defaults_to_kimi_k3_and_keeps_the_cheaper_k2_6():
+    k = get_provider("moonshot")
+    assert k.default_model == "kimi-k3" and [m.id for m in k.models] == ["kimi-k3", "kimi-k2.6"]
+    assert all(m.vision for m in k.models)
+
+
 def test_google_gemini_provider_is_openai_compatible_with_free_tier_note():
     g = get_provider("google")
     assert g.label == "Google Gemini" and g.transport == "openai_compatible" and g.mode == "JSON"
     assert g.base_url == "https://generativelanguage.googleapis.com/v1beta/openai/"
     assert g.default_model == "gemini-3.8-flash" and g.default_rpm == 10
-    assert [m.id for m in g.models] == ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
+    assert [m.id for m in g.models] == ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview"]
+    assert g.models[0].id == g.default_model
     assert all(m.vision for m in g.models)
     assert g.key_url == "https://aistudio.google.com/apikey"
     assert "Free tier" in g.note and "Test connection" in g.note

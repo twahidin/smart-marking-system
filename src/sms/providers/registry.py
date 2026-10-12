@@ -109,10 +109,12 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
     ProviderSpec(
         id="moonshot", label="Moonshot (Kimi)", transport="openai_compatible",
         base_url="https://api.moonshot.ai/v1", mode="JSON",
-        default_model="kimi-k2.6", default_rpm=60,
+        # Kimi K3 (Jul 2026) is current and read pages in the Oct 2026 connection tests; K2.6 stays as the
+        # cheaper option (about a third of K3's output price).
+        default_model="kimi-k3", default_rpm=60,
         models=(
-            ModelSpec("kimi-k2.6", "Kimi K2.6", True),
             ModelSpec("kimi-k3", "Kimi K3", True),
+            ModelSpec("kimi-k2.6", "Kimi K2.6 (cheaper)", True),
         ),
         key_url="https://platform.moonshot.ai/",
     ),
@@ -137,8 +139,9 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         default_model="gemini-3.8-flash", default_rpm=10,
         models=(
             ModelSpec("gemini-3.8-flash", "Gemini 3.8 Flash", True),
-            ModelSpec("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", True),
-            ModelSpec("gemini-2.5-flash", "Gemini 2.5 Flash", True),
+            ModelSpec("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", True),
+            ModelSpec("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite (cheapest)", True),
+            ModelSpec("gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview, most capable)", True),
         ),
         key_url="https://aistudio.google.com/apikey",
         note="Free tier: no card needed; roughly 10–30 requests a minute and hundreds per day "
