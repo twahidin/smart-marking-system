@@ -52,11 +52,13 @@ def test_build_client_openai_family(pid, mode):
 
 def test_build_client_anthropic():
     client = build_client("anthropic", api_key="sk-ant-test")
-    assert client.mode == instructor.Mode.ANTHROPIC_TOOLS
+    assert client.mode == instructor.Mode.ANTHROPIC_REASONING_TOOLS
 
 
 def test_anthropic_requires_max_tokens_param():
-    assert get_provider("anthropic").api_params == {"max_tokens": 8192}
+    assert get_provider("anthropic").api_params == {"max_tokens": 16000}
+    assert get_provider("anthropic").default_model == "claude-opus-5-5"
+    assert {m.id for m in get_provider("anthropic").models} == {"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"}
     assert get_provider("openai").api_params is None
 
 

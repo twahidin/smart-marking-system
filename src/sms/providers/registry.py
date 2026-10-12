@@ -90,15 +90,19 @@ PROVIDERS: Tuple[ProviderSpec, ...] = (
         key_url="https://platform.openai.com/api-keys",
     ),
     ProviderSpec(
-        id="anthropic", label="Anthropic", transport="anthropic", base_url=None, mode="ANTHROPIC_TOOLS",
-        default_model="claude-opus-5", default_rpm=60,
+        # Reasoning-tools mode sends tool_choice "auto" plus a "return only the tool call" instruction:
+        # Claude Opus 5.5, Sonnet 5.5 and Fable 5.1 reject a forced tool (ANTHROPIC_TOOLS) with a 400.
+        id="anthropic", label="Anthropic", transport="anthropic", base_url=None, mode="ANTHROPIC_REASONING_TOOLS",
+        default_model="claude-opus-5-5", default_rpm=60,
         models=(
-            ModelSpec("claude-opus-5", "Claude Opus 5", True),
-            ModelSpec("claude-sonnet-5", "Claude Sonnet 5", True),
-            ModelSpec("claude-haiku-4-5", "Claude Haiku 4.5", True),
+            ModelSpec("claude-opus-5-5", "Claude Opus 5.5", True),
+            ModelSpec("claude-sonnet-5-5", "Claude Sonnet 5.5", True),
+            ModelSpec("claude-haiku-5-5", "Claude Haiku 5.5", True),
+            ModelSpec("claude-fable-5-1", "Claude Fable 5.1 (most capable, priciest)", True),
         ),
         key_url="https://console.anthropic.com/settings/keys",
-        api_params={"max_tokens": 8192},
+        # Thinking is always on for these models and counts toward max_tokens, so leave room beyond the answer.
+        api_params={"max_tokens": 16000},
     ),
     ProviderSpec(
         id="moonshot", label="Moonshot (Kimi)", transport="openai_compatible",

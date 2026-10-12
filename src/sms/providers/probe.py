@@ -73,10 +73,11 @@ def _timed(fn: Callable[[], Any]) -> Check:
 
 
 def _reply_cap(provider: str) -> dict:
-    """The output cap for the two tiny probe replies. Anthropic's API requires max_tokens; OpenAI-compatible
-    routes are left uncapped, because newer OpenAI models reject max_tokens (they want max_completion_tokens)
-    and some gateways, TokenRouter among them, pass it through untranslated. Marking sends no cap either."""
-    return {"max_tokens": 256} if get_provider(provider).transport == "anthropic" else {}
+    """The output cap for the two tiny probe replies. Anthropic's API requires max_tokens, and current Claude
+    models always think first, so the cap leaves room for that; OpenAI-compatible routes are left uncapped,
+    because newer OpenAI models reject max_tokens (they want max_completion_tokens) and some gateways,
+    TokenRouter among them, pass it through untranslated. Marking sends no cap there either."""
+    return {"max_tokens": 2048} if get_provider(provider).transport == "anthropic" else {}
 
 
 def probe(provider: str, model: str, api_key: str, extractor_model: Optional[str] = None,
