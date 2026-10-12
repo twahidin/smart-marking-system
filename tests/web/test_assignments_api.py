@@ -2,6 +2,7 @@ import io
 import json
 
 from PIL import Image
+from sms.providers.registry import get_provider
 
 RUBRIC = {"criterion_defs": [{"id": "c1", "description": "method", "max_score": 2},
                               {"id": "c2", "description": "answer", "max_score": 3}]}
@@ -456,7 +457,7 @@ def test_template_model_override_requires_a_saved_key(auth):
     assert r.status_code == 200 and r.json()["effective_model"] == {"provider": "openai", "model": "gpt-5.5",
                                                                      "extractor_model": "gpt-5-mini", "source": "assignment"}
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "openai", "model": ""})
-    assert r.json()["model"] == "gpt-5-mini"                      # blank model -> provider default
+    assert r.json()["model"] == get_provider("openai").default_model   # blank model -> provider default
     r = auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": ""})
     assert r.json()["provider"] is None and r.json()["model"] is None
     assert auth.put(f"/api/assignments/{t['id']}", json={**_body(), "provider": "nope", "model": "x"}).json()["error"]["code"] == "bad_provider"
