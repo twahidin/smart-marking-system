@@ -5,6 +5,7 @@ import { api, ApiError } from "../api/client";
 import type { Part, SubmissionDetail as D } from "../api/types";
 import { Button } from "../components/Button";
 import { CriteriaReading } from "../components/CriteriaTable";
+import { Dialog } from "../components/Dialog";
 import { FilesBlock } from "../components/FilesBlock";
 import { MarkDisplay } from "../components/MarkDisplay";
 import { Notice } from "../components/Notice";
@@ -240,13 +241,26 @@ function PartsTable({ parts, rubric, inProgress }: { parts: Part[]; rubric: bool
   );
 }
 
-/** The cropped answer region the reader located for this part — kept after the pages are deleted. */
+/** The cropped answer region the reader located for this part — kept after the pages are deleted.
+ *  Opens in a wide dialog so the handwriting is readable. */
 function AnswerCrop({ part }: { part: Part }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
   return (
     <div style={{ marginTop: 6 }}>
-      <button type="button" className="btn btn-ghost btn-sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "Hide answer" : "Show answer"}</button>
-      {open && <div className="page-view" style={{ marginTop: 6 }}><img src={`/api/crops/${part.crop_id}`} alt={`Student's answer for ${part.label}${part.crop_whole_page ? " (whole page)" : ""}`} style={{ maxWidth: "100%" }} />{part.crop_whole_page && <div className="help">Whole page — the reader could not pin down this part.</div>}</div>}
+      <button type="button" className="btn btn-ghost btn-sm" aria-haspopup="dialog" onClick={() => setOpen(true)}>Show answer</button>
+      {open && (
+        <Dialog wide title={`Student’s answer · ${part.label}`} onClose={() => setOpen(false)}
+          footer={<button type="button" className="btn btn-primary" onClick={() => setOpen(false)}>Close</button>}>
+          <img src={`/api/crops/${part.crop_id}`} alt={`Student's answer for ${part.label}${part.crop_whole_page ? " (whole page)" : ""}`} style={{ display: "block", maxWidth: "100%", margin: "0 auto" }} />
+          {part.crop_whole_page && <div className="help" style={{ marginTop: 8 }}>Whole page — the reader could not pin down this part.</div>}
+        </Dialog>
+      )}
     </div>
   );
 }

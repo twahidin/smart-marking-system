@@ -120,6 +120,7 @@ button.seg-opt { background: transparent; border: 0; color: inherit; font: inher
 /* dialog */
 .dialog-backdrop { position: fixed; inset: 0; background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: min(120px, 8vh) 16px 24px; z-index: 10; }
 .dialog { background: var(--color-bg); width: min(760px, 100%); padding: 28px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; max-height: calc(100dvh - min(120px, 8vh) - 24px); }
+.dialog-wide { width: min(1200px, 100%); }
 .dialog h2 { font-size: 24px; flex: none; }
 .dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -8px; padding: 0 8px; }
 .dialog-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; flex: none; }

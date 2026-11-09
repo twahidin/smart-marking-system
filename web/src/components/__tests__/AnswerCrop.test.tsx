@@ -31,7 +31,9 @@ describe("answer crops", () => {
     const img = screen.getByRole("img", { name: /Student's answer for 1b \(whole page\)/ });
     expect(img).toHaveAttribute("src", "/api/crops/43");
     expect(screen.getByText(/Whole page — the reader could not pin down this part/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide answer" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Student’s answer · 1b" })).toContainElement(img);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("the review queue shows the crop even after the pages are gone", async () => {
