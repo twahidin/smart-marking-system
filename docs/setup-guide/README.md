@@ -32,7 +32,7 @@ Opening a brand-new deployment shows a two-step wizard. **Step 1** asks you to c
 
 *Step 2 lands on Settings with the checklist for connecting a model.*
 
-![The sign-in page. Teachers only — students never sign in.](images/01-sign-in.jpg)
+![Every later visit: the sign-in page, with the crew marking while the teacher rests. Teachers only — students never sign in.](images/01-sign-in.jpg)
 
 *Every later visit: the sign-in page. Teachers only — students never sign in.*
 
@@ -40,7 +40,9 @@ Opening a brand-new deployment shows a two-step wizard. **Step 1** asks you to c
 
 Go to **Settings**. Pick a provider, paste its key, then click **Load models from provider** to see exactly which models your key can use. Choose a model marked *reads pages*, click **Test connection**, and **Save**.
 
-Keys are kept per provider (a ✓ on the tile means a key is saved), so you can switch between providers without re-entering them. **Requests per minute** protects free keys with low rate limits — set it to 8 for TokenRouter's free model, 10 for Gemini's free tier.
+Keys are kept per provider (a ✓ on the tile means a key is saved), so you can switch between providers without re-entering them. **Requests per minute** protects free keys with low rate limits — set it to 10 for Gemini's free tier.
+
+**Current models.** Each provider's list starts with its current models: Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1 under Anthropic; GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra under OpenAI; Kimi K3 under Moonshot; Gemini 3.8 Flash, 3.5 Flash-Lite and 3.1 Pro under Google. OpenRouter and TokenRouter offer the same mix through one key, cheapest first. OpenRouter also lists **Jev Router**, which picks a model for each request, so its cost varies from script to script. If the image check in **Test connection** fails once, run it again: good models occasionally misread its test number.
 
 **My models.** OpenRouter and TokenRouter host hundreds of models beyond the curated list. Under those two providers a *My models* list lets you add any model id (with a label and whether it reads pages); it then appears in every model picker, here and in the assignment editor. Each id returned by *Load models from provider* gets a **+ Add** button.
 
@@ -62,13 +64,15 @@ On the Assignments page (your desk), the folder rack filters the table by subjec
 
 Saved assignments go into a bank you can reuse across classes and years.
 
+**Assignments** opens on your desk: the folders in the rack are your saved assignments, filed by subject; the blank pad starts a new one; the pinboard opens whatever is due this week; and the lamp lights up while scripts are being marked. Hover or tap a spot to see its label, or turn on **Show labels**.
+
 **Subjects.** Maths, English and Science as before, plus **MT** (Mother Tongue — pick Chinese, Malay or Tamil; the script is read in that language and the student's feedback is written in it, while everything you see stays in English) and **Computing**, whose students can hand in program files as well as photos.
 
 ![The assignment editor after Read questions and Read mark scheme. Every cell is editable.](images/03b-assignment-editor-full.jpg)
 
 *The assignment editor after Read questions and Read mark scheme. Every cell is editable.*
 
-![The assignment bank.](images/04-assignments-bank.jpg)
+![Assignments is your desk. Every spot is a control: a subject's folders, the blank pad, the pinboard, the lamp.](images/81-assignments-desk.jpg)
 
 *The assignment bank.*
 
@@ -98,11 +102,13 @@ Removing a provider's key while assignments still use it asks you to confirm fir
 
 ## 7. Create a class and load the classlist
 
-Go to **Classes → Build a classroom** and name it the way your school does ("4E2 Mathematics"). Pick a **Subject**: it chooses the painting on the classroom's tile, and you can change it later under the class's **Settings** tab. Every class gets a 4-character code — this one is `4KEF` — that students will type.
+**Classes** is your school: one classroom per class, painted for its subject, and an empty plot to build the next one. Go to **Classes → Build a classroom** and name it the way your school does ("4E2 Mathematics"). Pick a **Subject**: it chooses the painting on the classroom's tile, and you can change it later under the class's **Settings** tab. Every class gets a 4-character code — this one is `4KEF` — that students will type.
 
 On the **Students** tab, upload a CSV with two columns, `name` and `reg_no` (register number). The preview flags duplicate or missing numbers before anything is saved; click **Confirm classlist** when it looks right.
 
 Then click **Copy link** and paste it into Google Classroom (or wherever your students look). The link opens the app with the class code already filled in.
+
+![Classes is your school: a classroom per class, and an empty plot for the next one.](images/80-classes-school.jpg)
 
 ![Creating a class.](images/06-new-class.jpg)
 
@@ -163,15 +169,27 @@ You can also drop **one PDF of the whole class's scripts**, scanned together. Sm
 
 ![The bulk-upload preview: matched students, skipped files, unmatched entries.](images/53-bulk-upload-preview.jpg)
 
+**One PDF of the whole class.** If your scanner gives you a single PDF of every booklet, drop that instead. The app splits it at each booklet's cover, so booklets can be different lengths, reads the index number and name written there, and proposes the matching student. Check each cover against the student picked for it, fix any that are wrong or unreadable with the dropdown, then click **Hand in**. Two-page spreads are split into single pages, which doubles the detail the marker reads, and blank pages are left out. Scripts already marked in red ink show those marks to the model, so scan clean scripts for an independent mark.
+
+![One combined PDF: each booklet's cover, what was read from it, and the student it matched.](images/85-bulk-pdf-preview.jpg)
+
+**Not a class set?** **Submissions → Mark many** marks a pile of scripts against one saved assignment without a class. Drop PDFs, photos or one zip of them: each PDF is one script, and photos named after the student with a page number, such as `Tan Wei Ling-1.jpg` and `Tan Wei Ling-2.jpg`, become one script in page order. Labels come from the file names and can be edited before you start; scripts that fail to upload stay listed with a retry.
+
+![Submissions: Mark many sits beside Mark a script.](images/86-submissions-mark-many.jpg)
+
+![Mark many: one row per script, with its label, pages and files.](images/87-mark-many.jpg)
+
 *The bulk-upload preview: matched students, skipped files, unmatched entries.*
 
 ## 12. Marking, and the parts that need you
 
 The assignment page shows the roster: who has handed in, what is being marked, and what is ready. You can also **Upload pages** for a student yourself (scanned booklets) and **Remove hand-in** so a student can redo it.
 
-Each script is read by one model, marked against the scheme by a second pass, and checked by an independent reviewer. Anything illegible, not covered by the scheme, or where marker and reviewer disagree goes to **Review** with the reason. There you tick the allocations the student earned (or pick the band for an essay) and give a one-line reason — that reason feeds the nightly learning step, so the marker gets closer to your judgement over time.
+Each script is read by one model, marked against the scheme by a second pass, and checked by an independent reviewer. Anything illegible, not covered by the scheme, or where marker and reviewer disagree goes to **Review** with the reason. There each allocation (M1, A1, B1…) has a mark box that starts at the marker's proposal: change only what you disagree with, or pick the band for an essay, and give a one-line reason — that reason feeds the nightly learning step, so the marker gets closer to your judgement over time. **Save & next** accepts the proposal as it stands. A scheme that gives the same label twice, such as two B1 marks, shows them as B1 (1 of 2) and B1 (2 of 2).
 
 On the Review page (the marking desk), the flagged tray holds the parts where the Checker and the Marker disagree and the ticked tray those ready to release; the drawers open the **Parts** and **Corrections** tabs. The Learning page is a library: its shelves filter by subject, the reading table holds the drafts and the notice board the worked examples.
+
+**Review** opens on the marking desk: the flagged tray holds the parts that need you, the ticked tray the class sets ready to release, and the drawers open Parts and Corrections.
 
 Click a student's name to see the per-part marks, the transcription and the justification for each mark.
 
@@ -182,6 +200,10 @@ Click a student's name to see the per-part marks, the transcription and the just
 *The roster after marking: 1 ready, 0 needing you.*
 
 ![A marked script, part by part.](images/32b-submission-detail-full.jpg)
+
+![Review is the marking desk: the flagged tray holds what needs you.](images/82-review-desk.jpg)
+
+![A part to decide: the student's answer, the scheme, and a mark box per allocation that starts at the proposal. This scheme gives B1 twice.](images/83-review-part.jpg)
 
 *A marked script, part by part.*
 
@@ -255,6 +277,10 @@ From the assignment page, **Download marks CSV** gives one row per student with 
 **What is kept after marking.** By default the app keeps the *answer portion* of each part — the region of the page the reader located it on, padded a little — and deletes the full pages once a script is done, so you can check any mark against the student's actual writing with **Show answer** on the submission page (and in Review). Choose *Keep whole pages* under Settings (or per assignment) to keep every photo, or *Delete everything* to keep only the transcription. Crops stay until you remove the hand-in.
 
 **Cost.** A script needs about four model calls. On a paid provider that is typically well under one cent per script for a small model; on a free tier it is free within the daily limit.
+
+**Learning is the library.** What the marker has learned from your corrections is shelved by subject. Drafts wait on the reading table until you approve them, and the notice board keeps the worked examples.
+
+![Learning is the library: rulings shelved by subject, drafts on the reading table, examples on the notice board.](images/84-learning-library.jpg)
 
 **Changing the password or the secret.** Change the teacher password under **Settings → Teacher password**. If a `TEACHER_PASSWORD` variable is set on Railway it wins over the website password (that is also the reset path). Leave `SECRET_KEY` alone — it encrypts the stored API keys; changing it means re-entering them.
 
