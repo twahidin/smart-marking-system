@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BulkPreview, BulkResult, ClassAssignmentDetail, ClassRow, InsightsPayload } from "../../api/types";
+import type { BulkPreview, BulkResult, ClassAssignmentDetail, ClassRow, InsightsPayload, PdfPreview } from "../../api/types";
 import { ClassAssignmentPage } from "../ClassAssignmentPage";
 
 // Stands in for the canvas resize jsdom cannot run: a 4000 px photo comes back small, and renamed.
@@ -78,7 +78,7 @@ const bulkHandlers = {
 async function pickZip() {
   render(app());
   await userEvent.click(await screen.findByRole("button", { name: "Bulk upload" }));
-  await userEvent.upload(screen.getByLabelText("Choose a zip of hand-ins"), zipFile());
+  await userEvent.upload(screen.getByLabelText("Choose a zip or PDF of hand-ins"), zipFile());
   return screen.getByRole("dialog", { name: "Bulk upload" });
 }
 
@@ -350,14 +350,14 @@ describe("ClassAssignmentPage", () => {
     });
     render(app());
     await userEvent.click(await screen.findByRole("button", { name: "Bulk upload" }));
-    const input = screen.getByLabelText("Choose a zip of hand-ins") as HTMLInputElement;
+    const input = screen.getByLabelText("Choose a zip or PDF of hand-ins") as HTMLInputElement;
     await userEvent.upload(input, zipFile());
     expect(await screen.findByText("Reading the zip…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose a zip" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose a zip or PDF" })).toBeDisabled();
     expect(input).toBeDisabled();
     release(new Response(JSON.stringify(preview), { status: 200 }));
     expect(await screen.findByText(/#3 Priya Nair/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose a zip" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Choose a zip or PDF" })).toBeEnabled();
   });
 
   it("shows the server's message when the zip can't be read", async () => {
@@ -369,5 +369,52 @@ describe("ClassAssignmentPage", () => {
     await pickZip();
     expect(await screen.findByText("That file isn't a zip we can open.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
+  });
+
+  it("splits a combined PDF into booklets, lets the teacher fix a match, and hands in what was confirmed", async () => {
+    const pdfPreview: PdfPreview = {
+      pdf_pages: 24,
+      students: [{ id: 1, reg_no: 3401, name: "Amirah", already_handed_in: false }, { id: 2, reg_no: 3402, name: "Ben", already_handed_in: true },
+                 { id: 3, reg_no: 3405, name: "Chloe Tan", already_handed_in: false }],
+      booklets: [
+        { booklet: 1, start: 1, end: 8, page_count: 8, cover: "data:image/png;base64,AA==", read: { index_number: "3401", name: "Amirah" }, student_id: 1, matched_by: "index", already_handed_in: false },
+        { booklet: 2, start: 9, end: 16, page_count: 8, cover: "data:image/png;base64,AA==", read: { index_number: null, name: null }, student_id: null, matched_by: null, already_handed_in: false },
+        { booklet: 3, start: 17, end: 24, page_count: 8, cover: "data:image/png;base64,AA==", read: { index_number: null, name: "chloe" }, student_id: 3, matched_by: "name", already_handed_in: false },
+      ],
+    };
+    const done: BulkResult = { created: [{ reg_no: 3401, ignored: [], pages: 14 }, { reg_no: 3405, ignored: [], pages: 14 }], skipped: [{ reg_no: 3402 }], failed: [], unmatched: [], ambiguous: [] };
+    const calls = mockFetch({
+      ...clsHandler,
+      "GET /api/classes/1/assignments/3": () => new Response(JSON.stringify(detail), { status: 200 }),
+      "POST /api/classes/1/assignments/3/bulk/pdf/preview": () => new Response(JSON.stringify(pdfPreview), { status: 200 }),
+      "POST /api/classes/1/assignments/3/bulk/pdf?replace=0": () => new Response(JSON.stringify(done), { status: 200 }),
+    });
+    render(app());
+    await userEvent.click(await screen.findByRole("button", { name: "Bulk upload" }));
+    await userEvent.upload(screen.getByLabelText("Choose a zip or PDF of hand-ins"), new File(["%PDF-1.7"], "scripts.pdf", { type: "application/pdf" }));
+    const dialog = screen.getByRole("dialog", { name: "Bulk upload" });
+    expect(await within(dialog).findByText("3 booklets in 24 pages")).toBeInTheDocument();
+    expect((calls.find((c) => c.path.endsWith("/bulk/pdf/preview"))!.init!.body as FormData).get("pdf")).toBeInstanceOf(File);
+    expect(within(dialog).getByText("Read: #3401 · Amirah")).toBeInTheDocument();
+    expect(within(dialog).getByText("Read: Couldn't read the cover")).toBeInTheDocument();
+    expect(within(dialog).getByText("Matched by name")).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "Student for booklet 2" })).toHaveValue("");
+    expect(within(dialog).getByRole("button", { name: "Hand in 2 booklets" })).toBeInTheDocument();
+
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "Student for booklet 2" }), "2");
+    expect(within(dialog).getByText("Already handed in — will be skipped")).toBeInTheDocument();
+    expect(within(dialog).getByRole("checkbox", { name: "Replace existing hand-ins" })).not.toBeChecked();
+
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "Student for booklet 3" }), "1");
+    expect(within(dialog).getAllByText("Picked for another booklet too")).toHaveLength(2);
+    expect(within(dialog).queryByRole("button", { name: /Hand in/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "Student for booklet 3" }), "3");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Hand in 3 booklets" }));
+    expect(await within(dialog).findByText("Created 2 · Skipped 1 · Not matched 0")).toBeInTheDocument();
+    const sent = calls.find((c) => c.path.endsWith("/bulk/pdf?replace=0"))!.init!.body as FormData;
+    expect(JSON.parse(String(sent.get("booklets")))).toEqual([
+      { start: 1, end: 8, student_id: 1 }, { start: 9, end: 16, student_id: 2 }, { start: 17, end: 24, student_id: 3 }]);
+    expect(sent.get("pdf")).toBeInstanceOf(File);
   });
 });

@@ -214,6 +214,16 @@ through. Photos inside a bulk zip are **not** downsized in the browser the way a
 so the whole archive may unpack to at most 50 MB — past that, downsize the photos or split the class
 into two zips.
 
+**Combined PDF**: **Bulk upload** also takes one PDF of every script scanned together, as a school scanner
+produces it. It is split at each booklet's cover (each page is compared with the first cover, so booklets
+may differ in length), each cover's index number and name are read with the assignment's reading model,
+and the booklet is matched to the student with that register number — or, for a class numbered 1–40,
+the last two digits of an index like 3407 — else by name. The preview shows each booklet's page range,
+a crop of its cover, what was read, and a student picker set to the match; nothing is handed in until
+the teacher confirms. Two-page A3 spreads are split into single pages (doubling the resolution the
+marker reads) and blank pages are left out. Scripts already marked in red ink will show those marks to
+the model; scan clean scripts for an independent mark.
+
 **What is kept after marking** — Settings → *After marking, keep*: **the answer portions only** (default: the page reader returns where each part sits on the page; the app crops that region, keeps the crop and deletes the full pages), **whole pages**, or **nothing** but the transcription. Each assignment can override it. On the submission page every mark has **Show answer**, the Review queue shows the crop for the flagged part, and the `.docx` marking record embeds it. Crops stay until the hand-in is removed.
 
 ### Settings

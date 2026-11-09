@@ -159,6 +159,8 @@ Instead of uploading student by student, put the whole class's work in one `.zip
 
 Students who have already handed in are skipped unless you tick **Replace existing hand-ins**. Photos in a bulk zip are not shrunk in the browser, so keep the zip under 50 MB unpacked or split the class in two.
 
+You can also drop **one PDF of the whole class's scripts**, scanned together. Smart Marking splits it at each booklet's cover, reads the index number and name written there, and proposes the matching student. Check each cover crop against the student picked for it, fix any that are wrong or unread, then click **Hand in**. Two-page spreads are split into single pages and blank pages are skipped.
+
 ![The bulk-upload preview: matched students, skipped files, unmatched entries.](images/53-bulk-upload-preview.jpg)
 
 *The bulk-upload preview: matched students, skipped files, unmatched entries.*

@@ -219,9 +219,17 @@ export interface BulkMatch { student_id: number; reg_no: number; name: string; f
 /** `ambiguous` and `unmatched` are filenames, not students: names that fit more than one register number, and none. */
 export interface BulkPreview { matched: BulkMatch[]; ambiguous: string[]; unmatched: string[] }
 export interface BulkResult {
-  created: { reg_no: number; ignored: string[] }[]; skipped: { reg_no: number }[]; failed: { reg_no: number; error: string }[];
+  created: { reg_no: number; ignored: string[]; pages?: number }[]; skipped: { reg_no: number }[]; failed: { reg_no: number; error: string }[];
   unmatched: string[]; ambiguous: string[];
 }
+/** One booklet found in a combined PDF of a class's scripts: its PDF pages, a crop of its cover, what the reading
+ *  model copied off the cover, and the student proposed for it (null when nothing matched). */
+export interface PdfBooklet {
+  booklet: number; start: number; end: number; page_count: number; cover: string;
+  read: { index_number: string | null; name: string | null };
+  student_id: number | null; matched_by: "index" | "name" | null; already_handed_in: boolean;
+}
+export interface PdfPreview { booklets: PdfBooklet[]; pdf_pages: number; students: { id: number; reg_no: number; name: string; already_handed_in: boolean }[] }
 
 /* ---- the marking room: live pipeline snapshot, stage events, crew thoughts, student corrections ---- */
 export type Stage = "read" | "mark" | "check" | "feedback" | "done";

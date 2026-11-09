@@ -1,6 +1,8 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+import json
+
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -8,6 +10,8 @@ from pydantic import BaseModel
 from sms.records.insights_pdf import render_insights_pdf
 from sms.web.deps import get_db, get_jobs, get_settings_store, get_storage, require_teacher
 from sms.web.errors import ApiError
+from sms.web.services import bulk_pdf
+from sms.web.services.assignments import get_template
 from sms.web.services.class_assignments import (bulk_commit, bulk_preview, delete_class_assignment, get_student,
                                                 hand_in, list_class_assignments, marks_csv, release, remove_hand_in,
                                                 require_class_assignment, roster, set_assignment, slug,
@@ -157,3 +161,40 @@ async def bulk_commit_route(class_id: int, caid: int, request: Request, zip: Upl
     zip_bytes = payload[0][1]
     # Unpacking the zip and rasterising/normalising each student's files is CPU-bound.
     return await run_in_threadpool(bulk_commit, db, storage, jobs, ca, zip_bytes, replace)
+
+
+def _keyed_settings(db, settings_store, ca):
+    """The settings this assignment's reading runs with — its own pinned model, else its subject's, else Settings."""
+    settings = settings_store.for_template(get_template(db, ca["template_id"]))
+    if not settings.has_key:
+        raise ApiError(400, "no_key", "Add an API key under Settings before marking")
+    return settings
+
+
+@router.post("/{caid}/bulk/pdf/preview")
+async def bulk_pdf_preview_route(class_id: int, caid: int, request: Request, pdf: UploadFile = File(...), db=Depends(get_db),
+                                 settings=Depends(get_settings_store)):
+    """One combined PDF of the class's scripts: split into booklets at each cover and propose a student for each."""
+    check_content_length(request)
+    ca = require_class_assignment(db, class_id, caid)
+    keyed = await run_in_threadpool(_keyed_settings, db, settings, ca)
+    payload = await read_upload_files(request, [pdf])
+    # Rendering every page and reading each cover with the model is slow and blocking.
+    return await run_in_threadpool(bulk_pdf.bulk_pdf_preview, db, ca, payload[0][1], bulk_pdf.model_cover_reader(keyed))
+
+
+@router.post("/{caid}/bulk/pdf", status_code=202)
+async def bulk_pdf_commit_route(class_id: int, caid: int, request: Request, pdf: UploadFile = File(...),
+                                booklets: str = Form(...), replace: bool = False, db=Depends(get_db),
+                                storage=Depends(get_storage), jobs=Depends(get_jobs), settings=Depends(get_settings_store)):
+    """Hand in the booklets the teacher confirmed: `booklets` is a JSON list of {start, end, student_id}."""
+    check_content_length(request)
+    ca = require_class_assignment(db, class_id, caid)
+    await run_in_threadpool(_keyed_settings, db, settings, ca)
+    try:
+        chosen = json.loads(booklets)
+        assert isinstance(chosen, list)
+    except (ValueError, AssertionError):
+        raise ApiError(400, "bad_request", "booklets must be a JSON list of {start, end, student_id}")
+    payload = await read_upload_files(request, [pdf])
+    return await run_in_threadpool(bulk_pdf.bulk_pdf_commit, db, storage, jobs, ca, payload[0][1], chosen, replace)
