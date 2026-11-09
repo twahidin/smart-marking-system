@@ -111,6 +111,26 @@ describe("Review — per-part items (v2)", () => {
     expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(0);
   });
 
+  it("a part whose scheme repeats B1 posts both, in order, and a note from one part doesn't follow to the next", async () => {
+    const twiceItem: QueueItem = {
+      ...partItem, id: 46, q_id: "6c", label: "6(c)", question_text: "Describe two steps",
+      scheme_row: { q_id: "6c", answer: "compare; report", marks: [{ label: "B1", marks: 1 }, { label: "B1", marks: 1 }], notes: "" },
+      proposed: { q_id: "6c", awarded: [{ label: "B1", marks: 1, got: true }, { label: "B1", marks: 1, got: true }], total: 2, justification: "" },
+    };
+    const posted = setup([partItem, twiceItem]);
+    await screen.findByText("Question 1(b)");
+    await userEvent.type(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" }), "1");
+    expect(screen.getByText("A1 is all or nothing — give 0 or 2.")).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Hence find y"));
+    await userEvent.keyboard("{ArrowRight}");
+    await screen.findByText("Question 6(c)");
+    expect(screen.queryByText(/is all or nothing/)).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole("spinbutton", { name: "B1 (2 of 2) · your mark out of 1" }), "0");
+    await userEvent.click(screen.getByRole("button", { name: /Save & next/ }));
+    await vi.waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ path: "/api/queue/46/resolve", body: { allocations: [{ label: "B1", got: true }, { label: "B1", got: false }], reason: "" } });
+  });
+
   it("rubric items pick a band and post it", async () => {
     const posted = setup([bandItem]);
     expect(await screen.findByText("Organisation")).toBeInTheDocument();

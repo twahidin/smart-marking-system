@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Band, MarkPoint } from "../../api/types";
-import { AllocationPicker, toggleAllocation } from "../AllocationPicker";
+import { AllocationPicker, allocationKeys, proposedKeys, toggleAllocation } from "../AllocationPicker";
 import { BandPicker } from "../BandPicker";
 
 const marks: MarkPoint[] = [{ label: "M1", marks: 1 }, { label: "A1", marks: 2 }, { label: "B1", marks: 1 }];
@@ -49,11 +49,11 @@ describe("AllocationPicker", () => {
   });
 
   it("toggleAllocation flips the nth allocation for the digit keys", () => {
-    expect(toggleAllocation(marks, [], 1)).toEqual(["M1"]);
-    expect(toggleAllocation(marks, ["M1"], 1)).toEqual([]);
-    expect(toggleAllocation(marks, ["M1"], 3)).toEqual(["M1", "B1"]);
+    expect(toggleAllocation(marks, [], 1)).toEqual(["M1#0"]);
+    expect(toggleAllocation(marks, ["M1#0"], 1)).toEqual([]);
+    expect(toggleAllocation(marks, ["M1#0"], 3)).toEqual(["M1#0", "B1#0"]);
     // A digit past the last allocation changes nothing.
-    expect(toggleAllocation(marks, ["M1"], 4)).toEqual(["M1"]);
+    expect(toggleAllocation(marks, ["M1#0"], 4)).toEqual(["M1#0"]);
   });
 
   it("with nothing to tick, takes the mark as a number capped at the part's max", async () => {
@@ -67,7 +67,7 @@ describe("AllocationPicker", () => {
   });
 
   it("shows the proposed mark per allocation and marks the rows where yours differs", () => {
-    render(<AllocationPicker marks={marks} got={["M1", "A1"]} onChange={() => {}} proposed={[{ label: "M1", marks: 1, got: true }, { label: "A1", marks: 2, got: false }]} />);
+    render(<AllocationPicker marks={marks} got={["M1#0", "A1#0"]} onChange={() => {}} proposed={[{ label: "M1", marks: 1, got: true }, { label: "A1", marks: 2, got: false }]} />);
     expect(screen.getByRole("note")).toHaveTextContent("Each mark starts at the marker’s proposal");
     const rows = screen.getAllByRole("row");
     expect(rows[1].children[1]).toHaveTextContent("1");
@@ -75,6 +75,30 @@ describe("AllocationPicker", () => {
     expect(rows[1]).not.toHaveClass("changed");
     expect(rows[2]).toHaveClass("changed");
     expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(2);
+  });
+});
+
+describe("AllocationPicker — a scheme that repeats a label", () => {
+  const twice: MarkPoint[] = [{ label: "B1", marks: 1 }, { label: "B1", marks: 1 }];
+
+  it("keys each allocation by label and occurrence, and reads the proposal the same way", () => {
+    expect(allocationKeys(twice)).toEqual(["B1#0", "B1#1"]);
+    expect(proposedKeys(twice, [{ label: "B1", marks: 1, got: false }, { label: "B1", marks: 1, got: true }])).toEqual(["B1#1"]);
+    expect(toggleAllocation(twice, ["B1#1"], 1)).toEqual(["B1#1", "B1#0"]);
+  });
+
+  it("shows the two B1 rows apart and lets each be marked on its own", async () => {
+    function Two() {
+      const [got, setGot] = useState<string[]>(["B1#0", "B1#1"]);
+      return <AllocationPicker marks={twice} got={got} onChange={setGot} proposed={[{ label: "B1", marks: 1, got: true }, { label: "B1", marks: 1, got: true }]} />;
+    }
+    render(<Two />);
+    const first = screen.getByRole("spinbutton", { name: "B1 (1 of 2) · your mark out of 1" });
+    const second = screen.getByRole("spinbutton", { name: "B1 (2 of 2) · your mark out of 1" });
+    await userEvent.type(second, "0");
+    expect(first).toHaveValue(1);
+    expect(second).toHaveValue(0);
+    expect(screen.getByLabelText("Your mark")).toHaveTextContent("1 / 2");
   });
 });
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AwardedAllocation, MarkPoint } from "../api/types";
 
 type Props = {
+  /** `got` holds allocation keys (see `allocationKeys`), not labels: a scheme may repeat a label. */
   marks: MarkPoint[]; got: string[]; onChange: (got: string[]) => void;
   proposed?: AwardedAllocation[]; disabled?: boolean;
   /** For a part with no allocations to tick: the typed total, its setter and the most it can be. */
@@ -10,14 +11,38 @@ type Props = {
 
 const plural = (n: number) => `${n} mark${n === 1 ? "" : "s"}`;
 
-/** `got` with the nth (1-based) allocation flipped — what the digit keys do in the review queue. */
-export function toggleAllocation(marks: MarkPoint[], got: string[], n: number): string[] {
-  const m = marks[n - 1];
-  if (!m) return got;
-  return got.includes(m.label) ? got.filter((l) => l !== m.label) : [...got, m.label];
+/** Each allocation's identity: its label and which occurrence of that label it is ("B1#0", "B1#1"), because a mark
+ *  scheme may give the same label twice — "B1 for comparing, B1 for reporting". */
+export function allocationKeys(marks: MarkPoint[]): string[] {
+  const seen = new Map<string, number>();
+  return marks.map((m) => { const k = seen.get(m.label) ?? 0; seen.set(m.label, k + 1); return `${m.label}#${k}`; });
 }
 
-export const allocationTotal = (marks: MarkPoint[], got: string[]): number => marks.reduce((s, m) => s + (got.includes(m.label) ? m.marks : 0), 0);
+/** The marker's decision per allocation key: the k-th awarded entry with a label answers that label's k-th allocation. */
+export function proposedByKey(marks: MarkPoint[], awarded: AwardedAllocation[] | undefined): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  if (!awarded) return out;
+  const keys = allocationKeys(awarded.map((a) => ({ label: a.label, marks: a.marks })));
+  const valid = new Set(allocationKeys(marks));
+  awarded.forEach((a, i) => { if (valid.has(keys[i])) out.set(keys[i], a.got); });
+  return out;
+}
+
+/** The keys the marker awarded — what the picker starts on. */
+export const proposedKeys = (marks: MarkPoint[], awarded: AwardedAllocation[] | undefined): string[] =>
+  [...proposedByKey(marks, awarded)].filter(([, g]) => g).map(([k]) => k);
+
+/** `got` with the nth (1-based) allocation flipped — what the digit keys do in the review queue. */
+export function toggleAllocation(marks: MarkPoint[], got: string[], n: number): string[] {
+  const key = allocationKeys(marks)[n - 1];
+  if (!key) return got;
+  return got.includes(key) ? got.filter((k) => k !== key) : [...got, key];
+}
+
+export const allocationTotal = (marks: MarkPoint[], got: string[]): number => {
+  const keys = allocationKeys(marks);
+  return marks.reduce((s, m, i) => s + (got.includes(keys[i]) ? m.marks : 0), 0);
+};
 export const allocationMax = (marks: MarkPoint[]): number => marks.reduce((s, m) => s + m.marks, 0);
 
 /** A mark box: shows the committed value, but keeps what is being typed (an empty box, a half-typed number) until
@@ -56,9 +81,11 @@ export function AllocationPicker({ marks, got, onChange, proposed, disabled = fa
       </div>
     );
   }
-  const proposedBy = new Map((proposed ?? []).map((a) => [a.label, a.got]));
+  const keys = allocationKeys(marks);
+  const proposedBy = proposedByKey(marks, proposed);
   const proposedTotal = proposed ? proposed.reduce((s, a) => s + (a.got ? a.marks : 0), 0) : null;
-  const set = (m: MarkPoint, on: boolean) => onChange(on ? (got.includes(m.label) ? got : [...got, m.label]) : got.filter((l) => l !== m.label));
+  const count = (label: string) => marks.filter((x) => x.label === label).length;
+  const set = (key: string, on: boolean) => onChange(on ? (got.includes(key) ? got : [...got, key]) : got.filter((k) => k !== key));
   return (
     <div>
       {proposed && <p className="help" role="note">Each mark starts at the marker’s proposal — change any you disagree with.</p>}
@@ -66,22 +93,24 @@ export function AllocationPicker({ marks, got, onChange, proposed, disabled = fa
         <thead><tr><th>Allocation</th><th className="num">Proposed</th><th className="num" style={{ width: 120 }}>Your mark</th></tr></thead>
         <tbody>
           {marks.map((m, i) => {
-            const on = got.includes(m.label);
-            const p = proposedBy.get(m.label);
+            const key = keys[i];
+            const on = got.includes(key);
+            const p = proposedBy.get(key);
+            const nth = count(m.label) > 1 ? ` (${Number(key.split("#").pop()) + 1} of ${count(m.label)})` : "";
             const changed = p !== undefined && p !== on;
             return (
-              <tr key={`${m.label}-${i}`} className={changed ? "changed" : undefined}>
+              <tr key={key} className={changed ? "changed" : undefined}>
                 <td>
                   <span style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 40 }}>
-                    <strong>{m.label}</strong><span className="help">{plural(m.marks)}</span>
+                    <strong>{m.label}</strong><span className="help">{plural(m.marks)}{nth}</span>
                     {i < 9 && <span className="key" aria-hidden title={`Press ${i + 1} to switch ${m.label} between 0 and ${m.marks}`}>{i + 1}</span>}
                   </span>
                 </td>
                 <td className="num">{p === undefined ? "—" : p ? m.marks : 0}</td>
                 <td className="num">
-                  <MarkBox value={on ? m.marks : 0} max={m.marks} label={`${m.label} · your mark out of ${m.marks}`} disabled={disabled}
+                  <MarkBox value={on ? m.marks : 0} max={m.marks} label={`${m.label}${nth} · your mark out of ${m.marks}`} disabled={disabled}
                     onCommit={(n) => {
-                      if (n === 0 || n === m.marks) { setPartial(null); set(m, n === m.marks); return true; }
+                      if (n === 0 || n === m.marks) { setPartial(null); set(key, n === m.marks); return true; }
                       setPartial(`${m.label} is all or nothing — give 0 or ${m.marks}.`); return false;
                     }} /> <span className="help">/ {m.marks}</span>
                 </td>

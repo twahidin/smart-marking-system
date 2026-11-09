@@ -175,6 +175,23 @@ def test_resolve_v2_validates_against_the_scheme_row(auth, app):
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_scores"
 
 
+def test_resolve_v2_takes_a_scheme_row_that_repeats_a_label(auth, app):
+    """'B1 for comparing, B1 for reporting': two allocations share a label, so they are matched to the row in order."""
+    from tests.web.seed_v2 import QUESTIONS, SCHEME, part, _alloc
+    scheme = [*SCHEME[:2], {"q_id": "2", "answer": "compare; report", "marks": [{"label": "B1", "marks": 1}, {"label": "B1", "marks": 1}], "notes": ""}]
+    parts = [part("1a", [_alloc("M1", 1, True), _alloc("A1", 1, True)], 2), part("1b", [_alloc("B1", 1, True)], 1),
+             part("2", [_alloc("B1", 1, True), _alloc("B1", 1, True)], 2, in_scheme=False, confidence=0.5)]
+    sid, qids = seed_v2(app, scheme=scheme, parts=parts, questions=QUESTIONS)
+    q = qids["2"]
+    r = auth.post(f"/api/queue/{q}/resolve", json={"allocations": [{"label": "B1", "got": True}, {"label": "B1", "got": True},
+                                                                   {"label": "B1", "got": False}], "reason": ""})
+    assert r.status_code == 400 and "more often than the scheme has it (2 times)" in r.json()["error"]["message"]
+    r = auth.post(f"/api/queue/{q}/resolve", json={"allocations": [{"label": "B1", "got": True}, {"label": "B1", "got": False}], "reason": ""})
+    assert r.status_code == 200, r.text
+    teacher = auth.get(f"/api/submissions/{sid}").json()["parts"][2]["teacher"]
+    assert teacher == {"allocations": [{"label": "B1", "got": True, "marks": 1}, {"label": "B1", "got": False, "marks": 1}], "total": 1}
+
+
 def test_resolve_v2_rubric_with_a_band(auth, app):
     sid, qids = seed_v2(app, kind="rubric")
     it = auth.get("/api/queue").json()[0]

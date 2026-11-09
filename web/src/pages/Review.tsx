@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Band, ClassAssignment, ClassRow, MarkPoint, QueueItem, ResolveBody, ReviewSummary } from "../api/types";
-import { AllocationPicker, toggleAllocation } from "../components/AllocationPicker";
+import { AllocationPicker, allocationKeys, proposedKeys, toggleAllocation } from "../components/AllocationPicker";
 import { BandPicker } from "../components/BandPicker";
 import { Button } from "../components/Button";
 import { CorrectionsTab } from "../components/CorrectionsTab";
@@ -26,7 +26,7 @@ function allocationsOf(item: QueueItem): MarkPoint[] {
   return [];
 }
 const bandsOf = (item: QueueItem): Band[] => (item.scheme_row && "bands" in item.scheme_row ? item.scheme_row.bands : []);
-const proposedGot = (item: QueueItem): string[] => (item.proposed && "awarded" in item.proposed ? item.proposed.awarded.filter((a) => a.got).map((a) => a.label) : []);
+const proposedGot = (item: QueueItem): string[] => (item.proposed && "awarded" in item.proposed ? proposedKeys(allocationsOf(item), item.proposed.awarded) : []);
 /** True when the key was typed into a text-like input, mark boxes included (the digit belongs to the box, not the
  *  picker); a focused button, checkbox or radio still lets the digit keys switch allocations. */
 const typingField = (target: EventTarget | null): boolean =>
@@ -99,7 +99,7 @@ function ReviewParts({ onSettled }: { onSettled: () => void }) {
     if (!item || !complete) return;
     setBusy(true); setError(null);
     const body: ResolveBody = kind === "mark_scheme"
-      ? noAllocations ? { total: total!, reason } : { allocations: allocationsOf(item).map((m) => ({ label: m.label, got: got.includes(m.label) })), reason }
+      ? noAllocations ? { total: total!, reason } : { allocations: allocationsOf(item).map((m, i) => ({ label: m.label, got: got.includes(allocationKeys(allocationsOf(item))[i]) })), reason }
       : kind === "rubric" ? { band: band!, ...(bandMarks === null ? {} : { marks: bandMarks }), reason } : { criterion_scores: values as number[], reason };
     try {
       await api.post(`/api/queue/${item.id}/resolve`, body);
@@ -183,7 +183,7 @@ function ReviewParts({ onSettled }: { onSettled: () => void }) {
             </div>
           )}
           {item.rationale && <p className="help">{item.rationale}</p>}
-          {kind === "mark_scheme" && <AllocationPicker marks={allocationsOf(item)} got={got} onChange={changeGot} proposed={item.proposed && "awarded" in item.proposed ? item.proposed.awarded : undefined} total={total} onTotal={setTotal} max={totalMax(item)} />}
+          {kind === "mark_scheme" && <AllocationPicker key={item.id} marks={allocationsOf(item)} got={got} onChange={changeGot} proposed={item.proposed && "awarded" in item.proposed ? item.proposed.awarded : undefined} total={total} onTotal={setTotal} max={totalMax(item)} />}
           {kind === "rubric" && <BandPicker bands={bandsOf(item)} value={band} marks={bandMarks} onChange={changeBand} proposed={proposedBand(item)} proposedMarks={proposedMarks(item)} />}
           {!v2 && <CriteriaReview defs={item.criterion_defs} proposed={item.proposed_criterion_scores} evidence={item.evidence} values={values} onChange={setValues} />}
           <div className="field" style={{ marginTop: 16 }}>

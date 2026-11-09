@@ -1,3 +1,4 @@
+from collections import Counter
 import json
 from typing import Any, Dict, List, Optional
 
@@ -136,17 +137,24 @@ def _v2_correction(run: dict, scheme_info: dict, key: str, allocations: Optional
         if allocations is None:
             raise ApiError(400, "bad_allocations", "This part is marked against a mark scheme — send the allocations "
                                                    "as [{label, got}]")
-        seen = set()
+        # A scheme may repeat a label ("B1 for comparing, B1 for reporting"), so allocations are matched to the
+        # row in order: the first B1 sent is the row's first B1, the second its second. Labels left out are lost.
         allocations = [{**a, "label": str(a["label"]).strip()} for a in allocations]
+        in_row = Counter(str(p["label"]) for p in points)
+        sent: Dict[str, List[bool]] = {}
         for a in allocations:
             label = a["label"]
             if label not in valid:
                 raise ApiError(400, "bad_allocations", f"{label} is not an allocation of this part ({', '.join(valid) or 'none'})")
-            if label in seen:
-                raise ApiError(400, "bad_allocations", f"{label} is given twice")
-            seen.add(label)
-        got = {a["label"]: bool(a["got"]) for a in allocations}
-        chosen = [{"label": label, "got": got.get(label, False), "marks": marks} for label, marks in valid.items()]
+            sent.setdefault(label, []).append(bool(a["got"]))
+            if len(sent[label]) > in_row[label]:
+                times = "once" if in_row[label] == 1 else f"{in_row[label]} times"
+                raise ApiError(400, "bad_allocations", f"{label} is given more often than the scheme has it ({times})")
+        chosen = []
+        for p in points:
+            label = str(p["label"])
+            queue = sent.get(label) or []
+            chosen.append({"label": label, "got": queue.pop(0) if queue else False, "marks": int(p.get("marks", 0))})
         total = sum(c["marks"] for c in chosen if c["got"])
         return {"version": 2, "allocations": chosen, "total": total}, total, agent
     if band is None:
