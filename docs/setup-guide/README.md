@@ -284,7 +284,7 @@ From the assignment page, **Download marks CSV** gives one row per student with 
 
 **Changing the password or the secret.** Change the teacher password under **Settings → Teacher password**. If a `TEACHER_PASSWORD` variable is set on Railway it wins over the website password (that is also the reset path). Leave `SECRET_KEY` alone — it encrypts the stored API keys; changing it means re-entering them.
 
-![Settings → Teacher password.](images/62-settings-change-password.jpg)
+![Settings → Teacher password. Here the password comes from the TEACHER_PASSWORD variable, so it is managed in Railway.](images/62-settings-change-password.jpg)
 
 *Settings → Teacher password.*
 
