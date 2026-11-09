@@ -130,6 +130,20 @@ def test_preview_proposes_a_student_per_booklet_from_its_cover(auth, monkeypatch
     assert body["booklets"][0]["cover"].startswith("data:image/jpeg;base64,")
     assert body["booklets"][1]["read"] == {"index_number": None, "name": None}
     assert {s["reg_no"] for s in body["students"]} == {3401, 3402, 3405}
+    assert body["read_error"] is None
+
+
+def test_preview_says_why_when_no_cover_could_be_read(auth, monkeypatch):
+    base, _ = _class(auth)
+
+    def factory(settings):
+        def read(jpg):
+            raise RuntimeError("Error code: 400 - A is not a valid model ID")
+        return read
+    monkeypatch.setattr(bulk_pdf, "model_cover_reader", factory)
+    body = auth.post(f"{base}/bulk/pdf/preview", files=_pdf_file(_combined())).json()
+    assert [b["student_id"] for b in body["booklets"]] == [None, None, None]
+    assert "A is not a valid model ID" in body["read_error"]
 
 
 def test_preview_and_commit_need_an_api_key(auth):

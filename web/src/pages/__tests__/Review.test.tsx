@@ -55,7 +55,7 @@ describe("Review — per-part items (v2)", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Marker and reviewer disagreed");
     expect(screen.getByRole("alert")).not.toHaveTextContent("marker/reviewer disagree");
     const save = screen.getByRole("button", { name: /Save & next/ });
-    expect(save).toBeEnabled();
+    await vi.waitFor(() => expect(save).toBeEnabled());   // the proposal is seeded by an effect just after the first paint
     expect(screen.getByRole("spinbutton", { name: "M1 · your mark out of 1" })).toHaveValue(1);
     expect(screen.getByRole("spinbutton", { name: "A1 · your mark out of 2" })).toHaveValue(0);
     expect(screen.getByLabelText("Your mark")).toHaveTextContent("1 / 3");

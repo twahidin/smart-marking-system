@@ -229,7 +229,7 @@ export interface PdfBooklet {
   read: { index_number: string | null; name: string | null };
   student_id: number | null; matched_by: "index" | "name" | null; already_handed_in: boolean;
 }
-export interface PdfPreview { booklets: PdfBooklet[]; pdf_pages: number; students: { id: number; reg_no: number; name: string; already_handed_in: boolean }[] }
+export interface PdfPreview { booklets: PdfBooklet[]; pdf_pages: number; read_error?: string | null; students: { id: number; reg_no: number; name: string; already_handed_in: boolean }[] }
 
 /* ---- the marking room: live pipeline snapshot, stage events, crew thoughts, student corrections ---- */
 export type Stage = "read" | "mark" | "check" | "feedback" | "done";

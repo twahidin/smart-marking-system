@@ -198,6 +198,9 @@ export function BulkUploadDialog({ base, onClose, onDone }: { base: string; onCl
           {pdfPreview && (
             <>
               <h3 style={SUB}>{`${pdfPreview.booklets.length} booklet${pdfPreview.booklets.length === 1 ? "" : "s"} in ${pdfPreview.pdf_pages} pages`}</h3>
+              {pdfPreview.read_error && (
+                <Notice>{`Couldn't read the covers, so pick each student yourself. The reading model said: ${pdfPreview.read_error} — check this assignment's model for reading pages.`}</Notice>
+              )}
               <p className="help">Check each cover against the student picked for it. Blank pages are left out, and two-page spreads are split into single pages.</p>
               <BookletTable preview={pdfPreview} chosen={chosen} replace={replace} disabled={busy}
                 onChoose={(booklet, student) => setChosen((c) => ({ ...c, [booklet]: student }))} />

@@ -398,6 +398,7 @@ describe("ClassAssignmentPage", () => {
     expect(within(dialog).getByText("Read: #3401 · Amirah")).toBeInTheDocument();
     expect(within(dialog).getByText("Read: Couldn't read the cover")).toBeInTheDocument();
     expect(within(dialog).getByText("Matched by name")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Couldn't read the covers/)).not.toBeInTheDocument();
     expect(within(dialog).getByRole("combobox", { name: "Student for booklet 2" })).toHaveValue("");
     expect(within(dialog).getByRole("button", { name: "Hand in 2 booklets" })).toBeInTheDocument();
 

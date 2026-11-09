@@ -222,11 +222,15 @@ def bulk_pdf_preview(db: Database, ca: Dict[str, Any], pdf_bytes: bytes, read_co
     handed_in = _bulk_handed_in_ids(db, ca["id"])
     headers = [cover_header(doc, b) for b in booklets]
 
+    errors: List[str] = []
+
     def read(jpg: bytes) -> CoverInfo:
         try:
             return read_cover(jpg)
-        except Exception:
+        except Exception as e:
+            from sms.providers.errors import error_message
             log.exception("reading a booklet cover failed")
+            errors.append(error_message(e))
             return CoverInfo(index_number=None, name=None)
 
     with ThreadPoolExecutor(max_workers=COVER_READERS) as pool:
@@ -238,7 +242,8 @@ def bulk_pdf_preview(db: Database, ca: Dict[str, Any], pdf_bytes: bytes, read_co
                      "cover": "data:image/jpeg;base64," + base64.b64encode(png).decode(),
                      "read": info.model_dump(), "student_id": sid, "matched_by": how,
                      "already_handed_in": sid in handed_in if sid else False})
-    return {"booklets": rows, "pdf_pages": len(doc),
+    # A failure on every cover is a setup problem (a bad model id, a spent key), worth telling the teacher.
+    return {"booklets": rows, "pdf_pages": len(doc), "read_error": errors[0] if errors and len(errors) == len(headers) else None,
             "students": [{"id": s["id"], "reg_no": s["reg_no"], "name": s["name"], "already_handed_in": s["id"] in handed_in}
                          for s in students]}
 
